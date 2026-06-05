@@ -1,0 +1,11 @@
+[package]
+name = "api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dioxus = { workspace = true, features = ["fullstack"] }
+types = { workspace = true }
+
+[features]
+server = ["dioxus/server"]
