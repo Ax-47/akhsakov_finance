@@ -12,6 +12,7 @@ members = [
 dioxus = { version = "0.7.9" }
 thiserror = "2.0.18"
 serde = "1.0.228"
+uuid = "1.23.2"
 # workspace
 ui = { path = "packages/ui" }
 types = { path = "packages/types" }

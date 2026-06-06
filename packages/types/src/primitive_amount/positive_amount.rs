@@ -1,18 +1,17 @@
 use super::error;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct PositiveAmount(f64);
+pub struct PositiveAmount(Decimal);
 
 impl PositiveAmount {
-    pub fn new(value: f64) -> Result<Self, error::PrimitiveError> {
-        match value {
-            v if v <= 0.0 => Err(error::PrimitiveError::NonPositive(v)),
-            v if v.is_nan() => Err(error::PrimitiveError::NotANumber),
-            v if v.is_infinite() => Err(error::PrimitiveError::Infinite),
-            v => Ok(Self(v)),
+    pub fn new(value: Decimal) -> Result<Self, error::PrimitiveError> {
+        if value <= Decimal::ZERO {
+            return Err(error::PrimitiveError::NonPositive(value));
         }
+        Ok(Self(value))
     }
-    pub fn value(&self) -> f64 {
+    pub fn value(&self) -> Decimal {
         self.0
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    money::MoneyError, quantity::QuantityError, ticker::TickerError, trade_date::TradeDateError,
-    transaction_type::TransactionTypeError,
+    money::MoneyError, quantity::QuantityError, ticker_symbol::TickerSymbolError,
+    trade_date::TradeDateError, transaction_type::TransactionTypeError,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -10,7 +10,7 @@ pub enum TypeError {
     #[error(transparent)]
     Quantity(#[from] QuantityError),
     #[error(transparent)]
-    Ticker(#[from] TickerError),
+    TickerSymbol(#[from] TickerSymbolError),
     #[error(transparent)]
     TradeDate(#[from] TradeDateError),
     #[error("Unknown transaction type: '{0}'")]

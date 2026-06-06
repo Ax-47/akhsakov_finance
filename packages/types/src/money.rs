@@ -1,37 +1,38 @@
-use super::currency::{Thb, Usd};
 use super::primitive_amount::NonNegativeAmount;
 use super::primitive_amount::error;
-use crate::currency::CurrencyInfo;
+use crate::currency::Currency;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::marker::PhantomData;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Money<T> {
+pub struct Money {
     amount: NonNegativeAmount,
-    _currency: PhantomData<T>,
+    currency: Currency,
 }
-impl<T> Money<T> {
-    pub fn new(amount: f64) -> Result<Self, MoneyError> {
+impl Money {
+    pub fn new(amount: Decimal, currency: Currency) -> Result<Self, MoneyError> {
         Ok(Self {
             amount: NonNegativeAmount::new(amount)?,
-            _currency: PhantomData,
+            currency,
         })
     }
-    pub fn zero() -> Self {
+    pub fn zero(currency: Currency) -> Self {
         Self {
             amount: NonNegativeAmount::zero(),
-            _currency: PhantomData,
+            currency,
         }
     }
-    pub fn amount(&self) -> f64 {
+    pub fn amount(&self) -> Decimal {
         self.amount.value()
     }
+
+    pub fn currency(&self) -> Currency {
+        self.currency
+    }
 }
-pub type MoneyTHB = Money<Thb>;
-pub type MoneyUSD = Money<Usd>;
-impl<T: CurrencyInfo> fmt::Display for Money<T> {
+impl fmt::Display for Money {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{:.2} {}", T::symbol(), self.amount.value(), T::code())
+        write!(f, "{} {}", self.currency.symbol(), self.amount.value())
     }
 }
 #[derive(Debug, thiserror::Error)]

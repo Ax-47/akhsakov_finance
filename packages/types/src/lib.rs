@@ -1,9 +1,10 @@
+pub mod cash_flow;
 pub mod currency;
 pub mod error;
 pub mod money;
 mod primitive_amount;
 pub mod quantity;
 pub mod return_pct;
-pub mod ticker;
+pub mod ticker_symbol;
 pub mod trade_date;
 pub mod transaction_type;

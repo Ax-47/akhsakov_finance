@@ -1,0 +1,11 @@
+[application]
+
+[web.app]
+title = "Akhsakov Finance"
+
+[web.resource]
+style = []
+script = []
+
+[web.resource.dev]
+script = []

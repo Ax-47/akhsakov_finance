@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Ticker(String);
+pub struct TickerSymbol(String);
 
-impl Ticker {
-    pub fn new(raw: &str) -> Result<Self, TickerError> {
+impl TickerSymbol {
+    pub fn new(raw: &str) -> Result<Self, TickerSymbolError> {
         let s = raw.trim().to_uppercase();
         if s.is_empty() || s.len() > 10 {
-            return Err(TickerError::InvalidTicker(raw.to_string()));
+            return Err(TickerSymbolError::InvalidTicker(raw.to_string()));
         }
         Ok(Self(s))
     }
@@ -16,14 +16,14 @@ impl Ticker {
     }
 }
 
-impl fmt::Display for Ticker {
+impl fmt::Display for TickerSymbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum TickerError {
+pub enum TickerSymbolError {
     #[error("Invalid ticker symbol: '{0}'")]
     InvalidTicker(String),
 }

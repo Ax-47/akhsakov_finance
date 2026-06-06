@@ -1,22 +1,21 @@
 use super::error;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct NonNegativeAmount(f64);
+pub struct NonNegativeAmount(Decimal);
 
 impl NonNegativeAmount {
-    pub fn new(value: f64) -> Result<Self, error::PrimitiveError> {
-        match value {
-            v if v < 0.0 => Err(error::PrimitiveError::Negative(v)),
-            v if v.is_nan() => Err(error::PrimitiveError::NotANumber),
-            v if v.is_infinite() => Err(error::PrimitiveError::Infinite),
-            v => Ok(Self(v)),
+    pub fn new(value: Decimal) -> Result<Self, error::PrimitiveError> {
+        if value < Decimal::ZERO {
+            return Err(error::PrimitiveError::Negative(value));
         }
+        Ok(Self(value))
     }
 
     pub fn zero() -> Self {
-        Self(0.0)
+        Self(Decimal::ZERO)
     }
-    pub fn value(&self) -> f64 {
+    pub fn value(&self) -> Decimal {
         self.0
     }
 }

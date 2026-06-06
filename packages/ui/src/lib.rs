@@ -10,3 +10,6 @@ mod echo;
 pub use echo::Echo;
 mod app;
 pub use app::App;
+mod pie_chart;
+pub use pie_chart::PieChart;
+pub use pie_chart::CHART_COLORS;

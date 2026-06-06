@@ -5,6 +5,8 @@ pub enum TransactionType {
     Buy,
     Sell,
     Dividend,
+    Split,
+    Transfer,
 }
 
 impl fmt::Display for TransactionType {
@@ -13,6 +15,8 @@ impl fmt::Display for TransactionType {
             TransactionType::Buy => write!(f, "Buy"),
             TransactionType::Sell => write!(f, "Sell"),
             TransactionType::Dividend => write!(f, "Dividend"),
+            TransactionType::Split => write!(f, "Split"),
+            TransactionType::Transfer => write!(f, "Transfer"),
         }
     }
 }
@@ -24,6 +28,8 @@ impl std::str::FromStr for TransactionType {
             "buy" => Ok(TransactionType::Buy),
             "sell" => Ok(TransactionType::Sell),
             "dividend" => Ok(TransactionType::Dividend),
+            "split" => Ok(TransactionType::Split),
+            "transfer" => Ok(TransactionType::Transfer),
             _ => Err(TransactionTypeError::UnknownTransactionType(s.to_string())),
         }
     }

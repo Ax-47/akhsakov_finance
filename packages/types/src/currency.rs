@@ -1,27 +1,21 @@
-pub trait CurrencyInfo {
-    fn symbol() -> &'static str;
-    fn code() -> &'static str;
+use serde::{Deserialize, Serialize};
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Currency {
+    Usd,
+    Thb,
 }
-
-#[derive(Debug, Clone, Copy)]
-pub struct Thb;
-#[derive(Debug, Clone, Copy)]
-pub struct Usd;
-
-impl CurrencyInfo for Thb {
-    fn symbol() -> &'static str {
-        "฿"
+impl Currency {
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            Currency::Usd => "$",
+            Currency::Thb => "฿",
+        }
     }
-    fn code() -> &'static str {
-        "THB"
-    }
-}
 
-impl CurrencyInfo for Usd {
-    fn symbol() -> &'static str {
-        "$"
-    }
-    fn code() -> &'static str {
-        "USD"
+    pub fn code(&self) -> &'static str {
+        match self {
+            Currency::Usd => "USD",
+            Currency::Thb => "THB",
+        }
     }
 }
