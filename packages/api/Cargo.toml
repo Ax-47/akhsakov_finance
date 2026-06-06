@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 dioxus = { workspace = true, features = ["fullstack"] }
 types = { workspace = true }
+dtos = { workspace = true }
 serde = { workspace = true, version = "1.0.228", features = ["derive"] }
 uuid = { workspace = true, version = "1.23.2", features = ["v4", "serde"] }
 rust_decimal = { version = "1", features = ["serde"] }

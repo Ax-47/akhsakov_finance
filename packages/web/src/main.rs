@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
+use dtos::transaction::AppData;
 
 use ui::Navbar;
-use views::{Blog, Home};
+use views::{Blog, Home, Portfolio};
 
 mod views;
 
@@ -11,6 +12,8 @@ enum Route {
     #[layout(WebNavbar)]
     #[route("/")]
     Home {},
+    #[route("/portfolio")]
+    Portfolio {},
     #[route("/blog/:id")]
     Blog { id: i32 },
 }
@@ -24,33 +27,31 @@ fn main() {
 
 #[component]
 fn App() -> Element {
-    // Build cool things ✌️
+    let mut app_data: Signal<AppData> = use_signal(AppData::default);
+    use_context_provider(|| app_data);
+
+    let _ = use_resource(move || async move {
+        match api::get_transactions().await {
+            Ok(data) => *app_data.write() = data,
+            Err(e) => eprintln!("[web] Failed to load transactions: {e}"),
+        }
+    });
 
     rsx! {
-        // Global app resources
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
-
         Router::<Route> {}
     }
 }
 
-/// A web-specific Router around the shared `Navbar` component
-/// which allows us to use the web-specific `Route` enum.
 #[component]
 fn WebNavbar() -> Element {
     rsx! {
         Navbar {
-            Link {
-                to: Route::Home {},
-                "Home"
-            }
-            Link {
-                to: Route::Blog { id: 1 },
-                "Blog"
-            }
+            Link { to: Route::Home {},        "Dashboard" }
+            Link { to: Route::Portfolio {},   "Portfolio" }
+            Link { to: Route::Blog { id: 1 }, "Blog"      }
         }
-
         Outlet::<Route> {}
     }
 }

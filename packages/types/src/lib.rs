@@ -1,3 +1,4 @@
+pub mod asset_class;
 pub mod cash_flow;
 pub mod currency;
 pub mod error;

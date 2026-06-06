@@ -6,14 +6,16 @@ members = [
     "packages/desktop",
     "packages/mobile",
     "packages/api",
-    "packages/types",
+    "packages/types", "packages/dtos",
 ]
 [workspace.dependencies]
 dioxus = { version = "0.7.9" }
 thiserror = "2.0.18"
 serde = "1.0.228"
-uuid = "1.23.2"
+uuid = { version = "1.23.2", features = ["js"] }
+dioxus-primitives = { git = "https://github.com/DioxusLabs/components" }
 # workspace
 ui = { path = "packages/ui" }
 types = { path = "packages/types" }
 api = { path = "packages/api" }
+dtos = { path = "packages/dtos" }

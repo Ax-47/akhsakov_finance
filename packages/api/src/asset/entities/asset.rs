@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use types::{money::Money, quantity::Quantity, ticker_symbol::TickerSymbol};
+use types::{
+    asset_class::AssetClass, money::Money, quantity::Quantity, ticker_symbol::TickerSymbol,
+};
 use uuid::Uuid;
 
-use super::asset_class::AssetClass;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Asset {
     pub portfolio_id: Uuid,

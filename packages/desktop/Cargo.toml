@@ -7,9 +7,13 @@ edition = "2021"
 dioxus = { workspace = true, features = ["router", "fullstack"] }
 ui = { workspace = true }
 api = { workspace = true }
-
+dtos = { workspace = true }
+types = { workspace = true }
+tokio = { version = "1", features = ["time"] }
 
 [features]
 default = []
-desktop = ["dioxus/desktop"]
-server = ["dioxus/server", "ui/server"]
+# Desktop is fullstack-in-process: needs both the webview renderer AND the
+# server-function executor compiled into the same binary.
+desktop = ["dioxus/desktop", "dioxus/server", "ui/server", "api/server"]
+server  = ["dioxus/server", "ui/server", "api/server"]

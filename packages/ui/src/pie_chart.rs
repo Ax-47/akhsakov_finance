@@ -1,7 +1,8 @@
-use dioxus::prelude::*;
-use std::f64::consts::PI;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Catppuccin Mocha accent colors for chart series
+use dioxus::prelude::*;
+
+/// CSS-variable colour references used for legend dots in the dashboard.
 pub const CHART_COLORS: &[&str] = &[
     "var(--mauve)",
     "var(--blue)",
@@ -17,91 +18,141 @@ pub const CHART_COLORS: &[&str] = &[
     "var(--rosewater)",
 ];
 
-/// Builds an SVG path for a donut sector.
-fn donut_sector(cx: f64, cy: f64, r_out: f64, r_in: f64, start: f64, end: f64) -> String {
-    // Clamp the arc so a "full circle" (100 %) still renders correctly
-    let end_clamped = if (end - start).abs() >= 2.0 * PI {
-        start + 2.0 * PI - 0.001
-    } else {
-        end
-    };
+/// Hard-coded Catppuccin Mocha hex values for ECharts `itemStyle.color`.
+/// ECharts cannot resolve CSS variables at paint time, so we provide the
+/// actual hex colours that correspond 1-to-1 with `CHART_COLORS`.
+const CHART_COLORS_HEX: &[&str] = &[
+    "#cba6f7", // mauve
+    "#89b4fa", // blue
+    "#a6e3a1", // green
+    "#fab387", // peach
+    "#f38ba8", // red
+    "#89dceb", // sky
+    "#94e2d5", // teal
+    "#f9e2af", // yellow
+    "#b4befe", // lavender
+    "#f5c2e7", // pink
+    "#74c7ec", // sapphire
+    "#f5e0dc", // rosewater
+];
 
-    let x1 = cx + r_out * start.cos();
-    let y1 = cy + r_out * start.sin();
-    let x2 = cx + r_out * end_clamped.cos();
-    let y2 = cy + r_out * end_clamped.sin();
-    let ix1 = cx + r_in * start.cos();
-    let iy1 = cy + r_in * start.sin();
-    let ix2 = cx + r_in * end_clamped.cos();
-    let iy2 = cy + r_in * end_clamped.sin();
+/// Global counter so every `PieChart` instance gets a unique DOM id.
+static CHART_CTR: AtomicUsize = AtomicUsize::new(0);
 
-    let large = if (end_clamped - start) > PI { 1 } else { 0 };
+// ─── PieChart ─────────────────────────────────────────────────────────────────
 
-    format!(
-        "M {x1:.2} {y1:.2} A {r_out} {r_out} 0 {large} 1 {x2:.2} {y2:.2} \
-         L {ix2:.2} {iy2:.2} A {r_in} {r_in} 0 {large} 0 {ix1:.2} {iy1:.2} Z"
-    )
-}
-
-/// A donut chart.
-/// `data` is a list of (label, percentage 0..100) pairs.
+/// Renders an ECharts donut chart.
+/// `data` is a list of `(label, value)` pairs; values are normalised
+/// internally so they don't need to sum to any particular total.
 #[component]
 pub fn PieChart(data: Vec<(String, f64)>, size: f64) -> Element {
     if data.is_empty() {
-        return rsx! { div { class: "empty-state", "No data" } };
+        return rsx! {
+            div {
+                style: "display:flex;align-items:center;justify-content:center;height:{size}px;color:var(--overlay0);font-size:.8rem;",
+                "No data"
+            }
+        };
     }
 
-    let cx = size / 2.0;
-    let cy = size / 2.0;
-    let r_out = size * 0.42;
-    let r_in = size * 0.26;
+    // Stable, unique DOM id for this component instance.
+    let chart_id = use_memo(|| format!("echart-pie-{}", CHART_CTR.fetch_add(1, Ordering::Relaxed)));
+    let id = chart_id.read().clone();
 
-    // Build sectors
-    let total: f64 = data.iter().map(|(_, v)| v).sum();
-    let mut start_angle = -PI / 2.0; // Start at top (12 o'clock)
-
-    let sectors: Vec<(String, String, String, f64)> = data // (path, color, label, pct)
+    // Build the ECharts `series.data` array as a JS literal.
+    let series_data: String = data
         .iter()
         .enumerate()
-        .map(|(i, (label, pct))| {
-            let fraction = pct / total.max(1.0);
-            let sweep = fraction * 2.0 * PI;
-            let end_angle = start_angle + sweep;
-            let path = donut_sector(cx, cy, r_out, r_in, start_angle, end_angle);
-            let color = CHART_COLORS[i % CHART_COLORS.len()].to_string();
-            let result = (path, color, label.clone(), *pct);
-            start_angle = end_angle;
-            result
+        .map(|(i, (name, val))| {
+            let hex = CHART_COLORS_HEX[i % CHART_COLORS_HEX.len()];
+            // Escape any double-quotes in the name (unlikely but safe).
+            let safe_name = name.replace('"', "\\\"");
+            format!(r#"{{name:"{safe_name}",value:{val:.4},itemStyle:{{color:"{hex}"}}}}"#)
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .join(",");
+
+    // Full ECharts initialisation script.
+    // The function is idempotent: disposes any previous chart instance first.
+    let init_script = format!(
+        r#"
+(function() {{
+    function initChart() {{
+        var el = document.getElementById('{id}');
+        if (!el) return;
+        if (el.__echart) {{ el.__echart.dispose(); el.__echart = null; }}
+
+        var chart = echarts.init(el, null, {{ renderer: 'canvas', locale: 'EN' }});
+        el.__echart = chart;
+
+        chart.setOption({{
+            backgroundColor: 'transparent',
+            tooltip: {{
+                trigger: 'item',
+                formatter: function(p) {{
+                    return '<span style="color:' + p.color + ';margin-right:4px;">●</span>'
+                         + '<b>' + p.name + '</b><br/>'
+                         + p.percent.toFixed(1) + '%';
+                }},
+                backgroundColor: '#313244',
+                borderColor: '#585b70',
+                textStyle: {{ color: '#cdd6f4', fontSize: 12 }},
+                extraCssText: 'border-radius:8px;padding:8px 12px;',
+            }},
+            series: [{{
+                type: 'pie',
+                radius: ['42%', '72%'],
+                center: ['50%', '50%'],
+                data: [{series_data}],
+                label: {{ show: false }},
+                labelLine: {{ show: false }},
+                emphasis: {{
+                    scale: true,
+                    scaleSize: 8,
+                    label: {{
+                        show: true,
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                        color: '#cdd6f4',
+                        formatter: '{{b}}\n{{d}}%',
+                    }},
+                }},
+                animationType: 'scale',
+                animationEasing: 'elasticOut',
+                animationDuration: 600,
+            }}],
+        }});
+
+        window.addEventListener('resize', function() {{
+            if (el.__echart) el.__echart.resize();
+        }});
+    }}
+
+    if (typeof echarts !== 'undefined') {{
+        initChart();
+    }} else {{
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
+        s.onload = initChart;
+        document.head.appendChild(s);
+    }}
+}})();
+"#
+    );
+
+    // Run (or re-run) the init script after every render where data changed.
+    // Dioxus calls this closure with the latest captured `init_script` value.
+    use_effect(move || {
+        let script = init_script.clone();
+        spawn(async move {
+            document::eval(&script).await.ok();
+        });
+    });
 
     rsx! {
-        svg {
-            width: "{size}",
-            height: "{size}",
-            "viewBox": "0 0 {size} {size}",
-            style: "width: 100%; max-width: {size}px; display: block; margin: 0 auto;",
-
-            for (path, color, _label, _pct) in &sectors {
-                path {
-                    key: "{_label}",
-                    d: "{path}",
-                    fill: "{color}",
-                    stroke: "var(--mantle)",
-                    "strokeWidth": "2",
-                }
-            }
-
-            // Center label
-            text {
-                x: "{cx}",
-                y: "{cy - 6.0}",
-                "textAnchor": "middle",
-                "dominantBaseline": "middle",
-                "fontSize": "11",
-                fill: "var(--subtext0)",
-                "Allocation"
-            }
+        div {
+            id: "{id}",
+            style: "width:100%;height:{size}px;",
         }
     }
 }
