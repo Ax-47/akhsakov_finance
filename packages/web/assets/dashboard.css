@@ -1,0 +1,230 @@
+/* ── Catppuccin Mocha variables ─────────────────────────────────────────── */
+:root {
+    --base:     #1e1e2e;
+    --mantle:   #181825;
+    --crust:    #11111b;
+    --surface0: #313244;
+    --surface1: #45475a;
+    --surface2: #585b70;
+    --overlay0: #6c7086;
+    --overlay1: #7f849c;
+    --subtext0: #a6adc8;
+    --subtext1: #bac2de;
+    --text:     #cdd6f4;
+    --blue:     #89b4fa;
+    --lavender: #b4befe;
+    --sapphire: #74c7ec;
+    --sky:      #89dceb;
+    --teal:     #94e2d5;
+    --green:    #a6e3a1;
+    --yellow:   #f9e2af;
+    --peach:    #fab387;
+    --maroon:   #eba0ac;
+    --red:      #f38ba8;
+    --mauve:    #cba6f7;
+    --pink:     #f5c2e7;
+    --flamingo: #f2cdcd;
+    --rosewater:#f5e0dc;
+}
+
+/* ── Reset / base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--base);
+    color: var(--text);
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+.page {
+    padding: 1.5rem;
+    min-height: 100vh;
+}
+
+.page-header-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    gap: 1rem;
+}
+
+.page-header-row h1 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 .2rem;
+}
+
+.page-header-sub {
+    font-size: .8rem;
+    color: var(--subtext0);
+    display: flex;
+    align-items: center;
+}
+
+/* ── Stat cards grid ─────────────────────────────────────────────────────── */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+@media (max-width: 900px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Card ────────────────────────────────────────────────────────────────── */
+.card {
+    background: var(--surface0);
+    border-radius: .75rem;
+    padding: 1rem;
+    border: 1px solid var(--surface1);
+}
+
+.card-flush {
+    padding: 0;
+    overflow: hidden;
+}
+
+.card-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: .75rem 1rem;
+    border-bottom: 1px solid var(--surface1);
+}
+
+/* ── Stat card elements ──────────────────────────────────────────────────── */
+.stat-label {
+    font-size: .72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--subtext0);
+    margin-bottom: .35rem;
+}
+
+.stat-value {
+    font-size: 1.55rem;
+    font-weight: 700;
+    line-height: 1.15;
+    margin-bottom: .3rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-sub {
+    font-size: .75rem;
+    color: var(--overlay1);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .45rem .85rem;
+    border-radius: .5rem;
+    font-size: .8rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+    white-space: nowrap;
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: var(--surface2);
+    color: var(--subtext1);
+}
+
+.btn-ghost:hover {
+    background: var(--surface1);
+    color: var(--text);
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.badge {
+    display: inline-block;
+    padding: .15rem .45rem;
+    border-radius: .3rem;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.badge-green  { background: color-mix(in srgb, var(--green)  15%, transparent); color: var(--green);  border: 1px solid color-mix(in srgb, var(--green)  30%, transparent); }
+.badge-red    { background: color-mix(in srgb, var(--red)    15%, transparent); color: var(--red);    border: 1px solid color-mix(in srgb, var(--red)    30%, transparent); }
+.badge-blue   { background: color-mix(in srgb, var(--blue)   15%, transparent); color: var(--blue);   border: 1px solid color-mix(in srgb, var(--blue)   30%, transparent); }
+.badge-mauve  { background: color-mix(in srgb, var(--mauve)  15%, transparent); color: var(--mauve);  border: 1px solid color-mix(in srgb, var(--mauve)  30%, transparent); }
+
+/* ── Data table ──────────────────────────────────────────────────────────── */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .8rem;
+}
+
+.data-table thead tr {
+    border-bottom: 1px solid var(--surface1);
+}
+
+.data-table th {
+    padding: .55rem 1rem;
+    text-align: left;
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--overlay0);
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: .65rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--surface1) 50%, transparent);
+    vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td { border-bottom: none; }
+
+.data-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--surface1) 40%, transparent);
+}
+
+/* ── Ticker label ────────────────────────────────────────────────────────── */
+.ticker-label {
+    display: inline-block;
+    font-weight: 700;
+    font-size: .82rem;
+    color: var(--blue);
+    letter-spacing: .03em;
+}
+
+/* ── Number / PnL classes ────────────────────────────────────────────────── */
+.num  { font-variant-numeric: tabular-nums; text-align: right; }
+.pos  { color: var(--green); }
+.neg  { color: var(--red);   }
+.muted { color: var(--subtext0); }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    color: var(--overlay0);
+    padding: 2.5rem 1rem;
+}
+
+.empty-icon  { font-size: 2rem; opacity: .4; }
+.empty-title { font-size: .95rem; font-weight: 600; }
+.empty-desc  { font-size: .8rem; color: var(--overlay0); text-align: center; }

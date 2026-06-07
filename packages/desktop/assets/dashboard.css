@@ -1,0 +1,261 @@
+/* ── Dashboard layout ────────────────────────────────────────────────── */
+.dashboard {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Portfolio sidebar ────────────────────────────────────────────────── */
+.portfolio-sidebar {
+  background: var(--mantle);
+  border-right: 1px solid var(--surface0);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-title {
+  padding: .85rem 1rem .6rem;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--overlay0);
+}
+
+.portfolio-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 .5rem .5rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+/* ── Portfolio card ───────────────────────────────────────────────────── */
+.portfolio-card {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  padding: .75rem .85rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+  width: 100%;
+}
+.portfolio-card:hover {
+  background: var(--surface0);
+}
+.portfolio-card.active {
+  background: var(--surface0);
+  border-color: var(--blue);
+}
+
+.pc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.pc-name {
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pc-currency {
+  flex-shrink: 0;
+  font-size: .65rem;
+}
+.pc-meta {
+  opacity: .7;
+}
+.pc-positions {
+  font-size: .72rem;
+  color: var(--subtext0);
+}
+.pc-cost {
+  font-size: .72rem;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--subtext0);
+}
+
+/* mini allocation bar */
+.pc-bar {
+  display: flex;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--surface1);
+  gap: 1px;
+}
+.pc-bar-seg {
+  height: 100%;
+  border-radius: 2px;
+  min-width: 4px;
+}
+
+/* segment colours — reuse chart palette */
+.pc-bar-seg:nth-child(1) { background: var(--blue); }
+.pc-bar-seg:nth-child(2) { background: var(--green); }
+.pc-bar-seg:nth-child(3) { background: var(--mauve); }
+.pc-bar-seg:nth-child(4) { background: var(--peach); }
+.pc-bar-seg:nth-child(5) { background: var(--red); }
+.pc-bar-seg:nth-child(6) { background: var(--teal); }
+
+/* CSS vars for bar segs (used by inline style) */
+:root {
+  --c0: var(--blue);
+  --c1: var(--green);
+  --c2: var(--mauve);
+  --c3: var(--peach);
+  --c4: var(--red);
+  --c5: var(--teal);
+  --c6: var(--yellow);
+  --c7: var(--sky);
+}
+
+.empty-portfolios {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .4rem;
+  padding: 2rem 1rem;
+  color: var(--overlay0);
+  font-size: .8rem;
+}
+.ep-icon { font-size: 1.5rem; }
+
+/* ── Dashboard main ───────────────────────────────────────────────────── */
+.dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+}
+
+.no-selection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: .5rem;
+  color: var(--overlay0);
+  font-size: .85rem;
+}
+.ns-icon { font-size: 2rem; }
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+.dm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem;
+}
+.dm-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.dm-stats {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+/* ── StatPill ────────────────────────────────────────────────────────── */
+.stat-pill {
+  background: var(--surface0);
+  border: 1px solid var(--surface1);
+  border-radius: 8px;
+  padding: .45rem .85rem;
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  min-width: 90px;
+}
+.sp-label {
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--overlay0);
+  font-weight: 600;
+}
+.sp-value {
+  font-size: .9rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Growth chart ────────────────────────────────────────────────────── */
+.chart-section {
+  background: var(--mantle);
+  border: 1px solid var(--surface0);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.chart-label {
+  padding: .75rem 1rem .5rem;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--overlay0);
+  border-bottom: 1px solid var(--surface0);
+}
+.echart-container {
+  width: 100%;
+  height: 260px;
+}
+
+/* ── Positions table ─────────────────────────────────────────────────── */
+.positions-table {
+  background: var(--mantle);
+  border: 1px solid var(--surface0);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.pt-header {
+  display: grid;
+  grid-template-columns: 1fr 90px 100px 120px 120px;
+  padding: .55rem 1rem;
+  background: var(--surface0);
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--overlay0);
+  gap: .5rem;
+}
+.pt-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 100px 120px 120px;
+  align-items: center;
+  padding: .65rem 1rem;
+  border-top: 1px solid var(--surface0);
+  gap: .5rem;
+  font-size: .83rem;
+  transition: background .1s;
+}
+.pt-row:hover { background: var(--surface0); }
+.pt-empty {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--overlay0);
+  font-size: .8rem;
+}
+.num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: .8rem;
+  text-align: right;
+}

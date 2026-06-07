@@ -1,0 +1,11 @@
+[package]
+name = "dtos"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+types = { workspace = true }
+serde = { workspace = true, version = "1.0.228", features = ["derive"] }
+uuid = { workspace = true, version = "1.23.2", features = ["v4", "serde"] }
+rust_decimal = { version = "1", features = ["serde"] }
+rust_decimal_macros = "1"
