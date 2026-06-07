@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Eq, Serialize, Deserialize)]
 pub enum AssetClass {
+    #[default]
     Stock,
     Etf,
     Crypto,

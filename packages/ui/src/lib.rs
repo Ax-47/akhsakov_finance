@@ -8,9 +8,10 @@ pub use navbar::Navbar;
 
 mod echo;
 pub use echo::Echo;
-
 mod app;
 pub use app::App;
+
+mod components;
 
 mod pie_chart;
 pub use pie_chart::PieChart;

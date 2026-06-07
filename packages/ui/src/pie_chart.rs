@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use dioxus::prelude::*;
+use rust_decimal::Decimal;
 
 /// CSS-variable colour references used for legend dots in the dashboard.
 pub const CHART_COLORS: &[&str] = &[
@@ -45,7 +46,7 @@ static CHART_CTR: AtomicUsize = AtomicUsize::new(0);
 /// `data` is a list of `(label, value)` pairs; values are normalised
 /// internally so they don't need to sum to any particular total.
 #[component]
-pub fn PieChart(data: Vec<(String, f64)>, size: f64) -> Element {
+pub fn PieChart(data: Vec<(String, Decimal)>, size: Decimal) -> Element {
     if data.is_empty() {
         return rsx! {
             div {

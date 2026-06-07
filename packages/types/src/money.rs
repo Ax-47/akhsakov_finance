@@ -4,7 +4,8 @@ use crate::currency::Currency;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+use std::ops::Add;
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Money {
     amount: NonNegativeAmount,
     currency: Currency,

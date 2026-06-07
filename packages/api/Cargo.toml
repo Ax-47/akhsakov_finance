@@ -8,8 +8,13 @@ dioxus = { workspace = true, features = ["fullstack"] }
 types = { workspace = true }
 dtos = { workspace = true }
 serde = { workspace = true, version = "1.0.228", features = ["derive"] }
+serde_json = { workspace = true, version = "1.0" }
 uuid = { workspace = true, version = "1.23.2", features = ["v4", "serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 rust_decimal_macros = "1"
+reqwest = { workspace = true, version = "0.13", features = ["json"] }
+futures = {workspace = true,version="0.3"}
+
 [features]
 server = ["dioxus/server"]

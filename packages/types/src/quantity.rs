@@ -4,7 +4,7 @@ use super::primitive_amount::error;
 use crate::{money::Money, primitive_amount::PositiveAmount};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Quantity(PositiveAmount);
 
 impl Quantity {

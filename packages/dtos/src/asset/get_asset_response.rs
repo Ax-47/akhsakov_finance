@@ -4,7 +4,7 @@ use types::{
 use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct GetAssetResponse {
     pub portfolio_id: Uuid,
     pub ticker_symbol: TickerSymbol,

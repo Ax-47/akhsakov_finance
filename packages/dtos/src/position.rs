@@ -1,96 +1,101 @@
 use std::collections::HashMap;
 
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
+use types::transaction_type::TransactionType;
 
-use crate::transaction::{AppData, TransactionType};
+use crate::{portfolio::GetDashBoardResponse, transaction::AppData};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Position {
     pub ticker: String,
-    pub shares: f64,
-    pub avg_cost: f64,
-    pub current_price: f64,
-    pub daily_change_pct: f64,
+    pub shares: Decimal,
+    pub avg_cost: Decimal,
+    pub current_price: Decimal,
+    pub daily_change_pct: Decimal,
 }
 
 impl Position {
-    pub fn market_value(&self) -> f64 {
+    pub fn market_value(&self) -> Decimal {
         self.shares * self.current_price
     }
 
-    pub fn cost_basis(&self) -> f64 {
+    pub fn cost_basis(&self) -> Decimal {
         self.shares * self.avg_cost
     }
 
-    pub fn unrealized_pnl(&self) -> f64 {
+    pub fn unrealized_pnl(&self) -> Decimal {
         self.market_value() - self.cost_basis()
     }
 
-    pub fn unrealized_pnl_pct(&self) -> f64 {
+    pub fn unrealized_pnl_pct(&self) -> Decimal {
         let basis = self.cost_basis();
-        if basis > 0.0 {
-            self.unrealized_pnl() / basis * 100.0
+        if basis > Decimal::ZERO {
+            self.unrealized_pnl() / basis * dec!(100)
         } else {
-            0.0
+            Decimal::ZERO
         }
     }
 }
 
 /// Build positions from transactions and live price data.
 /// `prices` maps ticker → (current_price, daily_change_pct).
-pub fn compute_positions(data: &AppData, prices: &HashMap<String, (f64, f64)>) -> Vec<Position> {
-    // ticker → (total_cost_basis, total_shares)
-    let mut map: HashMap<String, (f64, f64)> = HashMap::new();
+pub fn compute_positions(
+    data: &GetDashBoardResponse,
+    prices: &HashMap<String, (Decimal, Decimal)>,
+) -> Vec<Position> {
+    let mut map: HashMap<String, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
 
     for tx in &data.transactions {
         let e = map.entry(tx.ticker.clone()).or_default();
         match tx.transaction_type {
             TransactionType::Buy => {
-                e.0 += tx.shares * tx.price + tx.fees;
+                e.0 += tx.shares * tx.price;
                 e.1 += tx.shares;
             }
-            TransactionType::Sell => {
-                if e.1 > 1e-9 {
-                    let avg = e.0 / e.1;
-                    e.0 -= tx.shares * avg;
-                    e.1 -= tx.shares;
-                }
+            TransactionType::Sell if e.1 > Decimal::ZERO => {
+                let avg = e.0 / e.1;
+                e.0 -= tx.shares * avg;
+                e.1 -= tx.shares;
             }
-            TransactionType::Dividend => {}
+            _ => {}
         }
     }
 
     let mut positions: Vec<Position> = map
         .into_iter()
-        .filter(|(_, (_, shares))| *shares > 1e-4)
+        .filter(|(_, (_, shares))| *shares > dec!(0.0001))
         .map(|(ticker, (cost, shares))| {
-            let (price, day_pct) = prices.get(&ticker).copied().unwrap_or((0.0, 0.0));
+            let (price, day_pct) = prices
+                .get(&ticker)
+                .copied()
+                .unwrap_or((Decimal::ZERO, Decimal::ZERO));
             Position {
+                avg_cost: if shares > Decimal::ZERO {
+                    cost / shares
+                } else {
+                    Decimal::ZERO
+                },
                 ticker,
                 shares,
-                avg_cost: if shares > 0.0 { cost / shares } else { 0.0 },
                 current_price: price,
                 daily_change_pct: day_pct,
             }
         })
         .collect();
 
-    positions.sort_by(|a, b| {
-        b.cost_basis()
-            .partial_cmp(&a.cost_basis())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
+    positions.sort_by(|a, b| b.cost_basis().cmp(&a.cost_basis()));
     positions
 }
 
-/// Aggregate portfolio-level stats from a position slice.
-/// Returns `(total_value, total_cost, unrealized_pnl, day_dollar_change)`.
-pub fn portfolio_summary(positions: &[Position]) -> (f64, f64, f64, f64) {
-    let total_value: f64 = positions
+// ── portfolio_summary ─────────────────────────────────────────────────────────
+
+pub fn portfolio_summary(positions: &[Position]) -> (Decimal, Decimal, Decimal, Decimal) {
+    let total_value: Decimal = positions
         .iter()
         .map(|p| {
-            if p.current_price > 0.0 {
+            if p.current_price > Decimal::ZERO {
                 p.market_value()
             } else {
                 p.cost_basis()
@@ -98,14 +103,15 @@ pub fn portfolio_summary(positions: &[Position]) -> (f64, f64, f64, f64) {
         })
         .sum();
 
-    let total_cost: f64 = positions.iter().map(|p| p.cost_basis()).sum();
+    let total_cost: Decimal = positions.iter().map(|p| p.cost_basis()).sum();
     let total_pnl = total_value - total_cost;
 
-    let day_change: f64 = positions
+    let day_change: Decimal = positions
         .iter()
-        .filter(|p| p.current_price > 0.0 && p.daily_change_pct.abs() > 1e-9)
+        .filter(|p| p.current_price > Decimal::ZERO)
         .map(|p| {
-            let prev = p.current_price / (1.0 + p.daily_change_pct / 100.0);
+            // prev_price = current / (1 + pct/100)
+            let prev = p.current_price / (Decimal::ONE + p.daily_change_pct / dec!(100));
             p.shares * (p.current_price - prev)
         })
         .sum();

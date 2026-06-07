@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use dtos::transaction::AppData;
+use dtos::portfolio::get_portfolio_response::GetDashBoardResponse;
 
 use crate::views::Navbar;
 
@@ -21,13 +21,13 @@ fn main() {
 
 #[component]
 fn App() -> Element {
-    let mut app_data: Signal<AppData> = use_signal(AppData::default);
+    let mut app_data: Signal<GetDashBoardResponse> = use_signal(GetDashBoardResponse::default);
     use_context_provider(|| app_data);
 
     let _ = use_resource(move || async move {
-        match api::get_transactions().await {
+        match api::get_dashboard().await {
             Ok(data) => *app_data.write() = data,
-            Err(e) => eprintln!("[desktop] Failed to load transactions: {e}"),
+            Err(e) => eprintln!("[desktop] Failed to load dashboard data: {e}"),
         }
     });
 

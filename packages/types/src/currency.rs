@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub enum Currency {
+    #[default]
     Usd,
     Thb,
 }
