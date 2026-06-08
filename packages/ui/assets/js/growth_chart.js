@@ -101,7 +101,7 @@ window.GrowthChart.init = function (id, cfg) {
           symbol: ["none", "none"],
           lineStyle: { color: colors.surface1, type: "dashed", width: 1 },
           label: { show: false },
-          data: [{ yAxis: 0 }],
+          data: [{ yAxis: 0 }], // mark
         },
       };
     });
@@ -113,7 +113,7 @@ window.GrowthChart.init = function (id, cfg) {
         data: cfg.series.map(function (s) {
           return s.name;
         }),
-        bottom: 0,
+        bottom: 900,
         textStyle: { color: colors.subtext0, fontSize: 11 },
         icon: "circle",
         itemWidth: 8,

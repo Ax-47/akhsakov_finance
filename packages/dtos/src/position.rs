@@ -94,23 +94,22 @@ pub fn compute_positions(
 pub fn portfolio_summary(positions: &[Position]) -> (Decimal, Decimal, Decimal, Decimal) {
     let total_value: Decimal = positions
         .iter()
-        .map(|p| {
-            if p.current_price > Decimal::ZERO {
-                p.market_value()
-            } else {
-                p.cost_basis()
-            }
-        })
+        .filter(|p| p.current_price > Decimal::ZERO)
+        .map(|p| p.market_value())
         .sum();
 
-    let total_cost: Decimal = positions.iter().map(|p| p.cost_basis()).sum();
+    let total_cost: Decimal = positions
+        .iter()
+        .filter(|p| p.current_price > Decimal::ZERO)
+        .map(|p| p.cost_basis())
+        .sum();
+
     let total_pnl = total_value - total_cost;
 
     let day_change: Decimal = positions
         .iter()
         .filter(|p| p.current_price > Decimal::ZERO)
         .map(|p| {
-            // prev_price = current / (1 + pct/100)
             let prev = p.current_price / (Decimal::ONE + p.daily_change_pct / dec!(100));
             p.shares * (p.current_price - prev)
         })

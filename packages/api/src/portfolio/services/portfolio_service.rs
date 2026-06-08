@@ -1,3 +1,4 @@
+use chrono::FixedOffset;
 use dioxus::prelude::*;
 use dtos::portfolio::GetPortfolioResponse;
 use dtos::{
@@ -243,16 +244,7 @@ pub async fn get_portfolio_history(
     use chrono::Utc;
     use std::collections::{BTreeSet, HashMap};
 
-    let (interval, range) = match period.as_str() {
-        "1D" => ("5m", "1d"),
-        "5D" => ("30m", "5d"),
-        "1M" => ("1d", "1mo"),
-        "6M" => ("1wk", "6mo"),
-        "YTD" => ("1wk", "ytd"),
-        "1Y" => ("1mo", "1y"),
-        "All" => ("1mo", "max"),
-        _ => ("1wk", "6mo"),
-    };
+    let (interval, range) = period_to_interval(&period);
 
     let tickers: Vec<String> = transactions
         .iter()
@@ -266,62 +258,43 @@ pub async fn get_portfolio_history(
         .build()
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    // ── 1. Fetch all tickers in parallel ────────────────────────────────────
-    let fetch_futures = tickers.iter().map(|ticker| {
-        let client = client.clone();
-        let ticker = ticker.clone();
-        let interval = interval.to_string();
-        let range = range.to_string();
-        async move {
-            let url = format!(
-                "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval={}&range={}",
-                ticker, interval, range
-            );
-            let Ok(resp) = client.get(&url).send().await else {
-                return (ticker, vec![]);
-            };
-            let Ok(json) = resp.json::<serde_json::Value>().await else {
-                return (ticker, vec![]);
-            };
-            let Some(result) = json["chart"]["result"].get(0) else {
-                return (ticker, vec![]);
-            };
-
-            let timestamps = result["timestamp"].as_array().cloned().unwrap_or_default();
-            let closes = result["indicators"]["quote"][0]["close"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-
-            let pairs: Vec<(i64, Decimal)> = timestamps
-                .iter()
-                .zip(closes.iter())
-                .filter_map(|(ts, cl)| {
-                    let t = ts.as_i64()?;
-                    // FIX: was Decimal::from_f64_retain — keep this
-                    let p = Decimal::from_f64_retain(cl.as_f64()?)?;
-                    Some((t, p))
-                })
-                .collect();
-
-            (ticker, pairs)
-        }
-    });
-
-    // All HTTP calls run concurrently
-    let fetched: Vec<(String, Vec<(i64, Decimal)>)> = join_all(fetch_futures).await;
+    let fetched: Vec<(String, Vec<(i64, Decimal)>, Option<Decimal>)> = join_all(
+        tickers
+            .iter()
+            .map(|ticker| fetch_ticker(&client, ticker, interval, range)),
+    )
+    .await;
 
     let price_histories: HashMap<String, Vec<(i64, Decimal)>> = fetched
         .into_iter()
-        .filter(|(_, pairs)| !pairs.is_empty())
+        .filter(|(_, pairs, _)| !pairs.is_empty())
+        .map(|(t, pairs, _)| (t, pairs))
         .collect();
 
     if price_histories.is_empty() {
         return Ok(vec![]);
     }
 
-    // ── 2. Union of all timestamps (not just one ticker's) ──────────────────
-    //   Use BTreeSet so they come out sorted.
+    // baseline = total cost basis
+    let baseline: Decimal = tickers
+        .iter()
+        .map(|ticker| {
+            transactions
+                .iter()
+                .filter(|tx| tx.ticker == *ticker)
+                .map(|tx| match tx.transaction_type {
+                    TransactionType::Buy => tx.shares * tx.price,
+                    TransactionType::Sell => -(tx.shares * tx.price),
+                    _ => Decimal::ZERO,
+                })
+                .sum::<Decimal>()
+        })
+        .sum();
+
+    if baseline <= Decimal::ZERO {
+        return Ok(vec![]);
+    }
+
     let all_timestamps: Vec<i64> = price_histories
         .values()
         .flat_map(|pairs| pairs.iter().map(|(ts, _)| *ts))
@@ -329,45 +302,24 @@ pub async fn get_portfolio_history(
         .into_iter()
         .collect();
 
-    // ── 3. Build result ──────────────────────────────────────────────────────
     let result = all_timestamps
         .iter()
         .filter_map(|unix_ts| {
             let dt = chrono::DateTime::from_timestamp(*unix_ts, 0)?.with_timezone(&Utc);
-
-            let label = match period.as_str() {
-                "1D" | "5D" => dt.format("%-d/%m %H:%M").to_string(),
-                _ => dt.format("%-d %b '%y").to_string(),
-            };
+            let label = format_label(&period, &dt);
 
             let portfolio_value: Decimal = tickers
                 .iter()
                 .map(|ticker| {
-                    let shares: Decimal = transactions
-                        .iter()
-                        .filter(|tx| tx.ticker == *ticker && date_str_to_unix(&tx.date) <= *unix_ts)
-                        .map(|tx| match tx.transaction_type {
-                            TransactionType::Buy => tx.shares,
-                            TransactionType::Sell => -tx.shares,
-                            _ => Decimal::ZERO,
-                        })
-                        .sum();
-
+                    let shares = shares_at(ticker, &transactions, *unix_ts);
                     if shares <= Decimal::ZERO {
                         return Decimal::ZERO;
                     }
-
-                    // FIX: abs_diff instead of (ts - unix_ts).abs()
-                    //      The old subtraction could underflow on i64.
                     let price = price_histories
                         .get(ticker)
-                        .and_then(|h| {
-                            h.iter()
-                                .min_by_key(|(ts, _)| ts.abs_diff(*unix_ts))
-                                .map(|(_, p)| *p)
-                        })
+                        .and_then(|h| h.iter().min_by_key(|(ts, _)| ts.abs_diff(*unix_ts)))
+                        .map(|(_, p)| *p)
                         .unwrap_or(Decimal::ZERO);
-
                     shares * price
                 })
                 .sum();
@@ -376,17 +328,96 @@ pub async fn get_portfolio_history(
                 return None;
             }
 
-            Some((label, portfolio_value))
+            let pct = (portfolio_value - baseline) / baseline * dec!(100);
+            Some((label, pct))
         })
         .collect();
 
     Ok(result)
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn shares_at(ticker: &str, transactions: &[Transaction], unix_ts: i64) -> Decimal {
+    transactions
+        .iter()
+        .filter(|tx| tx.ticker == ticker && date_str_to_unix(&tx.date) <= unix_ts)
+        .map(|tx| match tx.transaction_type {
+            TransactionType::Buy => tx.shares,
+            TransactionType::Sell => -tx.shares,
+            _ => Decimal::ZERO,
+        })
+        .sum()
+}
+
+fn period_to_interval(period: &str) -> (&'static str, &'static str) {
+    match period {
+        "1D" => ("2m", "1d"),
+        "5D" => ("30m", "5d"),
+        "1M" => ("1h", "1mo"),
+        "6M" => ("1d", "6mo"),
+        "YTD" => ("1wk", "ytd"),
+        "1Y" => ("1mo", "1y"),
+        "All" => ("1mo", "max"),
+        _ => ("1d", "6mo"),
+    }
+}
+
+fn format_label(period: &str, dt: &chrono::DateTime<chrono::Utc>) -> String {
+    let tz = chrono::FixedOffset::east_opt(7 * 3600).unwrap();
+    let local = dt.with_timezone(&tz);
+    match period {
+        "1D" | "5D" => local.format("%-d/%m %H:%M").to_string(),
+        _ => local.format("%-d %b '%y").to_string(),
+    }
+}
+
+async fn fetch_ticker(
+    client: &reqwest::Client,
+    ticker: &str,
+    interval: &str,
+    range: &str,
+) -> (String, Vec<(i64, Decimal)>, Option<Decimal>) {
+    let url = format!(
+        "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval={interval}&range={range}"
+    );
+
+    let Some(json) = client
+        .get(&url)
+        .send()
+        .await
+        .ok()
+        .and_then(|r| futures::executor::block_on(r.json::<serde_json::Value>()).ok())
+    else {
+        return (ticker.to_string(), vec![], None);
+    };
+
+    let Some(result) = json["chart"]["result"].get(0) else {
+        return (ticker.to_string(), vec![], None);
+    };
+
+    let prev_close = result["meta"]["chartPreviousClose"]
+        .as_f64()
+        .and_then(Decimal::from_f64_retain);
+
+    let timestamps = result["timestamp"].as_array().cloned().unwrap_or_default();
+    let closes = result["indicators"]["quote"][0]["close"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    let pairs = timestamps
+        .iter()
+        .zip(closes.iter())
+        .filter_map(|(ts, cl)| Some((ts.as_i64()?, Decimal::from_f64_retain(cl.as_f64()?)?)))
+        .collect();
+
+    (ticker.to_string(), pairs, prev_close)
+}
+
 fn date_str_to_unix(date: &str) -> i64 {
     use chrono::NaiveDate;
     NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
-        .map(|dt| dt.and_utc().timestamp())
+        .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp())
         .unwrap_or(0)
 }

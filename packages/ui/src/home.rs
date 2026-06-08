@@ -1,4 +1,7 @@
-use crate::components::{charts::*, tables::*};
+use crate::{
+    components::{charts::*, tables::*},
+    hooks::{use_dashboard, DashboardState},
+};
 use api::{price_stream, PriceUpdate};
 use dioxus::prelude::*;
 use dtos::{
@@ -18,63 +21,21 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 pub fn Home() -> Element {
     let data = use_context::<Signal<GetDashBoardResponse>>();
 
-    let price_map = use_signal(|| HashMap::<String, PriceUpdate>::new());
-    use_effect(move || {
-        let tickers: Vec<String> = data()
-            .transactions
-            .iter()
-            .map(|tx| tx.ticker.clone())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-        let mut pm = price_map.clone();
-        spawn(async move {
-            let Ok(mut stream) = price_stream(tickers).await else {
-                return;
-            };
-            while let Some(updates) = stream.next().await {
-                pm.with_mut(|map| {
-                    if let Ok(updates) = updates {
-                        for u in updates {
-                            map.insert(u.ticker.clone(), u);
-                        }
-                    }
-                });
-            }
-        });
-    });
-    let pm = price_map.read();
-    let loaded = !pm.is_empty();
-    // ── Derived state ──────────────────────────────────────────────────────────
-    let prices: HashMap<String, (Decimal, Decimal)> = pm
-        .iter()
-        .map(|(k, u)| (k.clone(), (u.price, u.change_pct)))
-        .collect();
-
-    let loaded = !prices.is_empty();
-    let positions = compute_positions(&data(), &prices);
-    let realized = compute_realized_pnl(&data());
-
-    let (total_value, total_cost, total_pnl, day_change) = portfolio_summary(&positions);
-
-    let pnl_pct = if total_cost > Decimal::ZERO {
-        total_pnl / total_cost * dec!(100)
-    } else {
-        Decimal::ZERO
-    };
-    let day_pct = if total_value > Decimal::ZERO {
-        day_change / total_value * dec!(100)
-    } else {
-        Decimal::ZERO
-    };
-
-    // (price, daily_change_pct) per ticker — for portfolio table
-    let ticker_price_map: HashMap<String, Decimal> =
-        prices.iter().map(|(k, (p, _))| (k.clone(), *p)).collect();
-    let change_map: HashMap<String, Decimal> =
-        prices.iter().map(|(k, (_, c))| (k.clone(), *c)).collect();
-
-    let chart_positive = total_pnl >= Decimal::ZERO;
+    let DashboardState {
+        prices,
+        ticker_price_map,
+        change_map,
+        loaded,
+        positions,
+        realized,
+        total_value,
+        total_cost,
+        total_pnl,
+        day_change,
+        pnl_pct,
+        day_pct,
+        chart_positive,
+    } = use_dashboard();
 
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
@@ -182,36 +143,6 @@ fn StatItem(label: String, value: String, sub: String, neutral: bool) -> Element
             }
         }
     }
-}
-
-fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
-    let mut book: HashMap<String, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
-    let mut realized = Decimal::ZERO;
-
-    for tx in &data.transactions {
-        match tx.transaction_type {
-            TransactionType::Buy => {
-                let e = book.entry(tx.ticker.clone()).or_default();
-                e.0 += tx.shares * tx.price;
-                e.1 += tx.shares;
-            }
-            TransactionType::Sell => {
-                if let Some((cost, shares)) = book.get_mut(&tx.ticker) {
-                    if *shares > Decimal::ZERO {
-                        let avg = *cost / *shares;
-                        realized += tx.shares * (tx.price - avg);
-                        *cost -= tx.shares * avg;
-                        *shares -= tx.shares;
-                    }
-                }
-            }
-            TransactionType::Dividend => {
-                realized += tx.price;
-            }
-            _ => {}
-        }
-    }
-    realized
 }
 
 /// "$1,234.56"  (ไม่มี sign)

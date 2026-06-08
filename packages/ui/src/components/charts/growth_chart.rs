@@ -60,7 +60,6 @@ pub fn GrowthChart(
             Some(t) => format!("\"{}\"", t.replace('"', "\\\"")),
             None => "null".to_string(),
         };
-
         let script = format!(
             r#"
             window.GrowthChart.init("{id}", {{

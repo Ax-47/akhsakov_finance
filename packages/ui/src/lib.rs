@@ -13,10 +13,6 @@ pub use app::App;
 
 mod components;
 
-mod pie_chart;
-pub use pie_chart::PieChart;
-pub use pie_chart::CHART_COLORS;
-
 mod stat_card;
 pub use stat_card::StatCard;
 
@@ -25,3 +21,6 @@ pub use dashboard::Dashboard;
 
 mod home;
 pub use home::Home;
+
+mod hooks;
+pub use hooks::use_price_stream;

@@ -1,11 +1,16 @@
 pub mod growth_chart;
-pub mod period_button;
-use dtos::Transaction;
 pub use growth_chart::*;
+pub mod period_button;
 pub use period_button::*;
+pub mod allocation_card;
+pub use allocation_card::*;
+pub mod pie_chart;
 
 use dioxus::prelude::*;
+use dtos::Transaction;
 use rust_decimal::Decimal;
+
+use rust_decimal_macros::dec;
 
 #[component]
 pub fn ChartSection(

@@ -4,6 +4,8 @@ use dioxus::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
 
 /// Fetch live prices for a list of tickers.
@@ -42,11 +44,6 @@ pub async fn get_live_prices(
 
     Ok(prices)
 }
-use futures::stream::{self};
-use serde::{Deserialize, Serialize};
-use serde_json;
-use std::time::Duration;
-use tokio_stream::StreamExt as _;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PriceUpdate {
@@ -64,53 +61,49 @@ pub async fn price_stream(
             if tx.unbounded_send(updates).is_err() {
                 break;
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     }))
 }
 
 async fn fetch_prices(tickers: &[String]) -> Vec<PriceUpdate> {
     let client = reqwest::Client::new();
-    let mut result = Vec::new();
+    let futures = tickers.iter().map(|ticker| fetch_one(&client, ticker));
+    futures::future::join_all(futures)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
 
-    for ticker in tickers {
-        let url = format!(
-            "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range=2d",
-            ticker
-        );
+async fn fetch_one(client: &reqwest::Client, ticker: &str) -> Option<PriceUpdate> {
+    let url =
+        format!("https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=2d");
 
-        let Ok(resp) = client
-            .get(&url)
-            .header("User-Agent", "Mozilla/5.0")
-            .send()
-            .await
-        else {
-            continue;
-        };
+    let json = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .ok()?
+        .json::<serde_json::Value>()
+        .await
+        .ok()?;
 
-        let Ok(json) = resp.json::<serde_json::Value>().await else {
-            continue;
-        };
+    let closes = &json["chart"]["result"][0]["indicators"]["quote"][0]["close"];
+    let current = closes[1].as_f64()?;
+    let prev = closes[0].as_f64().unwrap_or(current);
 
-        let meta = &json["chart"]["result"][0]["meta"];
-        let Some(current) = meta["regularMarketPrice"].as_f64() else {
-            continue;
-        };
-        let prev = meta["chartPreviousClose"].as_f64().unwrap_or(current);
+    let price = Decimal::try_from(current).ok()?;
+    let change_pct = if prev != 0.0 {
+        Decimal::try_from((current - prev) / prev * 100.0).unwrap_or(Decimal::ZERO)
+    } else {
+        Decimal::ZERO
+    };
 
-        let price = Decimal::try_from(current).unwrap_or(Decimal::ZERO);
-        let change_pct = if prev != 0.0 {
-            Decimal::try_from((current - prev) / prev * 100.0).unwrap_or(Decimal::ZERO)
-        } else {
-            Decimal::ZERO
-        };
-
-        result.push(PriceUpdate {
-            ticker: ticker.clone(),
-            price,
-            change_pct,
-        });
-    }
-
-    result
+    Some(PriceUpdate {
+        ticker: ticker.to_string(),
+        price,
+        change_pct,
+    })
 }
