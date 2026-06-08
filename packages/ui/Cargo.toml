@@ -11,6 +11,7 @@ dtos = { workspace = true }
 types = { workspace = true }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components", version = "0.0.1", default-features = false }
 dioxus-icons = { version = "0.1.0", default-features = false }
+dioxus-ssr = { workspace = true  }
 time = { version = "0.3.44", default-features = false }
 palette = { version = "0.7.6", default-features = false }
 rust_decimal = { version = "1", features = ["serde"] }

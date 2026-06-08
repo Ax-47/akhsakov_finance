@@ -8,4 +8,5 @@ pub mod drag_and_drop_list;
 pub mod input;
 pub mod popover;
 pub mod skeleton;
+pub mod tables;
 pub mod toast;

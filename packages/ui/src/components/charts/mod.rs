@@ -9,7 +9,7 @@ use rust_decimal::Decimal;
 
 #[component]
 pub fn ChartSection(
-    transactions: Vec<Transaction>,
+    transactions: ReadSignal<Vec<Transaction>>,
     pnl_pct: Decimal,
     is_positive: bool,
     height: Decimal,
@@ -17,7 +17,7 @@ pub fn ChartSection(
     let active_period = use_signal(|| "6M".to_string());
     let line_color = if is_positive { "#89b4fa" } else { "#f38ba8" };
     let history = use_resource(move || {
-        let txs = transactions.clone();
+        let txs = transactions.read().clone();
         let period = active_period();
         async move {
             api::get_portfolio_history(txs, period)
@@ -25,15 +25,20 @@ pub fn ChartSection(
                 .unwrap_or_default()
         }
     });
-    let (chart_dates, chart_values) = match history() {
+
+    let history_data = history();
+    let loading = history_data.is_none();
+    let has_data = history_data.as_ref().map_or(false, |d| !d.is_empty());
+    println!("{:?}", history_data.clone());
+    let (chart_dates, chart_values) = match history_data {
         Some(data) if !data.is_empty() => (
             data.iter().map(|(d, _)| d.clone()).collect::<Vec<_>>(),
             data.iter().map(|(_, v)| *v).collect::<Vec<_>>(),
         ),
         _ => (vec![], vec![]),
     };
+    let period_key = active_period.read().clone();
 
-    let loading = history().is_none();
     rsx! {
         div {
             class: "border-b border-ctp-surface0",
@@ -53,102 +58,27 @@ pub fn ChartSection(
                     style: "height:{height}px;",
                     "Loading…"
                 }
+            } else if !has_data {
+                div {
+                    class: "flex items-center justify-center text-ctp-subtext0 text-xs",
+                    style: "height:{height}px;",
+                    "No data"
+                }
             } else {
                 GrowthChart {
+                    key: "{period_key}",
                     active_period,
                     chart_dates,
                     series: vec![
-                            Series {
-                                name:   "Portfolio".into(),
-                                color:  line_color.into(),
-                                values: chart_values,
-                            },
-                        ],
+                        Series {
+                            name:   "Portfolio".into(),
+                            color:  line_color.into(),
+                            values: chart_values,
+                        },
+                    ],
                     height,
                 }
             }
         }
     }
-}
-
-// ─── growth_path (unchanged) ───────────────────────────────────────────────────
-
-fn growth_path(period: &str, pnl_pct: f64) -> (Vec<String>, Vec<f64>) {
-    use std::f64::consts::PI;
-
-    let (n, labels): (usize, Vec<String>) = match period {
-        "1D" => (24, (0..24).map(|h| format!("{h:02}:00")).collect()),
-        "5D" => {
-            let n = 40;
-            (
-                n,
-                (0..n)
-                    .map(|i| format!("D{} {:02}h", i / 8 + 1, (i % 8) * 2))
-                    .collect(),
-            )
-        }
-        "1M" => (30, (1..=30).map(|d| format!("May {d}")).collect()),
-        "1Y" => (
-            12,
-            [
-                "Jun '25", "Jul '25", "Aug '25", "Sep '25", "Oct '25", "Nov '25", "Dec '25",
-                "Jan '26", "Feb '26", "Mar '26", "Apr '26", "May '26",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        ),
-        "YTD" => (
-            6,
-            [
-                "Jan '26", "Feb '26", "Mar '26", "Apr '26", "May '26", "Jun '26",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-        ),
-        "All" => {
-            let n = 24;
-            (
-                n,
-                (0..n)
-                    .map(|i| format!("{}-{:02}", 2024 + i / 12, i % 12 + 1))
-                    .collect(),
-            )
-        }
-        _ => {
-            // "6M"
-            let n = 26;
-            (
-                n,
-                (0..n)
-                    .map(|i| {
-                        let months = ["Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-                        format!("{} W{}", months[(i / 4).min(6)], i % 4 + 1)
-                    })
-                    .collect(),
-            )
-        }
-    };
-
-    let mut raw: Vec<f64> = (0..n)
-        .map(|i| {
-            let t = i as f64 / (n - 1).max(1) as f64;
-            t + (t * PI * 3.5).sin() * 0.18 + (t * PI * 7.1).sin() * 0.07
-        })
-        .collect();
-
-    if let Some(&last) = raw.last() {
-        if last.abs() > 1e-9 {
-            let scale = pnl_pct / last;
-            for v in &mut raw {
-                *v *= scale;
-            }
-        }
-    }
-    if let Some(last) = raw.last_mut() {
-        *last = pnl_pct;
-    }
-
-    (labels, raw)
 }

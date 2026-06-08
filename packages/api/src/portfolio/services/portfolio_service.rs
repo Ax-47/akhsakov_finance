@@ -250,7 +250,7 @@ pub async fn get_portfolio_history(
         let range = range.to_string();
         async move {
             let url = format!(
-                "https://query1.finance.yahoo.com/v8/finance/chart/                 {}?interval={}&range={}",
+                "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval={}&range={}",
                 ticker, interval, range
             );
             let Ok(resp) = client.get(&url).send().await else {
@@ -263,10 +263,11 @@ pub async fn get_portfolio_history(
                 return (ticker, vec![]);
             };
 
-            let timestamps = result["timestamp"]
-                .as_array().cloned().unwrap_or_default();
+            let timestamps = result["timestamp"].as_array().cloned().unwrap_or_default();
             let closes = result["indicators"]["quote"][0]["close"]
-                .as_array().cloned().unwrap_or_default();
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
 
             let pairs: Vec<(i64, Decimal)> = timestamps
                 .iter()

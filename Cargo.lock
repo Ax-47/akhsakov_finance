@@ -6311,6 +6311,7 @@ dependencies = [
  "dioxus",
  "dioxus-icons",
  "dioxus-primitives",
+ "dioxus-ssr",
  "dtos",
  "palette",
  "rust_decimal",
