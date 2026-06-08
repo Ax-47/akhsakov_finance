@@ -48,9 +48,9 @@ fn App() -> Element {
 fn WebNavbar() -> Element {
     rsx! {
         Navbar {
-            Link { to: Route::Home {},        "Dashboard" }
-            Link { to: Route::Portfolio {},   "Portfolio" }
-            Link { to: Route::Blog { id: 1 }, "Blog"      }
+            Link { to: Route::Home {}, "Dashboard" }
+            Link { to: Route::Portfolio {}, "Portfolio" }
+            Link { to: Route::Blog { id: 1 }, "Blog" }
         }
         Outlet::<Route> {}
     }

@@ -1,4 +1,5 @@
 use crate::components::{charts::*, tables::*};
+use api::{price_stream, PriceUpdate};
 use dioxus::prelude::*;
 use dtos::{
     portfolio::GetDashBoardResponse,
@@ -17,7 +18,8 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 pub fn Home() -> Element {
     let data = use_context::<Signal<GetDashBoardResponse>>();
 
-    let price_res = use_resource(move || {
+    let price_map = use_signal(|| HashMap::<String, PriceUpdate>::new());
+    use_effect(move || {
         let tickers: Vec<String> = data()
             .transactions
             .iter()
@@ -25,12 +27,29 @@ pub fn Home() -> Element {
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        async move { api::get_live_prices(tickers).await }
+        let mut pm = price_map.clone();
+        spawn(async move {
+            let Ok(mut stream) = price_stream(tickers).await else {
+                return;
+            };
+            while let Some(updates) = stream.next().await {
+                pm.with_mut(|map| {
+                    if let Ok(updates) = updates {
+                        for u in updates {
+                            map.insert(u.ticker.clone(), u);
+                        }
+                    }
+                });
+            }
+        });
     });
-
+    let pm = price_map.read();
+    let loaded = !pm.is_empty();
     // ── Derived state ──────────────────────────────────────────────────────────
-    let prices: HashMap<String, (Decimal, Decimal)> =
-        price_res().and_then(|r| r.ok()).unwrap_or_default();
+    let prices: HashMap<String, (Decimal, Decimal)> = pm
+        .iter()
+        .map(|(k, u)| (k.clone(), (u.price, u.change_pct)))
+        .collect();
 
     let loaded = !prices.is_empty();
     let positions = compute_positions(&data(), &prices);
@@ -50,7 +69,7 @@ pub fn Home() -> Element {
     };
 
     // (price, daily_change_pct) per ticker — for portfolio table
-    let price_map: HashMap<String, Decimal> =
+    let ticker_price_map: HashMap<String, Decimal> =
         prices.iter().map(|(k, (p, _))| (k.clone(), *p)).collect();
     let change_map: HashMap<String, Decimal> =
         prices.iter().map(|(k, (_, c))| (k.clone(), *c)).collect();
@@ -84,36 +103,60 @@ pub fn Home() -> Element {
                         "{fmt_usd(total_value, 2)}"
                     }
                     if loaded && !positions.is_empty() {
-                        span {
-                            style: "background:color-mix(in srgb,var(--green) 15%,transparent);\
-                                    color:var(--green);\
-                                    border:1px solid color-mix(in srgb,var(--green) 30%,transparent);\
-                                    padding:.15rem .45rem;border-radius:.3rem;\
-                                    font-size:.68rem;font-weight:700;letter-spacing:.04em;",
-                            "● Live"
+                        if loaded && !positions.is_empty() {
+                            span {
+                                class: " bg-ctp-green/15 text-ctp-green border border-ctp-green/30 px-[0.45rem] py-[0.15rem] rounded-[0.3rem] text-[0.68rem] font-[700] tracking-[0.04em] ",
+                                "● Live"
+                            }
                         }
                     }
                 }
 
                 div { class: "flex items-start",
-                    StatItem { label: "Cash Holdings",        value: "--",                          sub: "",                               neutral: true    }
+                    StatItem {
+                        label: "Cash Holdings",
+                        value: "--",
+                        sub: "",
+                        neutral: true,
+                    }
                     div { class: "w-px bg-ctp-surface1 self-stretch mx-6" }
-                    StatItem { label: "Day Change",           value: fmt_signed(day_change, 2),            sub: format!("({:+.2}%)", day_pct),           neutral: !loaded }
+                    StatItem {
+                        label: "Day Change",
+                        value: fmt_signed(day_change, 2),
+                        sub: format!("({:+.2}%)", day_pct),
+                        neutral: !loaded,
+                    }
                     div { class: "w-px bg-ctp-surface1 self-stretch mx-6" }
-                    StatItem { label: "Unrealized Gain/Loss", value: fmt_signed(total_pnl, 2),            sub: format!("({:+.2}%)", pnl_pct),           neutral: !loaded }
+                    StatItem {
+                        label: "Unrealized Gain/Loss",
+                        value: fmt_signed(total_pnl, 2),
+                        sub: format!("({:+.2}%)", pnl_pct),
+                        neutral: !loaded,
+                    }
                     div { class: "w-px bg-ctp-surface1 self-stretch mx-6" }
-                    StatItem { label: "Realized Gain/Loss",   value: fmt_usd(realized, 2),                sub: "(0.00%)",                        neutral: true    }
+                    StatItem {
+                        label: "Realized Gain/Loss",
+                        value: fmt_usd(realized, 2),
+                        sub: "(0.00%)",
+                        neutral: true,
+                    }
                 }
             }
 
             // ── Chart ─────────────────────────────────────────────────────────
             ChartSection {
                 transactions: data().transactions.clone(),
-                pnl_pct:total_pnl,
+                pnl_pct: total_pnl,
                 is_positive: chart_positive,
                 height: dec!(220.0),
             }
-            DashboardTable {data, price_map, change_map, positions,loaded ,  }
+            DashboardTable {
+                data,
+                price_map:ticker_price_map,
+                change_map,
+                positions,
+                loaded,
+            }
         }
     }
 }
@@ -124,18 +167,18 @@ pub fn Home() -> Element {
 fn StatItem(label: String, value: String, sub: String, neutral: bool) -> Element {
     let positive = value.starts_with('+');
     let color = if neutral || value == "--" {
-        "color:var(--subtext1);"
+        "text-ctp-subtext1"
     } else if positive {
-        "color:var(--green);"
+        "text-ctp-green"
     } else {
-        "color:var(--red);"
+        "text-ctp-red"
     };
     rsx! {
         div { class: "flex flex-col",
             div { class: "text-xs text-ctp-subtext0 mb-1", "{label}" }
             div { class: "text-sm font-semibold tabular-nums", style: "{color}", "{value}" }
             if !sub.is_empty() {
-                div { class: "text-xs tabular-nums", style: "{color}", "{sub}" }
+                div { class: "text-xs tabular-nums {color}", "{sub}" }
             }
         }
     }

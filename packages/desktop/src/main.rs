@@ -32,18 +32,20 @@ fn App() -> Element {
     });
 
     rsx! {
-        ui::App {
-            Router::<Route> {}
-        }
+        ui::App { Router::<Route> {} }
     }
 }
 
 #[component]
 fn Home() -> Element {
-    rsx! { ui::Home {} }
+    rsx! {
+        ui::Home {}
+    }
 }
 
 #[component]
 fn Portfolio() -> Element {
-    rsx! { ui::Dashboard {} }
+    rsx! {
+        ui::Dashboard {}
+    }
 }

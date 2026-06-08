@@ -12,13 +12,19 @@ pub fn Navbar() -> Element {
                     div { class: "text-base font-bold text-ctp-text", "◈ Akhsakov" }
                     div { class: "text-xs text-ctp-subtext0 mt-0.5", "Finance" }
                 }
-                NavLink { to: Route::Home {},      icon: "⬡".to_string(), label: "Dashboard".to_string() }
-                NavLink { to: Route::Portfolio {}, icon: "◈".to_string(), label: "Portfolio".to_string() }
+                NavLink {
+                    to: Route::Home {},
+                    icon: "⬡".to_string(),
+                    label: "Dashboard".to_string(),
+                }
+                NavLink {
+                    to: Route::Portfolio {},
+                    icon: "◈".to_string(),
+                    label: "Portfolio".to_string(),
+                }
             }
 
-            div { class: "flex-1 overflow-auto",
-                Outlet::<Route> {}
-            }
+            div { class: "flex-1 overflow-auto", Outlet::<Route> {} }
         }
     }
 }

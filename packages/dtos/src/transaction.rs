@@ -6,6 +6,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: Uuid,
+    pub portfolio_id: Uuid,
     pub ticker: String,
     pub transaction_type: TransactionType,
     pub shares: Decimal,

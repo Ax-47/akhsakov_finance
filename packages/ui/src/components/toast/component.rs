@@ -34,11 +34,7 @@ fn StyledToast(props: ToastProps) -> Element {
 #[component]
 fn ToastContent(props: ToastContentProps) -> Element {
     rsx! {
-        toast::ToastContent {
-            class: Styles::dx_toast_content,
-            attributes: props.attributes,
-            {props.children}
-        }
+        toast::ToastContent { class: Styles::dx_toast_content, attributes: props.attributes, {props.children} }
     }
 }
 
@@ -85,7 +81,9 @@ pub fn ToastProvider(
     children: Element,
 ) -> Element {
     let render_toast = render_toast.unwrap_or_else(|| {
-        Callback::new(|p: toast::ToastPropsWithOwner| rsx! { StyledToast { ..p } })
+        Callback::new(|p: toast::ToastPropsWithOwner| rsx! {
+            StyledToast { ..p }
+        })
     });
 
     rsx! {
@@ -124,9 +122,7 @@ mod tests {
     fn styled_toast_preserves_primitive_fallback_children() {
         let mut dom = VirtualDom::new(|| {
             rsx! {
-                ToastProvider {
-                    TriggerToast {}
-                }
+                ToastProvider { TriggerToast {} }
             }
         });
         dom.rebuild_in_place();

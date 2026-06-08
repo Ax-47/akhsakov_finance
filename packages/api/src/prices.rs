@@ -1,4 +1,7 @@
-use dioxus::prelude::*;
+use dioxus::{
+    fullstack::{JsonEncoding, Streaming},
+    prelude::*,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
@@ -38,4 +41,76 @@ pub async fn get_live_prices(
         .collect();
 
     Ok(prices)
+}
+use futures::stream::{self};
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::time::Duration;
+use tokio_stream::StreamExt as _;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PriceUpdate {
+    pub ticker: String,
+    pub price: Decimal,
+    pub change_pct: Decimal,
+}
+#[get("/api/prices/stream")]
+pub async fn price_stream(
+    tickers: Vec<String>,
+) -> Result<Streaming<Vec<PriceUpdate>, JsonEncoding>, ServerFnError> {
+    Ok(Streaming::spawn(|tx| async move {
+        loop {
+            let updates = fetch_prices(&tickers).await;
+            if tx.unbounded_send(updates).is_err() {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        }
+    }))
+}
+
+async fn fetch_prices(tickers: &[String]) -> Vec<PriceUpdate> {
+    let client = reqwest::Client::new();
+    let mut result = Vec::new();
+
+    for ticker in tickers {
+        let url = format!(
+            "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range=2d",
+            ticker
+        );
+
+        let Ok(resp) = client
+            .get(&url)
+            .header("User-Agent", "Mozilla/5.0")
+            .send()
+            .await
+        else {
+            continue;
+        };
+
+        let Ok(json) = resp.json::<serde_json::Value>().await else {
+            continue;
+        };
+
+        let meta = &json["chart"]["result"][0]["meta"];
+        let Some(current) = meta["regularMarketPrice"].as_f64() else {
+            continue;
+        };
+        let prev = meta["chartPreviousClose"].as_f64().unwrap_or(current);
+
+        let price = Decimal::try_from(current).unwrap_or(Decimal::ZERO);
+        let change_pct = if prev != 0.0 {
+            Decimal::try_from((current - prev) / prev * 100.0).unwrap_or(Decimal::ZERO)
+        } else {
+            Decimal::ZERO
+        };
+
+        result.push(PriceUpdate {
+            ticker: ticker.clone(),
+            price,
+            change_pct,
+        });
+    }
+
+    result
 }

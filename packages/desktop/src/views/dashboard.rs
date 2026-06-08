@@ -100,64 +100,60 @@ pub fn Dashboard() -> Element {
 
             // ── Right: detail + chart ─────────────────────────────────────────
             div { class: "dashboard-main",
-                {match selected_portfolio.as_ref() {
-                    None => rsx! {
-                        div { class: "no-selection",
-                            div { class: "ns-icon", "◈" }
-                            div { "Select a portfolio" }
-                        }
-                    },
-                    Some(p) => {
-                        let total = portfolio_total_cost(p);
-                        let cash  = portfolio_cash_value(p);
-                        let sym   = portfolio_currency_symbol(p).to_string();
-                        let n_assets = p.assets.len();
-                        let name  = p.name.clone();
-
-                        rsx! {
-                            // ── Header ──────────────────────────────────────
-                            div { class: "dm-header",
-                                div { class: "dm-name", "{name}" }
-                                div { class: "dm-stats",
-                                    StatPill { label: "Invested", value: format!("{sym}{total:.2}") }
-                                    StatPill { label: "Cash",     value: format!("{sym}{cash:.2}") }
-                                    StatPill { label: "Positions", value: n_assets.to_string() }
-                                }
+                {
+                    match selected_portfolio.as_ref() {
+                        None => rsx! {
+                            div { class: "no-selection",
+                                div { class: "ns-icon", "◈" }
+                                div { "Select a portfolio" }
                             }
-
-                            // ── ECharts Growth Chart ─────────────────────────
-                            GrowthChart {
-                                series: growth_series.clone(),
-                                currency_symbol: sym.clone(),
-                            }
-
-                            // ── Positions table ──────────────────────────────
-                            div { class: "positions-table",
-                                div { class: "pt-header",
-                                    span { "Ticker" }
-                                    span { "Class" }
-                                    span { "Qty" }
-                                    span { "Avg Cost" }
-                                    span { "Cost Basis" }
-                                }
-                                for asset in p.assets.iter() {
-                                    div {
-                                        key: "{asset.ticker_symbol}",
-                                        class: "pt-row",
-                                        div { class: "ticker-label", "{asset.ticker_symbol}" }
-                                        div { class: "badge", "{asset.asset_class}" }
-                                        div { class: "num", "{asset.quantity.value():.4}" }
-                                        div { class: "num", "{sym}{asset.cost.amount():.2}" }
-                                        div { class: "num", "{sym}{asset_cost_basis(asset):.2}" }
+                        }, // ── Header ──────────────────────────────────────
+                        Some(p) => {
+                            let total = portfolio_total_cost(p);
+                            let cash = portfolio_cash_value(p);
+                            let sym = portfolio_currency_symbol(p).to_string();
+                            let n_assets = p.assets.len();
+                            let name = p.name.clone();
+                            rsx! {
+                                // ── Header ──────────────────────────────────────
+                                div { class: "dm-header",
+                                    div { class: "dm-name", "{name}" }
+                                    div { class: "dm-stats",
+                                        StatPill { label: "Invested", value: format!("{sym}{total:.2}") }
+                                        StatPill { label: "Cash", value: format!("{sym}{cash:.2}") }
+                                        StatPill { label: "Positions", value: n_assets.to_string() }
                                     }
                                 }
-                                if p.assets.is_empty() {
-                                    div { class: "pt-empty", "No assets in this portfolio" }
+
+                                // ── ECharts Growth Chart ─────────────────────────
+                                GrowthChart { series: growth_series.clone(), currency_symbol: sym.clone() }
+
+                                // ── Positions table ──────────────────────────────
+                                div { class: "positions-table",
+                                    div { class: "pt-header",
+                                        span { "Ticker" }
+                                        span { "Class" }
+                                        span { "Qty" }
+                                        span { "Avg Cost" }
+                                        span { "Cost Basis" }
+                                    }
+                                    for asset in p.assets.iter() {
+                                        div { key: "{asset.ticker_symbol}", class: "pt-row",
+                                            div { class: "ticker-label", "{asset.ticker_symbol}" }
+                                            div { class: "badge", "{asset.asset_class}" }
+                                            div { class: "num", "{asset.quantity.value():.4}" }
+                                            div { class: "num", "{sym}{asset.cost.amount():.2}" }
+                                            div { class: "num", "{sym}{asset_cost_basis(asset):.2}" }
+                                        }
+                                    }
+                                    if p.assets.is_empty() {
+                                        div { class: "pt-empty", "No assets in this portfolio" }
+                                    }
                                 }
                             }
                         }
                     }
-                }}
+                }
             }
         }
     }
@@ -272,10 +268,7 @@ fn GrowthChart(series: Vec<(String, f64)>, currency_symbol: String) -> Element {
     rsx! {
         div { class: "chart-section",
             div { class: "chart-label", "Portfolio Growth" }
-            div {
-                id: "{chart_id}",
-                class: "echart-container",
-            }
+            div { id: "{chart_id}", class: "echart-container" }
         }
     }
 }

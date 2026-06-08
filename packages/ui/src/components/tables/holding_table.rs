@@ -14,14 +14,30 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
         table { class: "w-full text-xs mt-4",
             thead {
                 tr { class: "text-ctp-overlay0 border-b border-ctp-surface1",
-                    th { class: "py-2 pr-6 text-left  font-semibold uppercase tracking-wider", "Ticker"   }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Shares"   }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Avg Cost" }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Total Cost" }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Value"    }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Market Price"    }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "P&L"      }
-                    th { class: "py-2 text-right      font-semibold uppercase tracking-wider", "Day"      }
+                    th { class: "py-2 pr-6 text-left  font-semibold uppercase tracking-wider",
+                        "Ticker"
+                    }
+                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
+                        "Shares"
+                    }
+                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
+                        "Avg Cost"
+                    }
+                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
+                        "Total Cost"
+                    }
+                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
+                        "Value"
+                    }
+                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
+                        "Market Price"
+                    }
+                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
+                        "P&L"
+                    }
+                    th { class: "py-2 text-right      font-semibold uppercase tracking-wider",
+                        "Day"
+                    }
                 }
             }
             tbody {
@@ -43,34 +59,36 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                             "{fmt_usd(pos.cost_basis(),2)}"
                         }
                         td { class: "py-3 pr-6 text-right tabular-nums",
-                            if pos.current_price > Decimal::ZERO { "{fmt_usd(pos.current_price, 2)}" } else { "—" }
+                            if pos.current_price > Decimal::ZERO {
+                                "{fmt_usd(pos.current_price, 2)}"
+                            } else {
+                                "—"
+                            }
                         }
                         td { class: "py-3 pr-6 text-right tabular-nums font-medium",
-                            if pos.current_price > Decimal::ZERO { "{fmt_usd(pos.market_value(), 2)}" } else { "—" }
-                        }
-                        td {
-                            class: if pos.unrealized_pnl() >= Decimal::ZERO {
-                                "py-3 pr-6 text-right tabular-nums text-ctp-green"
+                            if pos.current_price > Decimal::ZERO {
+                                "{fmt_usd(pos.market_value(), 2)}"
                             } else {
-                                "py-3 pr-6 text-right tabular-nums text-ctp-red"
-                            },
+                                "—"
+                            }
+                        }
+                        td { class: if pos.unrealized_pnl() >= Decimal::ZERO { "py-3 pr-6 text-right tabular-nums text-ctp-green" } else { "py-3 pr-6 text-right tabular-nums text-ctp-red" },
                             if pos.current_price > Decimal::ZERO {
                                 "{fmt_signed(pos.unrealized_pnl(), 2)} ({pos.unrealized_pnl_pct():+.1}%)"
-                            } else { "—" }
-                        }
-                        td {
-                            class: if pos.daily_change_pct >= Decimal::ZERO {
-                                "py-3 text-right tabular-nums text-ctp-green"
                             } else {
-                                "py-3 text-right tabular-nums text-ctp-red"
-                            },
+                                "—"
+                            }
+                        }
+                        td { class: if pos.daily_change_pct >= Decimal::ZERO { "py-3 text-right tabular-nums text-ctp-green" } else { "py-3 text-right tabular-nums text-ctp-red" },
                             if pos.current_price > Decimal::ZERO {
                                 if pos.daily_change_pct >= Decimal::ZERO {
                                     "▲ {pos.daily_change_pct:.2}%"
                                 } else {
                                     "▼ {pos.daily_change_pct.abs():.2}%"
                                 }
-                            } else { "—" }
+                            } else {
+                                "—"
+                            }
                         }
                     }
                 }

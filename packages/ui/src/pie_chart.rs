@@ -49,8 +49,7 @@ static CHART_CTR: AtomicUsize = AtomicUsize::new(0);
 pub fn PieChart(data: Vec<(String, Decimal)>, size: Decimal) -> Element {
     if data.is_empty() {
         return rsx! {
-            div {
-                style: "display:flex;align-items:center;justify-content:center;height:{size}px;color:var(--overlay0);font-size:.8rem;",
+            div { style: "display:flex;align-items:center;justify-content:center;height:{size}px;color:var(--overlay0);font-size:.8rem;",
                 "No data"
             }
         };
@@ -151,9 +150,6 @@ pub fn PieChart(data: Vec<(String, Decimal)>, size: Decimal) -> Element {
     });
 
     rsx! {
-        div {
-            id: "{id}",
-            style: "width:100%;height:{size}px;",
-        }
+        div { id: "{id}", style: "width:100%;height:{size}px;" }
     }
 }

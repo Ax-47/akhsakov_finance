@@ -65,9 +65,7 @@ pub fn DragAndDropList(props: DragAndDropListProps) -> Element {
             aria_label: props.aria_label,
             attributes: props.attributes,
             drag_and_drop_list::DragAndDropInstructions {}
-            DragAndDropListItems {
-                aria_label,
-            }
+            DragAndDropListItems { aria_label }
             drag_and_drop_list::DragAndDropLiveRegion {}
             {props.children}
         }
@@ -94,20 +92,10 @@ pub fn DragAndDropListItems(props: DragAndDropListItemsProps) -> Element {
             aria_label: props.aria_label,
             attributes: props.attributes,
             for item in drag_and_drop_list::use_drag_and_drop_list_items() {
-                Fragment {
-                    key: "{item.key}",
-                    DragAndDropDropIndicator {
-                        index: item.index,
-                        position: "before",
-                    }
-                    DragAndDropListItem {
-                        index: item.index,
-                        {item.children}
-                    }
-                    DragAndDropDropIndicator {
-                        index: item.index,
-                        position: "after",
-                    }
+                Fragment { key: "{item.key}",
+                    DragAndDropDropIndicator { index: item.index, position: "before" }
+                    DragAndDropListItem { index: item.index, {item.children} }
+                    DragAndDropDropIndicator { index: item.index, position: "after" }
                 }
             }
         }

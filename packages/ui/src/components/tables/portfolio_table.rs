@@ -68,16 +68,14 @@ pub fn PortfoliosTable(
                                     if loaded && p_value > Decimal::ZERO { "{fmt_usd(p_value, 2)}" } else { "--" }
                                 }
                                 td {
-                                    class: "py-4 pr-6 text-right tabular-nums",
-                                    style: if p_day >= Decimal::ZERO { "color:var(--green)" } else { "color:var(--red)" },
+                                    class: if p_day >= Decimal::ZERO { " py-4 pr-6 text-right tabular-nums text-ctp-green" } else { "  py-4 pr-6 text-right tabular-nums text-ctp-red" },
                                     if loaded {
                                         div { "{fmt_signed(p_day, 2)}" }
                                         div { class: "text-xs", "{p_day_pct:+.2}%" }
                                     } else { "--" }
                                 }
                                 td {
-                                    class: "py-4 pr-6 text-right tabular-nums",
-                                    style: if p_pnl >= Decimal::ZERO { "color:var(--green)" } else { "color:var(--red)" },
+                                    class: if p_pnl >= Decimal::ZERO { " py-4 pr-6 text-right tabular-nums text-ctp-green" } else { " py-4 pr-6 text-right tabular-nums text-ctp-red" },
                                     div { "{fmt_signed(p_pnl, 2)}" }
                                     div { class: "text-xs", "{p_pnl_pct:+.2}%" }
                                 }

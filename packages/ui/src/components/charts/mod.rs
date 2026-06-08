@@ -40,14 +40,11 @@ pub fn ChartSection(
     let period_key = active_period.read().clone();
 
     rsx! {
-        div {
-            class: "border-b border-ctp-surface0",
-            div {
-                class: "flex items-center justify-between px-6 pt-4 pb-3",
-                div {
-                    class: "flex items-center gap-0.5",
+        div { class: "border-b border-ctp-surface0",
+            div { class: "flex items-center justify-between px-6 pt-4 pb-3",
+                div { class: "flex items-center gap-0.5",
                     for p in ["1D", "5D", "1M", "6M", "YTD", "1Y", "All"] {
-                        PeriodButton { label: p.to_string(), active_period, }
+                        PeriodButton { label: p.to_string(), active_period }
                     }
                 }
             }
@@ -71,8 +68,8 @@ pub fn ChartSection(
                     chart_dates,
                     series: vec![
                         Series {
-                            name:   "Portfolio".into(),
-                            color:  line_color.into(),
+                            name: "Portfolio".into(),
+                            color: line_color.into(),
                             values: chart_values,
                         },
                     ],

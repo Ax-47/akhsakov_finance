@@ -80,9 +80,6 @@ pub fn GrowthChart(
     });
 
     rsx! {
-        div {
-            id: "{chart_id}",
-            style: "width:100%;height:{height}px;",
-        }
+        div { id: "{chart_id}", style: "width:100%;height:{height}px;" }
     }
 }

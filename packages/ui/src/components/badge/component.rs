@@ -66,9 +66,6 @@ fn BadgeElement(props: BadgeProps) -> Element {
 #[component]
 pub fn VerifiedIcon() -> Element {
     rsx! {
-        BadgeCheck {
-            size: "12px",
-            stroke: "var(--secondary-color-4)",
-        }
+        BadgeCheck { size: "12px", stroke: "var(--secondary-color-4)" }
     }
 }

@@ -86,35 +86,35 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             portfolio_id: pid,
             ticker_symbol: TickerSymbol::new("AAPL").unwrap(),
             asset_class: AssetClass::Stock,
-            quantity: Quantity::new(dec!(0.51)).unwrap(),
+            quantity: Quantity::new(dec!(0.511797)).unwrap(),
             cost: Money::new(dec!(298.38), Currency::Usd).unwrap(),
         },
         GetAssetResponse {
             portfolio_id: pid,
             ticker_symbol: TickerSymbol::new("AMD").unwrap(),
             asset_class: AssetClass::Stock,
-            quantity: Quantity::new(dec!(0.51)).unwrap(),
+            quantity: Quantity::new(dec!(0.519376)).unwrap(),
             cost: Money::new(dec!(447.83), Currency::Usd).unwrap(),
         },
         GetAssetResponse {
             portfolio_id: pid,
             ticker_symbol: TickerSymbol::new("TSM").unwrap(),
             asset_class: AssetClass::Crypto,
-            quantity: Quantity::new(dec!(0.38)).unwrap(),
+            quantity: Quantity::new(dec!(0.383375)).unwrap(),
             cost: Money::new(dec!(397.00), Currency::Usd).unwrap(),
         },
         GetAssetResponse {
             portfolio_id: pid,
             ticker_symbol: TickerSymbol::new("VOO").unwrap(),
             asset_class: AssetClass::Etf,
-            quantity: Quantity::new(dec!(0.22)).unwrap(),
+            quantity: Quantity::new(dec!(0.220027)).unwrap(),
             cost: Money::new(dec!(695.05), Currency::Usd).unwrap(),
         },
         GetAssetResponse {
             portfolio_id: pid,
             ticker_symbol: TickerSymbol::new("NVDA").unwrap(),
             asset_class: AssetClass::Stock,
-            quantity: Quantity::new(dec!(1.40)).unwrap(),
+            quantity: Quantity::new(dec!(1.405399)).unwrap(),
             cost: Money::new(dec!(217.82), Currency::Usd).unwrap(),
         },
     ];
@@ -130,6 +130,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
     let transactions = vec![
         Transaction {
             id: Uuid::new_v4(),
+            portfolio_id: pid,
             ticker: "NVDA".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.354565),
@@ -138,6 +139,8 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "NVDA".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.354565),
@@ -146,6 +149,8 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "NVDA".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.696269),
@@ -154,6 +159,8 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "AMD".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.148258),
@@ -162,6 +169,8 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "AMD".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.371118),
@@ -170,6 +179,8 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "VOO".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.220027),
@@ -178,6 +189,8 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "AAPL".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.511797),
@@ -186,10 +199,21 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         },
         Transaction {
             id: Uuid::new_v4(),
+
+            portfolio_id: pid,
             ticker: "TSM".into(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.383375),
             price: dec!(397.00),
+            date: "2026-05-20".into(),
+        },
+        Transaction {
+            id: Uuid::new_v4(),
+            portfolio_id: pid1,
+            ticker: "AMD".into(),
+            transaction_type: TransactionType::Buy,
+            shares: dec!(0.0594),
+            price: dec!(514.98),
             date: "2026-05-20".into(),
         },
     ];

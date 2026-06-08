@@ -4,7 +4,7 @@ use ui::{App, Echo, Hero};
 #[component]
 pub fn Home() -> Element {
     rsx! {
-        App{
+        App {
             Hero {}
             Echo {}
         }

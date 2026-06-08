@@ -134,9 +134,7 @@ pub fn ColorPicker(props: ColorPickerProps) -> Element {
             default_open: props.default_open,
             on_open_change: props.on_open_change,
             attributes: props.attributes,
-            ColorPickerTrigger {
-                label: props.label,
-            }
+            ColorPickerTrigger { label: props.label }
             ColorPickerPopover {
                 ColorPickerSelect {}
                 {props.children}
@@ -176,7 +174,9 @@ pub fn ColorPickerTrigger(props: ColorPickerTriggerProps) -> Element {
             aria_expanded: (ctx.open)(),
             attributes: props.attributes,
             ColorSwatch { color: ctx.color }
-            if let Some(label) = props.label { span { {label} } }
+            if let Some(label) = props.label {
+                span { {label} }
+            }
             {props.children}
         }
     }
@@ -258,9 +258,7 @@ fn ColorField(props: ColorFieldProps) -> Element {
     });
 
     rsx! {
-        div {
-            class: Styles::dx_color_field_container,
-            ..props.attributes,
+        div { class: Styles::dx_color_field_container, ..props.attributes,
             if let Some(label) = props.label {
                 Label {
                     html_for: "color_field",
@@ -391,9 +389,7 @@ fn ColorSlider(props: ColorSliderProps) -> Element {
 
     rsx! {
 
-        div {
-            class: Styles::dx_color_slider_container,
-            ..props.attributes,
+        div { class: Styles::dx_color_slider_container, ..props.attributes,
             label { class: Styles::dx_color_slider_title, {props.title} }
             output { class: Styles::dx_color_slider_output, "{display_value}" }
             Slider {
@@ -408,8 +404,7 @@ fn ColorSlider(props: ColorSliderProps) -> Element {
                     current_hue.set(h);
                     ctx.set_hue(h);
                 },
-                SliderTrack {
-                    class: Styles::dx_color_slider_track,
+                SliderTrack { class: Styles::dx_color_slider_track,
                     SliderThumb {
                         class: Styles::dx_color_slider_thumb,
                         aria_label: "Hue",
@@ -430,16 +425,10 @@ fn ColorArea(props: ColorAreaProps) -> Element {
             class: Styles::dx_color_area_container,
             step: props.step,
             attributes: props.attributes,
-            color_picker::AreaTrack {
-                class: Styles::dx_color_area_track,
-                color_picker::AreaThumb {
-                    class: Styles::dx_color_area_thumb,
-                    color_picker::AreaThumbSaturationInput {
-                        class: Styles::dx_color_area_input,
-                    }
-                    color_picker::AreaThumbValueInput {
-                        class: Styles::dx_color_area_input,
-                    }
+            color_picker::AreaTrack { class: Styles::dx_color_area_track,
+                color_picker::AreaThumb { class: Styles::dx_color_area_thumb,
+                    color_picker::AreaThumbSaturationInput { class: Styles::dx_color_area_input }
+                    color_picker::AreaThumbValueInput { class: Styles::dx_color_area_input }
                 }
             }
             {props.children}
@@ -463,13 +452,10 @@ pub fn ColorPickerSelect(props: ColorPickerSelectProps) -> Element {
     let ctx = use_context::<ColorPickerContext>();
 
     rsx! {
-        div {
-            class: Styles::dx_color_picker_dialog,
-            ..props.attributes,
+        div { class: Styles::dx_color_picker_dialog, ..props.attributes,
             ColorArea {}
             ColorSlider { title: "Hue" }
-            div {
-                class: Styles::dx_color_picker_input,
+            div { class: Styles::dx_color_picker_input,
                 ColorField { label: "Hex" }
                 ColorSwatch { color: ctx.color() }
             }
