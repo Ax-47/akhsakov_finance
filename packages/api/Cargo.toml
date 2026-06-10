@@ -13,9 +13,15 @@ uuid = { workspace = true, version = "1.23.2", features = ["v4", "serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 rust_decimal_macros = "1"
-reqwest = { workspace = true, version = "0.13", features = ["json"] }
+reqwest = { workspace = true, version = "0.13", features =  ["json", "cookies"] }
 futures = {workspace = true,version="0.3"}
 tokio = { workspace = true,version = "1", features = ["full"] }
 tokio-stream = {workspace = true,version="0.1"}
+once_cell = {workspace = true,version="1"}
+tokio-tungstenite = {workspace = true,version="0.29.0"}
+tungstenite = {workspace = true,version="0.29.0"}
+thiserror = { workspace = true, version = "2.0.18" }
+yfinance-rs ={ workspace = true, version ="0.8.0"}
+async-trait ={ workspace = true, version ="0.1.89"}
 [features]
 server = ["dioxus/server"]

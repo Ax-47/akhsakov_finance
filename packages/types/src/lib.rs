@@ -1,10 +1,14 @@
 pub mod asset_class;
+pub mod candle;
 pub mod cash_flow;
 pub mod currency;
 pub mod error;
+pub mod interval;
 pub mod money;
 mod primitive_amount;
 pub mod quantity;
+pub mod quote;
+pub mod range;
 pub mod return_pct;
 pub mod ticker_symbol;
 pub mod trade_date;

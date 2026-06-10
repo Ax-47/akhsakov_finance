@@ -9,6 +9,8 @@ pub mod transaction;
 pub mod prices;
 pub use prices::*;
 
+pub mod quote;
+pub use quote::*;
 pub mod transactions;
 pub use transactions::get_transactions;
 

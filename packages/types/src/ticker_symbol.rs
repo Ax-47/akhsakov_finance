@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, ops::Deref};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TickerSymbol(String);
 
@@ -15,7 +15,18 @@ impl TickerSymbol {
         &self.0
     }
 }
+impl Deref for TickerSymbol {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
+impl Into<String> for TickerSymbol {
+    fn into(self) -> String {
+        self.0
+    }
+}
 impl fmt::Display for TickerSymbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

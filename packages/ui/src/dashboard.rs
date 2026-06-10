@@ -1,5 +1,8 @@
 use crate::{
-    components::{charts::AllocationCard, section_header::SectionHeader},
+    components::{
+        analysis::CAPMCard, analysis::MptAnalysisCard, charts::AllocationCard,
+        section_header::SectionHeader,
+    },
     hooks::{use_portfolio, PortfolioState},
 };
 use dioxus::prelude::*;
@@ -23,9 +26,10 @@ pub fn Dashboard() -> Element {
         pnl_pct,
         day_pct,
         allocation,
+        mpt,
+        beta_map,
         ..
     } = use_portfolio();
-    let pos = positions.clone();
 
     let recent_txns: Vec<Transaction> = {
         let mut txs = data().transactions.clone();
@@ -51,6 +55,8 @@ pub fn Dashboard() -> Element {
                 live: loaded && !positions.is_empty(),
                 on_refresh: move |_| {},
             }
+
+            // ── Summary stat cards ────────────────────────────────────────────
             div { class: "grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6",
                 StatCard {
                     label: "Total Value",
@@ -90,13 +96,29 @@ pub fn Dashboard() -> Element {
                     span { class: "text-xs", "Add transactions to get started" }
                 }
             } else {
+                // ── Holdings + allocation sidebar ─────────────────────────────
                 div {
                     class: "grid gap-5 mb-5",
                     style: "grid-template-columns:1fr 280px;",
                     HoldingsTable { positions: positions.clone() }
                     AllocationCard { allocation: allocation.clone() }
-
                 }
+
+                // ── MPT analysis row ──────────────────────────────────────────
+                div { class: "mb-5",
+                    MptAnalysisCard { mpt }
+                }
+
+                // ── CAPM analysis row ─────────────────────────────────────────
+                div { class: "mb-5",
+                    CAPMCard {
+                        positions: positions.clone(),
+                        total_value,
+                        beta_map,
+                    }
+                }
+
+                // ── Recent transactions ───────────────────────────────────────
                 if !recent_txns.is_empty() {
                     RecentTransactions { transactions: recent_txns }
                 }
@@ -104,6 +126,9 @@ pub fn Dashboard() -> Element {
         }
     }
 }
+
+// ─── HoldingsTable ────────────────────────────────────────────────────────────
+
 #[component]
 fn HoldingsTable(positions: Vec<Position>) -> Element {
     rsx! {
@@ -159,6 +184,8 @@ fn HoldingsTable(positions: Vec<Position>) -> Element {
     }
 }
 
+// ─── RecentTransactions ───────────────────────────────────────────────────────
+
 #[component]
 fn RecentTransactions(transactions: Vec<Transaction>) -> Element {
     rsx! {
@@ -201,42 +228,19 @@ fn RecentTransactions(transactions: Vec<Transaction>) -> Element {
         }
     }
 }
-// ── StatCard ──────────────────────────────────────────────────────────────────
+
+// ─── StatCard ─────────────────────────────────────────────────────────────────
 
 #[component]
 fn StatCard(label: String, value: String, sub: String, color: String, icon: String) -> Element {
     rsx! {
-        div {
-            class: "
-                    rounded-xl
-                    border border-ctp-surface0
-                    bg-ctp-base
-                    p-4
-                ",
-
-            div {
-                class: "flex items-center justify-between",
-
-                span {
-                    class: "text-sm text-ctp-subtext1",
-                    "{label}"
-                }
-
-                span {
-                    class: "{color} text-xl",
-                    "{icon}"
-                }
+        div { class: "rounded-xl border border-ctp-surface0 bg-ctp-base p-4",
+            div { class: "flex items-center justify-between",
+                span { class: "text-sm text-ctp-subtext1", "{label}" }
+                span { class: "{color} text-xl", "{icon}" }
             }
-
-            div {
-                class: "mt-2 text-2xl font-bold text-ctp-text",
-                "{value}"
-            }
-
-            div {
-                class: "mt-1 text-xs text-ctp-subtext0",
-                "{sub}"
-            }
+            div { class: "mt-2 text-2xl font-bold text-ctp-text", "{value}" }
+            div { class: "mt-1 text-xs text-ctp-subtext0", "{sub}" }
         }
     }
 }
@@ -251,7 +255,6 @@ fn fmt_usd(value: Decimal, decimals: u32) -> String {
         .round()
         .to_string();
     let whole_str = whole.to_string();
-
     let mut out = String::new();
     for (i, c) in whole_str.chars().rev().enumerate() {
         if i > 0 && i % 3 == 0 {
@@ -261,7 +264,6 @@ fn fmt_usd(value: Decimal, decimals: u32) -> String {
     }
     let whole_fmt: String = out.chars().rev().collect();
     let sign = if neg { "-" } else { "" };
-
     if decimals == 0 {
         format!("{sign}${whole_fmt}")
     } else {

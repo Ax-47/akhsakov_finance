@@ -1,3 +1,5 @@
+use super::mpt::{compute_mpt, MptAnalysis};
+
 use super::use_price_stream;
 use dioxus::prelude::*;
 use dtos::{
@@ -24,11 +26,16 @@ pub struct PortfolioState {
     pub pnl_pct: Decimal,
     pub day_pct: Decimal,
     pub allocation: Vec<(String, Decimal)>,
+    /// Modern Portfolio Theory analytics — `None` until prices are loaded.
+    pub mpt: Option<MptAnalysis>,
+    /// Beta values sourced from the price stream.
+    /// Populated when the backend provides beta alongside price/change_pct.
+    /// Empty map = all tickers default to β = 1.0 inside CAPMCard.
+    pub beta_map: HashMap<String, Decimal>,
 }
 
 pub fn use_portfolio() -> PortfolioState {
     let data = use_context::<Signal<GetDashBoardResponse>>();
-
     let tickers: Vec<String> = data()
         .transactions
         .iter()
@@ -38,11 +45,20 @@ pub fn use_portfolio() -> PortfolioState {
         .collect();
 
     let price_map = use_price_stream(tickers);
-
     let prices: HashMap<String, (Decimal, Decimal)> = price_map
         .read()
         .iter()
         .map(|(k, u)| (k.clone(), (u.price, u.change_pct)))
+        .collect();
+
+    // Extract beta if the price-stream PriceUpdate exposes it.
+    // Falls back to an empty map so CAPMCard defaults everything to β = 1.0.
+    // When your backend adds `beta: Option<Decimal>` to PriceUpdate, this
+    // will populate automatically with no further changes needed here.
+    let beta_map: HashMap<String, Decimal> = price_map
+        .read()
+        .iter()
+        .filter_map(|(k, u)| u.beta.map(|b| (k.clone(), b)))
         .collect();
 
     let loaded = !prices.is_empty();
@@ -72,6 +88,14 @@ pub fn use_portfolio() -> PortfolioState {
         })
         .collect();
     allocation.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Compute MPT analysis only when live prices are available.
+    let mpt = if loaded {
+        compute_mpt(&positions, total_value)
+    } else {
+        None
+    };
+
     PortfolioState {
         ticker_price_map: prices.iter().map(|(k, (p, _))| (k.clone(), *p)).collect(),
         change_map: prices.iter().map(|(k, (_, c))| (k.clone(), *c)).collect(),
@@ -86,6 +110,8 @@ pub fn use_portfolio() -> PortfolioState {
         pnl_pct,
         day_pct,
         allocation,
+        mpt,
+        beta_map,
     }
 }
 
