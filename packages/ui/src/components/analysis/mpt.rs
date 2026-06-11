@@ -2,6 +2,7 @@ use crate::hooks::mpt::{ConcentrationRisk, MptAnalysis};
 use dioxus::prelude::*;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
+use types::ticker_symbol::TickerSymbol;
 
 // ─── Palette for the weight bar chart ─────────────────────────────────────────
 
@@ -183,7 +184,7 @@ fn ConcentrationGauge(risk: ConcentrationRisk, hhi: Decimal) -> Element {
 
 /// Stacked horizontal bar showing each position's share of the portfolio.
 #[component]
-fn WeightChart(weights: Vec<(String, Decimal)>) -> Element {
+fn WeightChart(weights: Vec<(TickerSymbol, Decimal)>) -> Element {
     rsx! {
         div { class: "p-4 border-t border-ctp-surface1",
             div { class: "flex items-center justify-between mb-2",

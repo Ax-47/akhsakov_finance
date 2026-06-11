@@ -17,6 +17,7 @@ use dtos::Position;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
+use types::ticker_symbol::TickerSymbol;
 
 // ─── Public inputs / outputs ──────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ impl CAPMInputs {
 /// CAPM metrics for a single position.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PositionCAPM {
-    pub ticker: String,
+    pub ticker: TickerSymbol,
     /// Portfolio weight (0–1).
     pub weight: Decimal,
     /// Beta used (1.0 if not supplied in beta_map).
@@ -100,7 +101,7 @@ pub struct PortfolioCAPM {
 pub fn compute_capm(
     positions: &[Position],
     total_value: Decimal,
-    beta_map: &HashMap<String, Decimal>,
+    beta_map: &HashMap<TickerSymbol, Decimal>,
     inputs: &CAPMInputs,
 ) -> Option<PortfolioCAPM> {
     if positions.is_empty() || total_value <= Decimal::ZERO {

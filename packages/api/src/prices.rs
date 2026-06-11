@@ -3,13 +3,14 @@ use dioxus::{
     logger::tracing,
     prelude::*,
 };
+#[cfg(feature = "server")]
+use futures::future::join_all;
+#[cfg(feature = "server")]
+use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use serde_json;
-
-use futures::future::join_all;
-use once_cell::sync::Lazy;
 use std::{
     collections::HashMap,
     sync::{
@@ -18,6 +19,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[cfg(feature = "server")]
 use tokio::sync::Mutex;
 /// Fetch live prices for a list of tickers.
 /// Returns ticker → (current_price, daily_change_pct).
@@ -56,6 +58,7 @@ pub async fn get_live_prices(
     Ok(prices)
 }
 
+#[cfg(feature = "server")]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PriceUpdate {
     pub ticker: String,
@@ -70,12 +73,15 @@ pub struct PriceUpdate {
 
 /// Holds a `reqwest::Client` whose internal cookie jar is pre-seeded with the
 /// Yahoo Finance session cookies, plus the matching crumb token.
+///
+#[cfg(feature = "server")]
 struct YahooSession {
     /// The client carries the cookie jar — never share a client across sessions.
     client: reqwest::Client,
     crumb: String,
 }
 
+#[cfg(feature = "server")]
 static SESSION: Lazy<Mutex<Option<YahooSession>>> = Lazy::new(|| Mutex::new(None));
 
 const YF_HOME: &str = "https://finance.yahoo.com/";
@@ -83,6 +89,8 @@ const CRUMB_URL: &str = "https://query1.finance.yahoo.com/v1/test/getcrumb";
 
 /// Build a fresh cookie-jar client, seed it by visiting Yahoo Finance, then
 /// exchange the cookies for a crumb token.  Returns `None` on any failure.
+///
+#[cfg(feature = "server")]
 async fn init_session() -> Option<YahooSession> {
     let jar = Arc::new(reqwest::cookie::Jar::default());
     let client = reqwest::Client::builder()
@@ -125,6 +133,7 @@ async fn init_session() -> Option<YahooSession> {
 
 /// Return `(client_clone, crumb)` for the current session, optionally forcing
 /// a full re-initialisation (used after detecting an expired crumb).
+#[cfg(feature = "server")]
 async fn get_session(reset: bool) -> Option<(reqwest::Client, String)> {
     let mut guard = SESSION.lock().await;
     if reset || guard.is_none() {
@@ -135,20 +144,23 @@ async fn get_session(reset: bool) -> Option<(reqwest::Client, String)> {
 
 // ─── Beta cache ───────────────────────────────────────────────────────────────
 
+#[cfg(feature = "server")]
 struct CachedBeta {
     value: Option<Decimal>,
     fetched_at: Instant,
 }
 
+#[cfg(feature = "server")]
 /// Beta rarely changes — refresh every 6 hours.
 const BETA_TTL: Duration = Duration::from_secs(6 * 3600);
 
+#[cfg(feature = "server")]
 static BETA_CACHE: Lazy<Mutex<HashMap<String, CachedBeta>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 // ─── Server function ──────────────────────────────────────────────────────────
 
-#[get("/api/prices/stream")]
+#[cfg(feature = "server")]
 pub async fn price_stream(
     tickers: Vec<String>,
 ) -> Result<Streaming<Vec<PriceUpdate>, JsonEncoding>, ServerFnError> {
@@ -167,6 +179,8 @@ pub async fn price_stream(
 
 /// Fetch all tickers, retrying once with a fresh session if the crumb has
 /// expired mid-stream.
+///
+#[cfg(feature = "server")]
 async fn fetch_prices(tickers: &[String]) -> Vec<PriceUpdate> {
     for attempt in 0u8..2 {
         let Some((client, crumb)) = get_session(attempt > 0).await else {
@@ -199,6 +213,8 @@ async fn fetch_prices(tickers: &[String]) -> Vec<PriceUpdate> {
 }
 
 /// Fetch price data and attach a (possibly cached) beta, concurrently.
+
+#[cfg(feature = "server")]
 async fn fetch_one(
     client: &reqwest::Client,
     crumb: &str,
@@ -220,6 +236,7 @@ async fn fetch_one(
 
 // ─── Chart (price + change_pct) ───────────────────────────────────────────────
 
+#[cfg(feature = "server")]
 async fn fetch_chart(
     client: &reqwest::Client,
     crumb: &str,
@@ -247,6 +264,7 @@ async fn fetch_chart(
 
 // ─── Beta (cached) ────────────────────────────────────────────────────────────
 
+#[cfg(feature = "server")]
 async fn resolve_beta(client: &reqwest::Client, crumb: &str, ticker: &str) -> Option<Decimal> {
     // Fast path: still within TTL.
     {
@@ -270,6 +288,7 @@ async fn resolve_beta(client: &reqwest::Client, crumb: &str, ticker: &str) -> Op
     fetched
 }
 
+#[cfg(feature = "server")]
 async fn fetch_beta_remote(client: &reqwest::Client, crumb: &str, ticker: &str) -> Option<Decimal> {
     let url = format!(
         "https://query1.finance.yahoo.com/v10/finance/quoteSummary/\
@@ -297,6 +316,7 @@ async fn fetch_beta_remote(client: &reqwest::Client, crumb: &str, ticker: &str) 
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "server")]
 fn is_crumb_error(json: &serde_json::Value) -> bool {
     // Chart v8:      {"chart":{"error":{"code":"Unauthorized"}}}
     // quoteSummary:  {"quoteSummary":{"error":{"code":"Unauthorized"}}}

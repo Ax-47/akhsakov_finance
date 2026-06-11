@@ -7,13 +7,16 @@ use dtos::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::collections::HashMap;
-use types::transaction_type::TransactionType;
+use std::collections::{HashMap, HashSet};
+use types::{
+    interval::Interval, range::Range, ticker_symbol::TickerSymbol,
+    transaction_type::TransactionType,
+};
 
 pub struct DashboardState {
-    pub prices: HashMap<String, (Decimal, Decimal)>,
-    pub ticker_price_map: HashMap<String, Decimal>,
-    pub change_map: HashMap<String, Decimal>,
+    pub prices: HashMap<TickerSymbol, (Decimal, Decimal)>,
+    pub ticker_price_map: HashMap<TickerSymbol, Decimal>,
+    pub change_map: HashMap<TickerSymbol, Decimal>,
     pub loaded: bool,
     pub positions: Vec<Position>,
     pub realized: Decimal,
@@ -29,23 +32,41 @@ pub struct DashboardState {
 pub fn use_dashboard() -> DashboardState {
     let data = use_context::<Signal<GetDashBoardResponse>>();
 
-    let tickers: Vec<String> = data()
-        .transactions
-        .iter()
-        .map(|tx| tx.ticker.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
+    let tickers = use_memo(move || {
+        data()
+            .transactions
+            .iter()
+            .map(|tx| tx.ticker.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    });
 
-    let price_map = use_price_stream(tickers);
+    let (price_stream, chart_stream) = use_price_stream(
+        tickers,
+        Range::D1, // or expose as params
+        Interval::I2m,
+        true,
+    );
 
-    let prices: HashMap<String, (Decimal, Decimal)> = price_map
+    let prices: HashMap<TickerSymbol, (Decimal, Decimal)> = price_stream
         .read()
         .iter()
-        .map(|(k, u)| (k.clone(), (u.price, u.change_pct)))
+        .filter_map(|(k, u)| {
+            let sym = TickerSymbol::new(k).ok()?;
+            Some((sym, (u.current_price, u.current_price)))
+        })
         .collect();
 
     let loaded = !prices.is_empty();
+
+    let mut ticker_price_map = HashMap::new();
+    let mut change_map = HashMap::new();
+    for (k, (p, c)) in &prices {
+        ticker_price_map.insert(k.clone(), *p);
+        change_map.insert(k.clone(), *c);
+    }
+
     let positions = compute_positions(&data(), &prices);
     let realized = compute_realized_pnl(&data());
     let (total_value, total_cost, total_pnl, day_change) = portfolio_summary(&positions);
@@ -62,10 +83,10 @@ pub fn use_dashboard() -> DashboardState {
     };
 
     DashboardState {
-        ticker_price_map: prices.iter().map(|(k, (p, _))| (k.clone(), *p)).collect(),
-        change_map: prices.iter().map(|(k, (_, c))| (k.clone(), *c)).collect(),
-        chart_positive: total_pnl >= Decimal::ZERO,
         prices,
+        ticker_price_map,
+        change_map,
+        chart_positive: total_pnl >= Decimal::ZERO,
         loaded,
         positions,
         realized,
@@ -79,9 +100,8 @@ pub fn use_dashboard() -> DashboardState {
 }
 
 fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
-    let mut book: HashMap<String, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
+    let mut book: HashMap<TickerSymbol, (Decimal, Decimal)> = HashMap::new();
     let mut realized = Decimal::ZERO;
-
     for tx in &data.transactions {
         match tx.transaction_type {
             TransactionType::Buy => {
@@ -91,11 +111,12 @@ fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
             }
             TransactionType::Sell => {
                 if let Some((cost, shares)) = book.get_mut(&tx.ticker) {
-                    if *shares > Decimal::ZERO {
+                    if *shares >= tx.shares {
                         let avg = *cost / *shares;
-                        realized += tx.shares * (tx.price - avg);
-                        *cost -= tx.shares * avg;
-                        *shares -= tx.shares;
+                        let sold = tx.shares.min(*shares);
+                        realized += sold * (tx.price - avg);
+                        *cost -= sold * avg;
+                        *shares -= sold;
                     }
                 }
             }

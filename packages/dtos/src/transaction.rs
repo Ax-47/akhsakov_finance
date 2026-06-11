@@ -1,13 +1,13 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use types::transaction_type::TransactionType;
+use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: Uuid,
     pub portfolio_id: Uuid,
-    pub ticker: String,
+    pub ticker: TickerSymbol,
     pub transaction_type: TransactionType,
     pub shares: Decimal,
     pub price: Decimal,

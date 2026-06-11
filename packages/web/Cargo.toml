@@ -9,8 +9,7 @@ ui = { workspace = true }
 api = { workspace = true }
 dtos = { workspace = true }
 types = { workspace = true }
-
 [features]
 default = []
-server = ["dioxus/server", "ui/server", "api/server"]
+server = ["dioxus/server", "api/server"]
 web = ["dioxus/web"]

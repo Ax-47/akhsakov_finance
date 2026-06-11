@@ -1,9 +1,14 @@
 use crate::events::quote_update_event::QuoteUpdateEvent;
+
+#[cfg(feature = "server")]
 use crate::services::quote::QuoteService;
 use dioxus::fullstack::*;
 use dioxus::prelude::*;
+
+#[cfg(feature = "server")]
 use dioxus::server::axum::Extension;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "server")]
 use tokio::select;
 use types::candle::Candle;
 use types::interval::Interval;
@@ -17,7 +22,7 @@ pub enum ClientEvent {
 }
 
 #[get("/api/quotes", quote_service: Extension<QuoteService>)]
-pub async fn subscribe(
+pub async fn quote_subscribe(
     options: WebSocketOptions,
 ) -> Result<Websocket<ClientEvent, QuoteUpdateEvent, JsonEncoding>> {
     Ok(options.on_upgrade(
@@ -43,12 +48,13 @@ pub async fn get_chart(
             details: None,
         })
 }
+
+#[cfg(feature = "server")]
 async fn handle_socket(
     mut socket: TypedWebsocket<ClientEvent, QuoteUpdateEvent, JsonEncoding>,
     quote_service: Extension<QuoteService>,
 ) {
     let mut rx = quote_service.subscribe().await;
-    _ = socket.send(QuoteUpdateEvent::Init).await;
     loop {
         select! {
             msg = socket.recv() => match msg {
@@ -56,16 +62,22 @@ async fn handle_socket(
                     for ticker in tickers {
                         let _ = quote_service.watch(ticker).await;
                     }
+                    rx = quote_service.subscribe().await;
                 }
                 Ok(ClientEvent::Unwatch(ticker)) => {
                     let _ = quote_service.unwatch(&ticker).await;
+                    rx = quote_service.subscribe().await;
                 }
                 Err(_)=>break,
             },
-            Ok(()) = rx.changed() => {
-                if socket.send(rx.borrow_and_update().clone()).await.is_err() {
-                    break;
-                }
+            res = rx.recv() =>match res {
+                Ok(q) =>{
+                    println!("{q:?}");
+                    if socket.send(q).await.is_err() {
+                        break;
+                    }
+                },
+                Err(_)=>{},
             }
         }
     }

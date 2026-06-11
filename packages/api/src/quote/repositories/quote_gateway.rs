@@ -1,15 +1,21 @@
+#[cfg(feature = "server")]
 use crate::{
     events::quote_update_event::QuoteUpdateEvent, infrastructures::yahoo_gateway::YahooGateWay,
     repositories::quote_gateway_errors::QuoteGateWayError,
 };
+
+#[cfg(feature = "server")]
 use async_trait::async_trait;
-use tokio::sync::watch::Receiver;
+
+#[cfg(feature = "server")]
+use tokio::sync::broadcast::Receiver;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
 // ─────────────────────────────────────────────
 //  Gateway Trait
 // ─────────────────────────────────────────────
 
+#[cfg(feature = "server")]
 #[async_trait]
 pub trait QuoteGateway: Send + Sync {
     async fn subscribe(&self) -> Receiver<QuoteUpdateEvent>;
@@ -23,6 +29,8 @@ pub trait QuoteGateway: Send + Sync {
         is_prepost_market: bool,
     ) -> Result<Vec<Candle>, QuoteGateWayError>;
 }
+
+#[cfg(feature = "server")]
 #[async_trait]
 impl QuoteGateway for YahooGateWay {
     async fn subscribe(&self) -> Receiver<QuoteUpdateEvent> {

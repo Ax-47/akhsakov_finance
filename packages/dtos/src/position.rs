@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
-use types::transaction_type::TransactionType;
+use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 
 use crate::{portfolio::GetDashBoardResponse, transaction::AppData};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Position {
-    pub ticker: String,
+    pub ticker: TickerSymbol,
     pub shares: Decimal,
     pub avg_cost: Decimal,
     pub current_price: Decimal,
@@ -43,9 +43,9 @@ impl Position {
 /// `prices` maps ticker → (current_price, daily_change_pct).
 pub fn compute_positions(
     data: &GetDashBoardResponse,
-    prices: &HashMap<String, (Decimal, Decimal)>,
+    prices: &HashMap<TickerSymbol, (Decimal, Decimal)>,
 ) -> Vec<Position> {
-    let mut map: HashMap<String, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
+    let mut map: HashMap<TickerSymbol, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
 
     for tx in &data.transactions {
         let e = map.entry(tx.ticker.clone()).or_default();

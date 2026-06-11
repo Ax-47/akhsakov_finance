@@ -75,10 +75,10 @@ pub fn to_yrange(value: Range) -> YRange {
 pub fn to_candle(c: YCandle) -> Candle {
     Candle {
         ts: c.ts,
-        open: c.open.amount(),
-        high: c.high.amount(),
-        low: c.low.amount(),
-        close: c.close.amount(),
-        volume: c.volume,
+        open: c.ohlc.open.into_inner(),
+        high: c.ohlc.high.into_inner(),
+        low: c.ohlc.low.into_inner(),
+        close: c.ohlc.close.into_inner(),
+        volume: None,
     }
 }

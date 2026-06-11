@@ -4,6 +4,7 @@ use dtos::Position;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
+use types::ticker_symbol::TickerSymbol;
 
 // ─── Public component ─────────────────────────────────────────────────────────
 
@@ -26,13 +27,13 @@ pub fn CAPMCard(
     total_value: Decimal,
     /// Optional betas from the price-stream / backend.
     #[props(default)]
-    beta_map: HashMap<String, Decimal>,
+    beta_map: HashMap<TickerSymbol, Decimal>,
 ) -> Element {
     // ── Local state ────────────────────────────────────────────────────────────
     let mut rf_str = use_signal(|| "5.25".to_string());
     let mut rm_str = use_signal(|| "10.00".to_string());
     // Per-ticker beta override strings (text box content)
-    let mut beta_overrides: Signal<HashMap<String, String>> = use_signal(HashMap::new);
+    let mut beta_overrides: Signal<HashMap<TickerSymbol, String>> = use_signal(HashMap::new);
 
     // ── Derive merged beta map and parsed inputs ───────────────────────────────
     let inputs = {
@@ -45,7 +46,7 @@ pub fn CAPMCard(
     };
 
     // Merge: backend beta_map → user overrides (user wins)
-    let merged_betas: HashMap<String, Decimal> = {
+    let merged_betas: HashMap<TickerSymbol, Decimal> = {
         let mut m = beta_map.clone();
         for (ticker, s) in beta_overrides.read().iter() {
             if let Ok(v) = s.parse::<f64>() {
@@ -60,7 +61,7 @@ pub fn CAPMCard(
     let capm = compute_capm(&positions, total_value, &merged_betas, &inputs);
 
     // Unique tickers with live prices for the beta input table
-    let live_tickers: Vec<String> = positions
+    let live_tickers: Vec<TickerSymbol> = positions
         .iter()
         .filter(|p| p.current_price > Decimal::ZERO)
         .map(|p| p.ticker.clone())

@@ -4,7 +4,7 @@ use yfinance_rs::YfError;
 #[derive(Debug, Error)]
 pub enum YahooGateWayError {
     #[error(transparent)]
-    WebSocket(#[from] YfError),
+    GateWay(#[from] YfError),
 
     #[error(transparent)]
     Json(#[from] serde_json::Error),

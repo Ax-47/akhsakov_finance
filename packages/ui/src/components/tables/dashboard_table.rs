@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use dtos::{portfolio::GetDashBoardResponse, position::Position};
 use rust_decimal::Decimal;
+use types::ticker_symbol::TickerSymbol;
 
 use crate::components::tables::{HoldingsTable, PortfoliosTable};
 #[component]
 pub fn DashboardTable(
     data: Signal<GetDashBoardResponse>,
-    price_map: HashMap<String, Decimal>,
-    change_map: HashMap<String, Decimal>,
+    price_map: HashMap<TickerSymbol, Decimal>,
+    change_map: HashMap<TickerSymbol, Decimal>,
     positions: Vec<Position>,
     loaded: bool,
 ) -> Element {

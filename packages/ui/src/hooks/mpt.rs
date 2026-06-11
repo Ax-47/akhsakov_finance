@@ -1,6 +1,7 @@
 use dtos::Position;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
+use types::ticker_symbol::TickerSymbol;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ pub struct MptAnalysis {
     pub concentration_risk: ConcentrationRisk,
 
     /// Ticker with the largest portfolio weight + that weight (%).
-    pub top_holding: (String, Decimal),
+    pub top_holding: (TickerSymbol, Decimal),
 
     /// % of open positions currently showing an unrealized gain.
     pub win_rate: Decimal,
@@ -67,7 +68,7 @@ pub struct MptAnalysis {
     pub diversification_score: Decimal,
 
     /// Per-position weight breakdown for the bar chart: (ticker, weight_pct).
-    pub weights: Vec<(String, Decimal)>,
+    pub weights: Vec<(TickerSymbol, Decimal)>,
 
     /// Total number of live-priced positions used in the analysis.
     pub live_positions: usize,
@@ -179,7 +180,7 @@ pub fn compute_mpt(positions: &[Position], total_value: Decimal) -> Option<MptAn
     };
 
     // ── Weight breakdown for chart ─────────────────────────────────────────────
-    let mut weights: Vec<(String, Decimal)> = live
+    let mut weights: Vec<(TickerSymbol, Decimal)> = live
         .iter()
         .zip(weights_decimal.iter())
         .map(|(p, w)| (p.ticker.clone(), (w * dec!(100)).round_dp(1)))

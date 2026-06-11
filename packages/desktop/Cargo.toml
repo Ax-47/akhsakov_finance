@@ -15,5 +15,5 @@ tokio = { version = "1", features = ["time"] }
 default = []
 # Desktop is fullstack-in-process: needs both the webview renderer AND the
 # server-function executor compiled into the same binary.
-desktop = ["dioxus/desktop", "dioxus/server", "ui/server", "api/server"]
+desktop = ["dioxus/desktop" ]
 server  = ["dioxus/server", "ui/server", "api/server"]

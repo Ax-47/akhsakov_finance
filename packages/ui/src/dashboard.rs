@@ -97,26 +97,26 @@ pub fn Dashboard() -> Element {
                 }
             } else {
                 // ── Holdings + allocation sidebar ─────────────────────────────
-                div {
-                    class: "grid gap-5 mb-5",
-                    style: "grid-template-columns:1fr 280px;",
-                    HoldingsTable { positions: positions.clone() }
-                    AllocationCard { allocation: allocation.clone() }
-                }
+                // div {
+                //     class: "grid gap-5 mb-5",
+                //     style: "grid-template-columns:1fr 280px;",
+                //     HoldingsTable { positions: positions.clone() }
+                //     AllocationCard { allocation: allocation.clone() }
+                // }
 
-                // ── MPT analysis row ──────────────────────────────────────────
-                div { class: "mb-5",
-                    MptAnalysisCard { mpt }
-                }
+                // // ── MPT analysis row ──────────────────────────────────────────
+                // div { class: "mb-5",
+                //     MptAnalysisCard { mpt }
+                // }
 
-                // ── CAPM analysis row ─────────────────────────────────────────
-                div { class: "mb-5",
-                    CAPMCard {
-                        positions: positions.clone(),
-                        total_value,
-                        beta_map,
-                    }
-                }
+                // // ── CAPM analysis row ─────────────────────────────────────────
+                // div { class: "mb-5",
+                //     CAPMCard {
+                //         positions: positions.clone(),
+                //         total_value,
+                //         beta_map,
+                //     }
+                // }
 
                 // ── Recent transactions ───────────────────────────────────────
                 if !recent_txns.is_empty() {

@@ -2,16 +2,10 @@ use crate::{
     components::{charts::*, tables::*},
     hooks::{use_dashboard, DashboardState},
 };
-use api::{price_stream, PriceUpdate};
 use dioxus::prelude::*;
-use dtos::{
-    portfolio::GetDashBoardResponse,
-    position::{compute_positions, portfolio_summary},
-};
+use dtos::portfolio::GetDashBoardResponse;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::collections::HashMap;
-use types::transaction_type::TransactionType;
 
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 

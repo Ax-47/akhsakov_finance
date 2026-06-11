@@ -5,6 +5,8 @@ use dtos::{
     asset::get_asset_response::GetAssetResponse,
     portfolio::get_portfolio_response::GetDashBoardResponse, Transaction,
 };
+
+#[cfg(feature = "server")]
 use futures::future::join_all;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -132,7 +134,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         Transaction {
             id: Uuid::new_v4(),
             portfolio_id: pid,
-            ticker: "NVDA".into(),
+            ticker: TickerSymbol::new("NVDA").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.354565),
             price: dec!(215.87),
@@ -142,7 +144,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "NVDA".into(),
+            ticker: TickerSymbol::new("NVDA").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.354565),
             price: dec!(215.87),
@@ -152,7 +154,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "NVDA".into(),
+            ticker: TickerSymbol::new("NVDA").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.696269),
             price: dec!(219.80),
@@ -162,7 +164,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "AMD".into(),
+            ticker: TickerSymbol::new("AMD").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.148258),
             price: dec!(514.98),
@@ -172,7 +174,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "AMD".into(),
+            ticker: TickerSymbol::new("AMD").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.371118),
             price: dec!(421.00),
@@ -182,7 +184,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "VOO".into(),
+            ticker: TickerSymbol::new("VOO").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.220027),
             price: dec!(695.05),
@@ -192,7 +194,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "AAPL".into(),
+            ticker: TickerSymbol::new("AAPL").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.511797),
             price: dec!(298.38),
@@ -202,7 +204,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
             id: Uuid::new_v4(),
 
             portfolio_id: pid,
-            ticker: "TSM".into(),
+            ticker: TickerSymbol::new("TSM").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.383375),
             price: dec!(397.00),
@@ -211,7 +213,7 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
         Transaction {
             id: Uuid::new_v4(),
             portfolio_id: pid1,
-            ticker: "AMD".into(),
+            ticker: TickerSymbol::new("AMD").unwrap(),
             transaction_type: TransactionType::Buy,
             shares: dec!(0.0594),
             price: dec!(514.98),
@@ -246,7 +248,7 @@ pub async fn get_portfolio_history(
 
     let (interval, range) = period_to_interval(&period);
 
-    let tickers: Vec<String> = transactions
+    let tickers: Vec<TickerSymbol> = transactions
         .iter()
         .map(|t| t.ticker.clone())
         .collect::<std::collections::HashSet<_>>()
@@ -258,14 +260,14 @@ pub async fn get_portfolio_history(
         .build()
         .map_err(|e| ServerFnError::new(e.to_string()))?;
 
-    let fetched: Vec<(String, Vec<(i64, Decimal)>, Option<Decimal>)> = join_all(
+    let fetched: Vec<(TickerSymbol, Vec<(i64, Decimal)>, Option<Decimal>)> = join_all(
         tickers
             .iter()
             .map(|ticker| fetch_ticker(&client, ticker, interval, range)),
     )
     .await;
 
-    let price_histories: HashMap<String, Vec<(i64, Decimal)>> = fetched
+    let price_histories: HashMap<TickerSymbol, Vec<(i64, Decimal)>> = fetched
         .into_iter()
         .filter(|(_, pairs, _)| !pairs.is_empty())
         .map(|(t, pairs, _)| (t, pairs))
@@ -338,10 +340,10 @@ pub async fn get_portfolio_history(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn shares_at(ticker: &str, transactions: &[Transaction], unix_ts: i64) -> Decimal {
+fn shares_at(ticker: &TickerSymbol, transactions: &[Transaction], unix_ts: i64) -> Decimal {
     transactions
         .iter()
-        .filter(|tx| tx.ticker == ticker && date_str_to_unix(&tx.date) <= unix_ts)
+        .filter(|tx| tx.ticker == *ticker && date_str_to_unix(&tx.date) <= unix_ts)
         .map(|tx| match tx.transaction_type {
             TransactionType::Buy => tx.shares,
             TransactionType::Sell => -tx.shares,
@@ -372,12 +374,13 @@ fn format_label(period: &str, dt: &chrono::DateTime<chrono::Utc>) -> String {
     }
 }
 
+#[cfg(feature = "server")]
 async fn fetch_ticker(
     client: &reqwest::Client,
     ticker: &str,
     interval: &str,
     range: &str,
-) -> (String, Vec<(i64, Decimal)>, Option<Decimal>) {
+) -> (TickerSymbol, Vec<(i64, Decimal)>, Option<Decimal>) {
     let url = format!(
         "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval={interval}&range={range}"
     );
@@ -389,11 +392,11 @@ async fn fetch_ticker(
         .ok()
         .and_then(|r| futures::executor::block_on(r.json::<serde_json::Value>()).ok())
     else {
-        return (ticker.to_string(), vec![], None);
+        return (TickerSymbol::new(ticker).unwrap(), vec![], None);
     };
 
     let Some(result) = json["chart"]["result"].get(0) else {
-        return (ticker.to_string(), vec![], None);
+        return (TickerSymbol::new(ticker).unwrap(), vec![], None);
     };
 
     let prev_close = result["meta"]["chartPreviousClose"]
@@ -412,7 +415,7 @@ async fn fetch_ticker(
         .filter_map(|(ts, cl)| Some((ts.as_i64()?, Decimal::from_f64_retain(cl.as_f64()?)?)))
         .collect();
 
-    (ticker.to_string(), pairs, prev_close)
+    (TickerSymbol::new(ticker).unwrap(), pairs, prev_close)
 }
 
 fn date_str_to_unix(date: &str) -> i64 {

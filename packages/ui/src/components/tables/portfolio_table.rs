@@ -3,12 +3,12 @@ use dtos::{asset::get_asset_response::GetAssetResponse, portfolio::GetDashBoardR
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
-use types::transaction_type::TransactionType;
+use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 #[component]
 pub fn PortfoliosTable(
     data: Signal<GetDashBoardResponse>,
-    price_map: HashMap<String, Decimal>,
-    change_map: HashMap<String, Decimal>,
+    price_map: HashMap<TickerSymbol, Decimal>,
+    change_map: HashMap<TickerSymbol, Decimal>,
     loaded: bool,
 ) -> Element {
     rsx! {
@@ -47,7 +47,7 @@ pub fn PortfoliosTable(
                         let p_day_pct  = if p_value > Decimal::ZERO { p_day / p_value * dec!(100) } else { Decimal::ZERO };
                         let p_realized = compute_realized_pnl_for_tickers(
                             &data(),
-                            &port.assets.iter().map(|a| a.ticker_symbol.to_string()).collect::<Vec<_>>(),
+                            &port.assets.iter().map(|a| a.ticker_symbol.clone()).collect::<Vec<_>>(), //FIX: useless clone
                         );
 
                         rsx! {
@@ -97,8 +97,8 @@ pub fn PortfoliosTable(
 
 fn portfolio_stats(
     assets: &[GetAssetResponse],
-    prices: &HashMap<String, Decimal>,
-    changes: &HashMap<String, Decimal>,
+    prices: &HashMap<TickerSymbol, Decimal>,
+    changes: &HashMap<TickerSymbol, Decimal>,
 ) -> (usize, Decimal, Decimal, Decimal, Decimal) {
     let pos_count = assets.len();
 
@@ -111,7 +111,7 @@ fn portfolio_stats(
         .iter()
         .map(|a| {
             let price = prices
-                .get(a.ticker_symbol.as_str())
+                .get(&a.ticker_symbol)
                 .copied()
                 .unwrap_or(Decimal::ZERO);
             a.quantity.value() * price
@@ -122,11 +122,11 @@ fn portfolio_stats(
         .iter()
         .map(|a| {
             let price = prices
-                .get(a.ticker_symbol.as_str())
+                .get(&a.ticker_symbol)
                 .copied()
                 .unwrap_or(Decimal::ZERO);
             let chg_pct = changes
-                .get(a.ticker_symbol.as_str())
+                .get(&a.ticker_symbol)
                 .copied()
                 .unwrap_or(Decimal::ZERO);
             a.quantity.value() * price * chg_pct / dec!(100)
@@ -138,7 +138,7 @@ fn portfolio_stats(
 }
 
 fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
-    let mut book: HashMap<String, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
+    let mut book: HashMap<TickerSymbol, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
     let mut realized = Decimal::ZERO;
 
     for tx in &data.transactions {
@@ -167,7 +167,10 @@ fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
     realized
 }
 
-fn compute_realized_pnl_for_tickers(data: &GetDashBoardResponse, tickers: &[String]) -> Decimal {
+fn compute_realized_pnl_for_tickers(
+    data: &GetDashBoardResponse,
+    tickers: &[TickerSymbol],
+) -> Decimal {
     let set: std::collections::HashSet<_> = tickers.iter().collect();
     let filtered = GetDashBoardResponse {
         transactions: data

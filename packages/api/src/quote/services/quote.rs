@@ -1,7 +1,10 @@
 use std::sync::Arc;
-use tokio::sync::{watch::Receiver, Mutex};
+
+#[cfg(feature = "server")]
+use tokio::sync::{broadcast::Receiver, Mutex};
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
+#[cfg(feature = "server")]
 use crate::{
     events::quote_update_event::QuoteUpdateEvent,
     repositories::{quote_gateway::QuoteGateway, quote_gateway_errors::QuoteGateWayError},
@@ -10,11 +13,14 @@ use crate::{
 // ─────────────────────────────────────────────
 //  Service
 // ─────────────────────────────────────────────
+//
+#[cfg(feature = "server")]
 #[derive(Clone)]
 pub struct QuoteService {
     gateway: Arc<Mutex<dyn QuoteGateway>>,
 }
 
+#[cfg(feature = "server")]
 impl QuoteService {
     pub fn new(gateway: Arc<Mutex<dyn QuoteGateway>>) -> Self {
         Self { gateway }

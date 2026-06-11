@@ -1,5 +1,6 @@
+#[cfg(feature = "server")]
+use api::quote_services_setup;
 use dioxus::prelude::*;
-use dtos::portfolio::get_portfolio_response::GetDashBoardResponse;
 
 use crate::views::Navbar;
 
@@ -16,7 +17,16 @@ enum Route {
 }
 
 fn main() {
+    #[cfg(not(feature = "server"))]
+    dioxus::fullstack::set_server_url("http://127.0.0.1:8080");
+    #[cfg(not(feature = "server"))]
     dioxus::launch(App);
+    #[cfg(feature = "server")]
+    dioxus::serve(|| async move {
+        use dioxus::server::axum::Extension;
+        let router = dioxus::server::router(App).layer(Extension(quote_services_setup()));
+        Ok(router)
+    });
 }
 
 #[component]

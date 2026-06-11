@@ -7,7 +7,7 @@ use dtos::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use types::transaction_type::TransactionType;
+use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 #[component]
 pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
     rsx! {
@@ -142,7 +142,7 @@ fn portfolio_stats(
 }
 
 fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
-    let mut book: HashMap<String, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
+    let mut book: HashMap<TickerSymbol, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
     let mut realized = Decimal::ZERO;
 
     for tx in &data.transactions {
@@ -171,7 +171,10 @@ fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
     realized
 }
 
-fn compute_realized_pnl_for_tickers(data: &GetDashBoardResponse, tickers: &[String]) -> Decimal {
+fn compute_realized_pnl_for_tickers(
+    data: &GetDashBoardResponse,
+    tickers: &[TickerSymbol],
+) -> Decimal {
     let set: std::collections::HashSet<_> = tickers.iter().collect();
     let filtered = GetDashBoardResponse {
         transactions: data

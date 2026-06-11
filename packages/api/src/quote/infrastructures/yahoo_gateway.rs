@@ -7,27 +7,30 @@ use crate::{
 };
 use rust_decimal::Decimal;
 use std::{collections::HashSet, sync::Arc, time::Duration};
+#[cfg(feature = "server")]
 use tokio::sync::{
-    watch::Sender,
-    watch::{channel, Receiver},
+    broadcast::{channel, Receiver, Sender},
     Mutex,
 };
 use types::{
     candle::Candle, interval::Interval, quote::Quote, range::Range, ticker_symbol::TickerSymbol,
 };
+#[cfg(feature = "server")]
 use yfinance_rs::{
     Interval as YInterval, Range as YRange, StreamBuilder, StreamHandle, StreamMethod, Ticker,
     YfClient,
 };
+#[cfg(feature = "server")]
 pub struct YahooGateWay {
     client: YfClient,
     handle: Option<StreamHandle>,
     sender: Sender<QuoteUpdateEvent>,
     tickers: Arc<Mutex<HashSet<TickerSymbol>>>,
 }
+#[cfg(feature = "server")]
 impl YahooGateWay {
     pub fn new() -> Self {
-        let (tx, _) = channel(QuoteUpdateEvent::Init);
+        let (tx, _) = channel(256);
         Self {
             client: YfClient::default(),
             handle: None,
@@ -47,7 +50,8 @@ impl YahooGateWay {
             .interval(Duration::from_secs(1))
             .diff_only(true)
             .cache_mode(yfinance_rs::CacheMode::Use)
-            .start()?;
+            .start()
+            .await?;
 
         self.handle = Some(handle);
         let tx = self.sender.clone();
@@ -57,10 +61,14 @@ impl YahooGateWay {
                     continue;
                 };
                 let quote = Quote {
-                    current_price: update.price.map(|p| p.amount()).unwrap_or(Decimal::ZERO),
+                    ticker_symbol: symbol,
+                    current_price: update
+                        .price
+                        .map(|p| p.into_inner())
+                        .unwrap_or(Decimal::ZERO),
                     previous_close_price: update
                         .previous_close
-                        .map(|p| p.amount())
+                        .map(|p| p.into_inner())
                         .unwrap_or(Decimal::ZERO),
                     timestamp: update.ts.timestamp(),
                 };
@@ -82,7 +90,13 @@ impl YahooGateWay {
         self.subscribe_gateway().await
     }
 
-    pub async fn get_chart( &self, ticker: TickerSymbol, range: Range, interval: Interval, is_prepost_market: bool, ) -> Result<Vec<Candle>, YahooGateWayError> {
+    pub async fn get_chart(
+        &self,
+        ticker: TickerSymbol,
+        range: Range,
+        interval: Interval,
+        is_prepost_market: bool,
+    ) -> Result<Vec<Candle>, YahooGateWayError> {
         let ticker = Ticker::new(&self.client, ticker);
         Ok(ticker
             .history(
