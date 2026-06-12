@@ -23,9 +23,8 @@ pub fn ChartSection(
     let line_color = if is_positive { "#89b4fa" } else { "#f38ba8" };
     let history = use_resource(move || {
         let txs = transactions.read().clone();
-        let period = active_period();
         async move {
-            api::get_portfolio_history(txs, period)
+            api::get_portfolio_history(txs, types::range::Range::D1, types::interval::Interval::I2m)
                 .await
                 .unwrap_or_default()
         }

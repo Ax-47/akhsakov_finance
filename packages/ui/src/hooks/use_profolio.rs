@@ -56,7 +56,13 @@ pub fn use_portfolio() -> PortfolioState {
         .iter()
         .filter_map(|(k, u)| {
             let sym = TickerSymbol::new(k).ok()?;
-            Some((sym, (u.current_price, u.current_price)))
+            Some((
+                sym,
+                (
+                    u.current_price,
+                    (u.previous_close_price - u.current_price) / u.current_price * dec!(100),
+                ),
+            ))
         })
         .collect();
 

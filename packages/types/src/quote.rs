@@ -10,3 +10,10 @@ pub struct Quote {
     pub previous_close_price: Decimal,
     pub timestamp: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuoteUpdate {
+    pub ticker_symbol: TickerSymbol,
+    pub current_price: Decimal,
+    pub timestamp: i64,
+}

@@ -1,7 +1,12 @@
-use types::{candle::Candle, interval::Interval, range::Range};
-use yfinance_rs::{
-    Candle as YCandle, Interval as YInterval, Range as YRange, StreamHandle, StreamMethod, Ticker,
+use types::{
+    candle::Candle, interval::Interval, quote::Quote, range::Range, ticker_symbol::TickerSymbol,
 };
+use yfinance_rs::{
+    Candle as YCandle, Decimal, Interval as YInterval, Quote as YQuote, Range as YRange,
+    StreamHandle, StreamMethod, Ticker,
+};
+
+use crate::infrastructures::yahoo_gateway_error::YahooGateWayError;
 
 pub fn to_yinterval(value: Interval) -> YInterval {
     match value {
@@ -81,4 +86,16 @@ pub fn to_candle(c: YCandle) -> Candle {
         close: c.ohlc.close.into_inner(),
         volume: None,
     }
+}
+
+pub fn to_quote(q: YQuote) -> Result<Quote, YahooGateWayError> {
+    Ok(Quote {
+        ticker_symbol: TickerSymbol::new(&q.instrument.symbol.to_string())?,
+        current_price: q.price.map(|p| p.into_inner()).unwrap_or(Decimal::ZERO),
+        previous_close_price: q
+            .previous_close
+            .map(|p| p.into_inner())
+            .unwrap_or(Decimal::ZERO),
+        timestamp: q.as_of.map(|ts| ts.timestamp()).unwrap_or(0),
+    })
 }

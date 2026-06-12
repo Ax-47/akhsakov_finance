@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "server")]
 use tokio::sync::{broadcast::Receiver, Mutex};
+#[cfg(feature = "server")]
+use types::quote::Quote;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
 #[cfg(feature = "server")]
@@ -38,10 +40,12 @@ impl QuoteService {
         self.gateway.lock().await.remove_ticker(ticker).await
     }
 
+    pub async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
+        self.gateway.lock().await.get_quote(ticker).await
+    }
     pub async fn get_chart(
         &self,
         ticker: TickerSymbol,
-
         range: Range,
         interval: Interval,
         is_prepost_market: bool,

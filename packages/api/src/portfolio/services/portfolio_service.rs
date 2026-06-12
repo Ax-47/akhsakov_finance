@@ -10,11 +10,16 @@ use dtos::{
 use futures::future::join_all;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use types::candle::Candle;
+use types::interval::Interval;
+use types::range::Range;
 use types::{
     asset_class::AssetClass, currency::Currency, money::Money, quantity::Quantity,
     ticker_symbol::TickerSymbol, transaction_type::TransactionType,
 };
 use uuid::Uuid;
+
+use crate::get_chart;
 #[post("/api/portfolios")]
 pub async fn get_portfolios() -> Result<Vec<GetPortfolioResponse>, ServerFnError> {
     let pid = Uuid::new_v4();
@@ -241,12 +246,11 @@ pub async fn get_dashboard() -> Result<GetDashBoardResponse, ServerFnError> {
 #[server]
 pub async fn get_portfolio_history(
     transactions: Vec<Transaction>,
-    period: String,
+    range: Range,
+    interval: Interval,
 ) -> Result<Vec<(String, Decimal)>, ServerFnError> {
     use chrono::Utc;
     use std::collections::{BTreeSet, HashMap};
-
-    let (interval, range) = period_to_interval(&period);
 
     let tickers: Vec<TickerSymbol> = transactions
         .iter()
@@ -255,29 +259,34 @@ pub async fn get_portfolio_history(
         .into_iter()
         .collect();
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
-        .build()
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
-
-    let fetched: Vec<(TickerSymbol, Vec<(i64, Decimal)>, Option<Decimal>)> = join_all(
-        tickers
-            .iter()
-            .map(|ticker| fetch_ticker(&client, ticker, interval, range)),
-    )
+    // Use get_chart server fn instead of raw reqwest
+    let fetched: Vec<(TickerSymbol, Vec<Candle>)> = join_all(tickers.iter().map(|ticker| {
+        let t = ticker.clone();
+        async move {
+            let candles = get_chart(t.clone(), range, interval, true)
+                .await
+                .unwrap_or_default();
+            (t, candles)
+        }
+    }))
     .await;
 
     let price_histories: HashMap<TickerSymbol, Vec<(i64, Decimal)>> = fetched
         .into_iter()
-        .filter(|(_, pairs, _)| !pairs.is_empty())
-        .map(|(t, pairs, _)| (t, pairs))
+        .filter(|(_, candles)| !candles.is_empty())
+        .map(|(ticker, candles)| {
+            let pairs = candles
+                .into_iter()
+                .map(|c| (c.ts.timestamp(), c.close))
+                .collect();
+            (ticker, pairs)
+        })
         .collect();
 
     if price_histories.is_empty() {
         return Ok(vec![]);
     }
 
-    // baseline = total cost basis
     let baseline: Decimal = tickers
         .iter()
         .map(|ticker| {
@@ -308,7 +317,7 @@ pub async fn get_portfolio_history(
         .iter()
         .filter_map(|unix_ts| {
             let dt = chrono::DateTime::from_timestamp(*unix_ts, 0)?.with_timezone(&Utc);
-            let label = format_label(&period, &dt);
+            let label = format_label(range, &dt);
 
             let portfolio_value: Decimal = tickers
                 .iter()
@@ -352,24 +361,11 @@ fn shares_at(ticker: &TickerSymbol, transactions: &[Transaction], unix_ts: i64) 
         .sum()
 }
 
-fn period_to_interval(period: &str) -> (&'static str, &'static str) {
-    match period {
-        "1D" => ("2m", "1d"),
-        "5D" => ("30m", "5d"),
-        "1M" => ("1h", "1mo"),
-        "6M" => ("1d", "6mo"),
-        "YTD" => ("1wk", "ytd"),
-        "1Y" => ("1mo", "1y"),
-        "All" => ("1mo", "max"),
-        _ => ("1d", "6mo"),
-    }
-}
-
-fn format_label(period: &str, dt: &chrono::DateTime<chrono::Utc>) -> String {
+fn format_label(range: Range, dt: &chrono::DateTime<chrono::Utc>) -> String {
     let tz = chrono::FixedOffset::east_opt(7 * 3600).unwrap();
     let local = dt.with_timezone(&tz);
-    match period {
-        "1D" | "5D" => local.format("%-d/%m %H:%M").to_string(),
+    match range {
+        Range::D1 | Range::D5 => local.format("%-d/%m %H:%M").to_string(),
         _ => local.format("%-d %b '%y").to_string(),
     }
 }

@@ -9,6 +9,8 @@ use async_trait::async_trait;
 
 #[cfg(feature = "server")]
 use tokio::sync::broadcast::Receiver;
+#[cfg(feature = "server")]
+use types::quote::Quote;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
 // ─────────────────────────────────────────────
@@ -28,6 +30,8 @@ pub trait QuoteGateway: Send + Sync {
         interval: Interval,
         is_prepost_market: bool,
     ) -> Result<Vec<Candle>, QuoteGateWayError>;
+
+    async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError>;
 }
 
 #[cfg(feature = "server")]
@@ -55,5 +59,9 @@ impl QuoteGateway for YahooGateWay {
         self.get_chart(ticker, range, interval, is_prepost_market)
             .await
             .map_err(Into::into)
+    }
+
+    async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
+        self.get_quote(ticker).await.map_err(Into::into)
     }
 }

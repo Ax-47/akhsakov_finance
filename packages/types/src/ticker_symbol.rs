@@ -27,6 +27,7 @@ impl Into<String> for TickerSymbol {
         self.0
     }
 }
+
 impl fmt::Display for TickerSymbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

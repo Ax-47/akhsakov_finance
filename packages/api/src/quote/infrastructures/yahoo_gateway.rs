@@ -1,3 +1,5 @@
+#[cfg(feature = "server")]
+use crate::infrastructures::yahoo_gateway_mapper::to_quote;
 use crate::{
     events::quote_update_event::QuoteUpdateEvent,
     infrastructures::{
@@ -12,6 +14,8 @@ use tokio::sync::{
     broadcast::{channel, Receiver, Sender},
     Mutex,
 };
+#[cfg(feature = "server")]
+use types::quote::QuoteUpdate;
 use types::{
     candle::Candle, interval::Interval, quote::Quote, range::Range, ticker_symbol::TickerSymbol,
 };
@@ -60,19 +64,15 @@ impl YahooGateWay {
                 let Ok(symbol) = TickerSymbol::new(update.instrument.symbol.as_str()) else {
                     continue;
                 };
-                let quote = Quote {
+                let quote = QuoteUpdate {
                     ticker_symbol: symbol,
                     current_price: update
                         .price
                         .map(|p| p.into_inner())
                         .unwrap_or(Decimal::ZERO),
-                    previous_close_price: update
-                        .previous_close
-                        .map(|p| p.into_inner())
-                        .unwrap_or(Decimal::ZERO),
                     timestamp: update.ts.timestamp(),
                 };
-                let _ = tx.send(QuoteUpdateEvent::Quote(quote));
+                let _ = tx.send(QuoteUpdateEvent::QuoteUpdate(quote));
             }
         });
         Ok(())
@@ -108,5 +108,10 @@ impl YahooGateWay {
             .into_iter()
             .map(to_candle)
             .collect())
+    }
+
+    pub async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, YahooGateWayError> {
+        let ticker = Ticker::new(&self.client, ticker);
+        Ok(to_quote(ticker.quote().await?)?)
     }
 }

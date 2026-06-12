@@ -53,8 +53,14 @@ pub fn use_dashboard() -> DashboardState {
         .read()
         .iter()
         .filter_map(|(k, u)| {
-            let sym = TickerSymbol::new(k).ok()?;
-            Some((sym, (u.current_price, u.current_price)))
+            let price = u.current_price;
+            let prev = u.previous_close_price;
+            let day_change_pct = if prev > Decimal::ZERO {
+                (price - prev) / prev * dec!(100)
+            } else {
+                Decimal::ZERO
+            };
+            Some((k.clone(), (price, day_change_pct)))
         })
         .collect();
 
