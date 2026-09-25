@@ -1,0 +1,52 @@
+/* Number tick animation for live prices (Catppuccin Mocha).
+   green #a6e3a1 · red #f38ba8 */
+
+.tick {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  border-radius: 4px;
+}
+
+.tick-value {
+  display: inline-block;
+  padding: 0 0.2em;
+  border-radius: 4px;
+}
+
+.tick-up {
+  animation:
+    tick-slide-up 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    tick-flash-up 1.2s ease-out;
+}
+
+.tick-down {
+  animation:
+    tick-slide-down 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    tick-flash-down 1.2s ease-out;
+}
+
+@keyframes tick-slide-up {
+  from { transform: translateY(60%); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+@keyframes tick-slide-down {
+  from { transform: translateY(-60%); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+@keyframes tick-flash-up {
+  0%, 25% { color: #a6e3a1; background-color: rgba(166, 227, 161, 0.16); }
+  100%    { background-color: transparent; }
+}
+
+@keyframes tick-flash-down {
+  0%, 25% { color: #f38ba8; background-color: rgba(243, 139, 168, 0.16); }
+  100%    { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick-up   { animation: tick-flash-up 1.2s ease-out; }
+  .tick-down { animation: tick-flash-down 1.2s ease-out; }
+}

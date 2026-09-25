@@ -1,16 +1,16 @@
 use crate::Route;
 use dioxus::prelude::*;
 
-/// Full-window shell: glass sidebar on the left, scrollable content on the right.
+/// Full-window shell: slim sidebar on the left, scrollable content on the right.
 #[component]
 pub fn Navbar() -> Element {
     rsx! {
-        div { class: "mocha ak-shell",
+        div { class: "mocha flex h-screen overflow-hidden bg-ctp-base",
 
-            nav { class: "ak-nav ak-glass ak-glass-strong",
-                div { class: "ak-brand",
-                    div { class: "ak-brand-title ak-gradient-text", "◈ Akhsakov" }
-                    div { class: "ak-brand-sub", "Finance 🌸" }
+            nav { class: "w-52 flex-shrink-0 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col py-5",
+                div { class: "px-5 mb-6",
+                    div { class: "text-base font-bold text-ctp-text", "◈ Akhsakov" }
+                    div { class: "text-xs text-ctp-subtext0 mt-0.5", "Finance" }
                 }
                 NavLink {
                     to: Route::Home {},
@@ -22,13 +22,9 @@ pub fn Navbar() -> Element {
                     icon: "◈".to_string(),
                     label: "Portfolio".to_string(),
                 }
-
-                div { class: "ak-nav-footer",
-                    ui::Mascot { message: "Hi hi! Poke me for tips~ 🐾", size: 76, stacked: true }
-                }
             }
 
-            div { class: "ak-main", Outlet::<Route> {} }
+            div { class: "flex-1 overflow-auto", Outlet::<Route> {} }
         }
     }
 }
@@ -36,8 +32,11 @@ pub fn Navbar() -> Element {
 #[component]
 fn NavLink(to: Route, icon: String, label: String) -> Element {
     rsx! {
-        Link { to, class: "ak-nav-link", active_class: "active",
-            span { class: "ak-nav-icon", "{icon}" }
+        Link {
+            to,
+            class: "flex items-center gap-2.5 px-3 py-2.5 mx-3 rounded-lg text-sm text-ctp-subtext1 hover:bg-ctp-surface0 hover:text-ctp-text transition-colors",
+            active_class: "bg-ctp-surface0 text-ctp-text",
+            span { class: "text-sm opacity-70", "{icon}" }
             "{label}"
         }
     }

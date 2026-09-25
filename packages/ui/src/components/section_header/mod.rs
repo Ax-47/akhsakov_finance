@@ -7,7 +7,7 @@ pub fn SectionHeader(
     on_refresh: EventHandler<()>,
 ) -> Element {
     rsx! {
-        div { class: "flex items-start justify-between mb-6 gap-4 ak-rise",
+        div { class: "flex items-start justify-between mb-6 gap-4",
             div {
                 div { class: "flex items-center gap-3 mb-1",
                     div {
@@ -15,7 +15,7 @@ pub fn SectionHeader(
                     }
 
                     h1 {
-                        class: "text-2xl font-bold ak-gradient-text",
+                        class: "text-2xl font-bold text-ctp-text",
                         "{title}"
                     }
                 }
@@ -26,13 +26,37 @@ pub fn SectionHeader(
                     "{subtitle}"
 
                     if live {
-                        span { class: "ak-live", "Live" }
+                        span {
+                            class: "
+                                bg-ctp-green/20
+                                text-ctp-green
+                                border border-ctp-green/35
+                                px-2 py-0.5
+                                rounded
+                                text-[0.68rem]
+                                font-bold
+                                tracking-[0.04em]
+                            ",
+                            "● Live"
+                        }
                     }
                 }
             }
 
             button {
-                class: "ak-btn mt-1",
+                class: "
+                    flex items-center gap-1.5
+                    px-3 py-2
+                    mt-1
+                    rounded-lg
+                    text-xs font-semibold
+                    cursor-pointer
+                    border border-ctp-surface2
+                    text-ctp-subtext1
+                    hover:bg-ctp-surface1
+                    hover:text-ctp-text
+                    transition-colors
+                ",
                 onclick: move |_| on_refresh.call(()),
                 "↻ Refresh"
             }

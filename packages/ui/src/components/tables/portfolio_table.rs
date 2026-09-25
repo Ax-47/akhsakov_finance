@@ -4,6 +4,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
 use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
+
+use crate::LiveNumber;
 #[component]
 pub fn PortfoliosTable(
     data: Signal<GetDashBoardResponse>,
@@ -38,7 +40,7 @@ pub fn PortfoliosTable(
                 }
             }
             tbody {
-                for (row_i, port) in data().portfolios.iter().enumerate() {
+                for port in &data().portfolios {
                     {
                         let (p_count, p_cost, p_value, p_day, p_pnl) =
                             portfolio_stats(&port.assets, &price_map, &change_map);
@@ -52,8 +54,8 @@ pub fn PortfoliosTable(
 
                         rsx! {
                             tr {
-                                class: "border-b border-ctp-surface1 hover:bg-ctp-surface0 transition-colors ak-rise",
-                                style: "--d:{row_i * 60}ms;",
+                                key: "{port.id}",
+                                class: "border-b border-ctp-surface1 hover:bg-ctp-surface0 transition-colors",
                                 td { class: "py-4 pr-2 text-ctp-overlay0 select-none", "⠿" }
                                 td { class: "py-4 pr-6",
                                     div { class: "flex items-center gap-2",
@@ -67,19 +69,21 @@ pub fn PortfoliosTable(
                                     "{fmt_usd(p_cost, 2)}"
                                 }
                                 td { class: "py-4 pr-6 text-right tabular-nums font-medium",
-                                    if loaded && p_value > Decimal::ZERO { "{fmt_usd(p_value, 2)}" } else { "--" }
+                                    if loaded && p_value > Decimal::ZERO {
+                                        LiveNumber { value: p_value, text: fmt_usd(p_value, 2) }
+                                    } else { "--" }
                                 }
                                 td {
                                     class: if p_day >= Decimal::ZERO { " py-4 pr-6 text-right tabular-nums text-ctp-green" } else { "  py-4 pr-6 text-right tabular-nums text-ctp-red" },
                                     if loaded {
-                                        div { "{fmt_signed(p_day, 2)}" }
-                                        div { class: "text-xs", "{p_day_pct:+.2}%" }
+                                        div { LiveNumber { value: p_day, text: fmt_signed(p_day, 2) } }
+                                        div { class: "text-xs", LiveNumber { value: p_day_pct, text: format!("{p_day_pct:+.2}%") } }
                                     } else { "--" }
                                 }
                                 td {
                                     class: if p_pnl >= Decimal::ZERO { " py-4 pr-6 text-right tabular-nums text-ctp-green" } else { " py-4 pr-6 text-right tabular-nums text-ctp-red" },
-                                    div { "{fmt_signed(p_pnl, 2)}" }
-                                    div { class: "text-xs", "{p_pnl_pct:+.2}%" }
+                                    div { LiveNumber { value: p_pnl, text: fmt_signed(p_pnl, 2) } }
+                                    div { class: "text-xs", LiveNumber { value: p_pnl_pct, text: format!("{p_pnl_pct:+.2}%") } }
                                 }
                                 td {
                                     class: "py-4 text-right tabular-nums",

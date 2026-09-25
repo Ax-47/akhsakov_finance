@@ -1,104 +1,16 @@
 use std::collections::HashMap;
 
+use crate::LiveNumber;
 use dioxus::prelude::*;
 use dtos::{asset::get_asset_response::GetAssetResponse, position::Position};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-// ─── Flash state ──────────────────────────────────────────────────────────────
-
-#[derive(Clone, PartialEq, Default)]
-enum FlashDir {
-    #[default]
-    None,
-    Up,
-    Down,
-}
-
-impl FlashDir {
-    fn class(&self) -> &'static str {
-        match self {
-            FlashDir::Up => "price-flash-up",
-            FlashDir::Down => "price-flash-down",
-            FlashDir::None => "",
-        }
-    }
-}
-
-#[derive(Clone, Default)]
-struct FlashEntry {
-    dir: FlashDir,
-    /// Incremented each time the price changes so the `key` prop changes,
-    /// forcing Dioxus to remount the <span> and retrigger the CSS animation.
-    gen: u32,
-}
-
-// Catppuccin-compatible flash colors:
-//   green = ctp-green  (#a6e3a1)  with 25 % opacity background
-//   red   = ctp-red    (#f38ba8)  with 25 % opacity background
-const FLASH_CSS: &str = r#"
-@keyframes price-flash-up {
-  0%   { background-color: transparent; color: inherit; }
-  20%  { background-color: rgba(166, 227, 161, 0.28); color: #a6e3a1; }
-  100% { background-color: transparent; color: inherit; }
-}
-@keyframes price-flash-down {
-  0%   { background-color: transparent; color: inherit; }
-  20%  { background-color: rgba(243, 139, 168, 0.28); color: #f38ba8; }
-  100% { background-color: transparent; color: inherit; }
-}
-.price-flash-up {
-  border-radius: 3px;
-  animation: price-flash-up 1.4s ease-out forwards;
-}
-.price-flash-down {
-  border-radius: 3px;
-  animation: price-flash-down 1.4s ease-out forwards;
-}
-"#;
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 #[component]
 pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
-    let mut prev_prices: Signal<HashMap<String, Decimal>> = use_signal(HashMap::new);
-    let mut flash_map: Signal<HashMap<String, FlashEntry>> = use_signal(HashMap::new);
-    let positions_memo = use_memo(move || positions.clone());
-
-    use_effect(move || {
-        let positions = positions_memo();
-        let prev = prev_prices.peek().clone();
-        let mut new_flash = flash_map.peek().clone();
-        let mut new_prev = prev.clone();
-
-        for pos in &positions {
-            if pos.current_price > Decimal::ZERO {
-                let ticker = pos.ticker.to_string();
-
-                if let Some(&old_price) = prev.get(&ticker) {
-                    if pos.current_price != old_price {
-                        let entry = new_flash.entry(ticker.clone()).or_default();
-                        entry.dir = if pos.current_price > old_price {
-                            FlashDir::Up
-                        } else {
-                            FlashDir::Down
-                        };
-                        entry.gen = entry.gen.wrapping_add(1);
-                    }
-                }
-
-                new_prev.insert(ticker, pos.current_price);
-            }
-        }
-
-        flash_map.set(new_flash);
-        prev_prices.set(new_prev);
-    });
-
-    let flashes = flash_map.read();
-
     rsx! {
-         style { {FLASH_CSS} }
         table { class: "w-full text-xs mt-4",
             thead {
                 tr { class: "text-ctp-overlay0 border-b border-ctp-surface1",
@@ -129,12 +41,9 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                 }
             }
             tbody {
-                for pos in positions_memo.iter() {
+                for pos in positions.iter() {
                     {
                         let ticker_str = pos.ticker.to_string();
-                        let flash = flashes.get(&ticker_str).cloned().unwrap_or_default();
-                        let cls   = flash.dir.class();
-                        let gen   = flash.gen;
                         let has_price = pos.current_price > Decimal::ZERO;
 
                         rsx! {
@@ -160,12 +69,7 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                                 // ── Market Price ──────────────────────────────
                                 td { class: "py-3 pr-6 text-right tabular-nums",
                                     if has_price {
-                                        span {
-                                            // key change → remount → animation restarts
-                                            key: "mp-{gen}",
-                                            class: "inline-block px-1 {cls}",
-                                            "{fmt_usd(pos.current_price, 2)}"
-                                        }
+                                        LiveNumber { value: pos.current_price, text: fmt_usd(pos.current_price, 2) }
                                     } else {
                                         "—"
                                     }
@@ -174,11 +78,7 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                                 // ── Market Value ──────────────────────────────
                                 td { class: "py-3 pr-6 text-right tabular-nums font-medium",
                                     if has_price {
-                                        span {
-                                            key: "mv-{gen}",
-                                            class: "inline-block px-1 {cls}",
-                                            "{fmt_usd(pos.market_value(), 2)}"
-                                        }
+                                        LiveNumber { value: pos.market_value(), text: fmt_usd(pos.market_value(), 2) }
                                     } else {
                                         "—"
                                     }
@@ -192,10 +92,9 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                                         "py-3 pr-6 text-right tabular-nums text-ctp-red"
                                     },
                                     if has_price {
-                                        span {
-                                            key: "pnl-{gen}",
-                                            class: "inline-block px-1 {cls}",
-                                            "{fmt_signed(pos.unrealized_pnl(), 2)} ({pos.unrealized_pnl_pct():+.1}%)"
+                                        LiveNumber {
+                                            value: pos.unrealized_pnl(),
+                                            text: format!("{} ({:+.1}%)", fmt_signed(pos.unrealized_pnl(), 2), pos.unrealized_pnl_pct()),
                                         }
                                     } else {
                                         "—"
@@ -210,14 +109,13 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                                         "py-3 text-right tabular-nums text-ctp-red"
                                     },
                                     if has_price {
-                                        span {
-                                            key: "day-{gen}",
-                                            class: "inline-block px-1 {cls}",
-                                            if pos.daily_change_pct >= Decimal::ZERO {
-                                                "▲ {pos.daily_change_pct:.2}%"
+                                        LiveNumber {
+                                            value: pos.daily_change_pct,
+                                            text: if pos.daily_change_pct >= Decimal::ZERO {
+                                                format!("▲ {:.2}%", pos.daily_change_pct)
                                             } else {
-                                                "▼ {pos.daily_change_pct.abs():.2}%"
-                                            }
+                                                format!("▼ {:.2}%", pos.daily_change_pct.abs())
+                                            },
                                         }
                                     } else {
                                         "—"

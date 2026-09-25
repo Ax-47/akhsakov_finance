@@ -3,8 +3,8 @@ use crate::{
         analysis::CAPMCard, analysis::MptAnalysisCard, charts::AllocationCard,
         section_header::SectionHeader,
     },
+    LiveNumber,
     hooks::{use_portfolio, PortfolioState},
-    Mascot,
 };
 use dioxus::prelude::*;
 use dtos::{portfolio::GetDashBoardResponse, transaction::Transaction, Position};
@@ -49,7 +49,7 @@ pub fn Dashboard() -> Element {
 
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
-        div { class: "mocha ak-page min-h-screen text-ctp-text p-6",
+        div { class: "mocha min-h-screen bg-ctp-mantle text-ctp-text p-6",
             SectionHeader {
                 title: "Portfolio Overview",
                 subtitle,
@@ -60,31 +60,30 @@ pub fn Dashboard() -> Element {
             // ── Summary stat cards ────────────────────────────────────────────
             div { class: "grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6",
                 StatCard {
-                    delay: 80,
                     label: "Total Value",
                     value: fmt_usd(total_value, 2),
+                    amount: total_value,
                     sub:   format!("{} invested", fmt_usd(total_cost, 2)),
                     color: "text-ctp-blue",
                     icon:  "💰",
                 }
                 StatCard {
-                    delay: 170,
                     label: "Unrealized P&L",
                     value: fmt_signed(total_pnl, 2),
+                    amount: total_pnl,
                     sub:   format!("{:+.2}% all-time", pnl_pct),
                     color: if total_pnl  >= Decimal::ZERO { "text-ctp-green" } else { "text-ctp-red" },
                     icon:  if total_pnl  >= Decimal::ZERO { "📈" } else { "📉" },
                 }
                 StatCard {
-                    delay: 260,
                     label: "Day Change",
                     value: fmt_signed(day_change, 2),
+                    amount: day_change,
                     sub:   format!("{:+.2}% today", day_pct),
                     color: if day_change >= Decimal::ZERO { "text-ctp-green" } else { "text-ctp-red" },
                     icon:  if day_change >= Decimal::ZERO { "▲" } else { "▼" },
                 }
                 StatCard {
-                    delay: 350,
                     label: "Positions",
                     value: positions.len().to_string(),
                     sub:   format!("{} transactions", data().transactions.len()),
@@ -94,11 +93,10 @@ pub fn Dashboard() -> Element {
             }
 
             if empty {
-                div {
-                    class: "ak-glass ak-card ak-rise p-12 flex flex-col items-center gap-3 text-ctp-subtext0",
-                    style: "--d:400ms;",
-                    Mascot { message: "It's empty here… let's add your first trade! 🌸", size: 96, stacked: true }
-                    span { class: "font-semibold ak-gradient-text", "No portfolio data yet" }
+                div { class: "rounded-xl bg-ctp-surface0 border border-ctp-surface1 p-12 \
+                              flex flex-col items-center gap-3 text-ctp-overlay0",
+                    span { class: "text-4xl opacity-30", "◈" }
+                    span { class: "font-semibold", "No portfolio data yet" }
                     span { class: "text-xs", "Add transactions to get started" }
                 }
             } else {
@@ -195,19 +193,18 @@ fn HoldingsTable(positions: Vec<Position>) -> Element {
 #[component]
 fn RecentTransactions(transactions: Vec<Transaction>) -> Element {
     rsx! {
-        div { class: "ak-glass ak-card ak-rise", style: "--d:450ms;",
+        div { class: "rounded-xl bg-ctp-surface0 border border-ctp-surface1 overflow-hidden",
             div { class: "flex justify-between items-center px-4 py-3 border-b border-ctp-surface1",
                 div { class: "flex items-center gap-2",
-                    span { style: "display:inline-block;width:3px;height:14px;border-radius:2px;background:linear-gradient(180deg,#f5c2e7,#cba6f7);flex-shrink:0;" }
+                    span { style: "display:inline-block;width:3px;height:14px;border-radius:2px;background:var(--peach);flex-shrink:0;" }
                     span { class: "text-xs font-bold uppercase tracking-wide", "Recent Transactions" }
                 }
                 span { class: "text-xs text-ctp-subtext0", "last 5" }
             }
-            for (i, tx) in transactions.iter().enumerate() {
+            for tx in &transactions {
                 div {
                     key: "{tx.id}",
-                    class: "flex items-center gap-3 px-4 py-3 border-b border-ctp-surface1 ak-rise",
-                    style: "--d:{550 + i * 70}ms;",
+                    class: "flex items-center gap-3 px-4 py-3 border-b border-ctp-surface1",
                     span {
                         style: match tx.transaction_type {
                             TransactionType::Buy  => "background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);padding:.15rem .45rem;border-radius:.3rem;font-size:.68rem;font-weight:700;white-space:nowrap;letter-spacing:.04em;",
@@ -245,15 +242,23 @@ fn StatCard(
     sub: String,
     color: String,
     icon: String,
-    #[props(default)] delay: u32,
+    /// Raw number behind `value`; when set, changes animate.
+    #[props(default)]
+    amount: Option<Decimal>,
 ) -> Element {
     rsx! {
-        div { class: "ak-glass ak-card ak-rise p-4", style: "--d:{delay}ms;",
+        div { class: "rounded-xl border border-ctp-surface0 bg-ctp-base p-4",
             div { class: "flex items-center justify-between",
                 span { class: "text-sm text-ctp-subtext1", "{label}" }
-                span { class: "ak-card-icon {color}", "{icon}" }
+                span { class: "{color} text-xl", "{icon}" }
             }
-            div { class: "mt-2 text-2xl font-bold text-ctp-text", "{value}" }
+            div { class: "mt-2 text-2xl font-bold text-ctp-text",
+                if let Some(amount) = amount {
+                    LiveNumber { value: amount, text: value.clone() }
+                } else {
+                    "{value}"
+                }
+            }
             div { class: "mt-1 text-xs text-ctp-subtext0", "{sub}" }
         }
     }
