@@ -1,6 +1,7 @@
 use crate::{
     components::{charts::*, tables::*},
     hooks::{use_dashboard, DashboardState},
+    Mascot,
 };
 use dioxus::prelude::*;
 use dtos::portfolio::GetDashBoardResponse;
@@ -34,77 +35,71 @@ pub fn Home() -> Element {
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         document::Script { src: asset!("/assets/js/growth_chart.js") }
-        div { class: "mocha min-h-screen bg-ctp-base text-ctp-text",
+        div { class: "mocha ak-page min-h-screen text-ctp-text",
 
             // ── Header ────────────────────────────────────────────────────────
-            div { class: "bg-ctp-mantle px-6 pt-5 pb-6 border-b border-ctp-surface0",
+            div {
+                class: "ak-glass ak-rise px-6 pt-5 pb-6",
+                style: "border-width:0 0 1px 0;",
 
                 div { class: "flex items-center justify-between mb-3",
-                    span { class: "text-xs text-ctp-subtext0 font-medium tracking-wide",
-                        "All Portfolio Holdings"
-                    }
-                    button {
-                        class: "flex items-center gap-1.5 px-3 py-1.5 rounded-lg \
-                                text-xs font-semibold text-ctp-text \
-                                border border-ctp-surface2 hover:bg-ctp-surface0 \
-                                transition-colors cursor-pointer",
-                        style: "background:transparent;",
-                        "＋  New Portfolio"
-                    }
+                    span { class: "ak-kicker", "✿ All Portfolio Holdings" }
+                    button { class: "ak-btn", "＋  New Portfolio" }
                 }
 
                 div { class: "flex items-baseline gap-3 mb-5",
-                    span { class: "text-4xl font-bold text-ctp-text tabular-nums",
+                    span { class: "text-4xl font-bold tabular-nums ak-gradient-text",
                         "{fmt_usd(total_value, 2)}"
                     }
                     if loaded && !positions.is_empty() {
-                        if loaded && !positions.is_empty() {
-                            span {
-                                class: " bg-ctp-green/15 text-ctp-green border border-ctp-green/30 px-[0.45rem] py-[0.15rem] rounded-[0.3rem] text-[0.68rem] font-[700] tracking-[0.04em] ",
-                                "● Live"
-                            }
-                        }
+                        span { class: "ak-live", "Live" }
                     }
                 }
 
-                div { class: "flex items-start",
+                div { class: "flex items-center",
                     StatItem {
                         label: "Cash Holdings",
                         value: "--",
                         sub: "",
                         neutral: true,
                     }
-                    div { class: "w-px bg-ctp-surface1 self-stretch mx-6" }
+                    div { class: "ak-divider" }
                     StatItem {
                         label: "Day Change",
                         value: fmt_signed(day_change, 2),
                         sub: format!("({:+.2}%)", day_pct),
                         neutral: !loaded,
                     }
-                    div { class: "w-px bg-ctp-surface1 self-stretch mx-6" }
+                    div { class: "ak-divider" }
                     StatItem {
                         label: "Unrealized Gain/Loss",
                         value: fmt_signed(total_pnl, 2),
                         sub: format!("({:+.2}%)", pnl_pct),
                         neutral: !loaded,
                     }
-                    div { class: "w-px bg-ctp-surface1 self-stretch mx-6" }
+                    div { class: "ak-divider" }
                     StatItem {
                         label: "Realized Gain/Loss",
                         value: fmt_usd(realized, 2),
                         sub: "(0.00%)",
                         neutral: true,
                     }
+                    div { style: "margin-left:auto;",
+                        Mascot { message: mascot_line(loaded, day_change) }
+                    }
                 }
             }
 
             // ── Chart ─────────────────────────────────────────────────────────
+            div { class: "ak-rise", style: "--d:120ms;",
             ChartSection {
                 transactions: data().transactions.clone(),
                 pnl_pct: total_pnl,
                 is_positive: chart_positive,
                 height: dec!(220.0),
             }
+            }
+            div { class: "ak-rise", style: "--d:240ms;",
             DashboardTable {
                 data,
                 price_map:ticker_price_map,
@@ -112,7 +107,21 @@ pub fn Home() -> Element {
                 positions,
                 loaded,
             }
+            }
         }
+    }
+}
+
+/// What the mascot says on the home header, based on today's move.
+fn mascot_line(loaded: bool, day_change: Decimal) -> String {
+    if !loaded {
+        "Fetching prices… nya~ ⏳".to_string()
+    } else if day_change > Decimal::ZERO {
+        "Green day! Yatta~ 🎉".to_string()
+    } else if day_change < Decimal::ZERO {
+        "Red day… hold steady, ganbatte! 💪".to_string()
+    } else {
+        "Quiet market today~ 🍵".to_string()
     }
 }
 
@@ -129,9 +138,9 @@ fn StatItem(label: String, value: String, sub: String, neutral: bool) -> Element
         "text-ctp-red"
     };
     rsx! {
-        div { class: "flex flex-col",
+        div { class: "flex flex-col ak-fade",
             div { class: "text-xs text-ctp-subtext0 mb-1", "{label}" }
-            div { class: "text-sm font-semibold tabular-nums", style: "{color}", "{value}" }
+            div { class: "text-sm font-semibold tabular-nums {color}", "{value}" }
             if !sub.is_empty() {
                 div { class: "text-xs tabular-nums {color}", "{sub}" }
             }

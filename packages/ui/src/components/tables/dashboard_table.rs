@@ -17,11 +17,12 @@ pub fn DashboardTable(
     let active_tab = use_signal(|| "My Portfolios".to_string());
     rsx! {
         div { class: "px-6 pb-10",
-            div { class: "flex border-b border-ctp-surface1",
+            div { class: "ak-tabs ak-glass",
                 TabButton { label: "My Portfolios".to_string(), active_tab }
                 TabButton { label: "My Holdings".to_string(), active_tab }
             }
 
+            div { class: "ak-glass ak-card px-4 pb-4 ak-fade",
             if active_tab() == "My Portfolios" {
                 PortfoliosTable {
                     data,
@@ -31,6 +32,7 @@ pub fn DashboardTable(
                 }
             } else {
                 HoldingsTable { positions, loaded }
+            }
             }
         }
     }
@@ -42,7 +44,7 @@ fn TabButton(label: String, mut active_tab: Signal<String>) -> Element {
     let is_active = use_memo(move || active_tab() == label_for_memo);
     rsx! {
         button {
-            class: if is_active() { "px-5 py-3 text-sm font-medium cursor-pointer border-b-2 border-ctp-blue text-white" } else { "px-5 py-3 text-sm font-medium cursor-pointer border-b-2 border-transparent text-subtext0 hover:text-white" },
+            class: if is_active() { "ak-tab active" } else { "ak-tab" },
             onclick: move |_| active_tab.set(label.clone()),
             "{label}"
         }

@@ -38,7 +38,7 @@ pub fn PortfoliosTable(
                 }
             }
             tbody {
-                for port in &data().portfolios {
+                for (row_i, port) in data().portfolios.iter().enumerate() {
                     {
                         let (p_count, p_cost, p_value, p_day, p_pnl) =
                             portfolio_stats(&port.assets, &price_map, &change_map);
@@ -51,7 +51,9 @@ pub fn PortfoliosTable(
                         );
 
                         rsx! {
-                            tr { class: "border-b border-ctp-surface1 hover:bg-ctp-surface0 transition-colors",
+                            tr {
+                                class: "border-b border-ctp-surface1 hover:bg-ctp-surface0 transition-colors ak-rise",
+                                style: "--d:{row_i * 60}ms;",
                                 td { class: "py-4 pr-2 text-ctp-overlay0 select-none", "⠿" }
                                 td { class: "py-4 pr-6",
                                     div { class: "flex items-center gap-2",
