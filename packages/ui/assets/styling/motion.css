@@ -1,0 +1,62 @@
+/* Odometer roll for live prices: only changed characters scroll.
+   Value up   → new glyph drops in from above, old one exits below.
+   Value down → new glyph rises from below, old one exits above. */
+
+.odometer {
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+
+.odo-char,
+.odo-cell {
+  display: inline-block;
+}
+
+.odo-cell {
+  position: relative;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.odo-new,
+.odo-old {
+  display: block;
+  animation-duration: 0.28s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+.odo-old {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+}
+
+.roll-up .odo-new   { animation-name: odo-in-from-top; }
+.roll-up .odo-old   { animation-name: odo-out-to-bottom; }
+.roll-down .odo-new { animation-name: odo-in-from-bottom; }
+.roll-down .odo-old { animation-name: odo-out-to-top; }
+
+@keyframes odo-in-from-top     { from { transform: translateY(-100%); } to { transform: none; } }
+@keyframes odo-out-to-bottom   { from { transform: none; } to { transform: translateY(100%); } }
+@keyframes odo-in-from-bottom  { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes odo-out-to-top      { from { transform: none; } to { transform: translateY(-100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .odo-new { animation: none; }
+  .odo-old { display: none; }
+}
+
+/* Solid day-change pill (Mocha green / red on crust). */
+.pct-pill {
+  min-width: 4.2rem;
+  justify-content: flex-end;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.3rem;
+  font-weight: 600;
+  color: #11111b;
+  transition: background-color 0.3s ease;
+}
+.pct-pill.up   { background-color: #a6e3a1; }
+.pct-pill.down { background-color: #f38ba8; }

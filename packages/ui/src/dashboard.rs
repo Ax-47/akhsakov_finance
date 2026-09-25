@@ -3,6 +3,7 @@ use crate::{
         analysis::CAPMCard, analysis::MptAnalysisCard, charts::AllocationCard,
         section_header::SectionHeader,
     },
+    LiveNumber,
     hooks::{use_portfolio, PortfolioState},
 };
 use dioxus::prelude::*;
@@ -61,6 +62,7 @@ pub fn Dashboard() -> Element {
                 StatCard {
                     label: "Total Value",
                     value: fmt_usd(total_value, 2),
+                    amount: total_value,
                     sub:   format!("{} invested", fmt_usd(total_cost, 2)),
                     color: "text-ctp-blue",
                     icon:  "💰",
@@ -68,6 +70,7 @@ pub fn Dashboard() -> Element {
                 StatCard {
                     label: "Unrealized P&L",
                     value: fmt_signed(total_pnl, 2),
+                    amount: total_pnl,
                     sub:   format!("{:+.2}% all-time", pnl_pct),
                     color: if total_pnl  >= Decimal::ZERO { "text-ctp-green" } else { "text-ctp-red" },
                     icon:  if total_pnl  >= Decimal::ZERO { "📈" } else { "📉" },
@@ -75,6 +78,7 @@ pub fn Dashboard() -> Element {
                 StatCard {
                     label: "Day Change",
                     value: fmt_signed(day_change, 2),
+                    amount: day_change,
                     sub:   format!("{:+.2}% today", day_pct),
                     color: if day_change >= Decimal::ZERO { "text-ctp-green" } else { "text-ctp-red" },
                     icon:  if day_change >= Decimal::ZERO { "▲" } else { "▼" },
@@ -232,14 +236,29 @@ fn RecentTransactions(transactions: Vec<Transaction>) -> Element {
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 
 #[component]
-fn StatCard(label: String, value: String, sub: String, color: String, icon: String) -> Element {
+fn StatCard(
+    label: String,
+    value: String,
+    sub: String,
+    color: String,
+    icon: String,
+    /// Raw number behind `value`; when set, changes animate.
+    #[props(default)]
+    amount: Option<Decimal>,
+) -> Element {
     rsx! {
         div { class: "rounded-xl border border-ctp-surface0 bg-ctp-base p-4",
             div { class: "flex items-center justify-between",
                 span { class: "text-sm text-ctp-subtext1", "{label}" }
                 span { class: "{color} text-xl", "{icon}" }
             }
-            div { class: "mt-2 text-2xl font-bold text-ctp-text", "{value}" }
+            div { class: "mt-2 text-2xl font-bold text-ctp-text",
+                if let Some(amount) = amount {
+                    LiveNumber { value: amount, text: value.clone() }
+                } else {
+                    "{value}"
+                }
+            }
             div { class: "mt-1 text-xs text-ctp-subtext0", "{sub}" }
         }
     }

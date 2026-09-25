@@ -18,6 +18,7 @@ pub fn App(children: Element) -> Element {
 
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
+        crate::MotionStyles {}
          {children}
     }
 }

@@ -24,3 +24,6 @@ pub use home::Home;
 
 mod hooks;
 pub use hooks::use_price_stream;
+
+mod live_number;
+pub use live_number::{LiveNumber, MotionStyles};

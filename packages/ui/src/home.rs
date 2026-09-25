@@ -1,6 +1,7 @@
 use crate::{
     components::{charts::*, tables::*},
     hooks::{use_dashboard, DashboardState},
+    LiveNumber,
 };
 use dioxus::prelude::*;
 use dtos::portfolio::GetDashBoardResponse;
@@ -54,8 +55,10 @@ pub fn Home() -> Element {
                 }
 
                 div { class: "flex items-baseline gap-3 mb-5",
-                    span { class: "text-4xl font-bold text-ctp-text tabular-nums",
-                        "{fmt_usd(total_value, 2)}"
+                    LiveNumber {
+                        class: "text-4xl font-bold text-ctp-text tabular-nums",
+                        value: total_value,
+                        text: fmt_usd(total_value, 2),
                     }
                     if loaded && !positions.is_empty() {
                         if loaded && !positions.is_empty() {
@@ -78,6 +81,7 @@ pub fn Home() -> Element {
                     StatItem {
                         label: "Day Change",
                         value: fmt_signed(day_change, 2),
+                        amount: day_change,
                         sub: format!("({:+.2}%)", day_pct),
                         neutral: !loaded,
                     }
@@ -85,6 +89,7 @@ pub fn Home() -> Element {
                     StatItem {
                         label: "Unrealized Gain/Loss",
                         value: fmt_signed(total_pnl, 2),
+                        amount: total_pnl,
                         sub: format!("({:+.2}%)", pnl_pct),
                         neutral: !loaded,
                     }
@@ -119,7 +124,15 @@ pub fn Home() -> Element {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 #[component]
-fn StatItem(label: String, value: String, sub: String, neutral: bool) -> Element {
+fn StatItem(
+    label: String,
+    value: String,
+    sub: String,
+    neutral: bool,
+    /// Raw number behind `value`; when set, changes animate.
+    #[props(default)]
+    amount: Option<Decimal>,
+) -> Element {
     let positive = value.starts_with('+');
     let color = if neutral || value == "--" {
         "text-ctp-subtext1"
@@ -131,7 +144,13 @@ fn StatItem(label: String, value: String, sub: String, neutral: bool) -> Element
     rsx! {
         div { class: "flex flex-col",
             div { class: "text-xs text-ctp-subtext0 mb-1", "{label}" }
-            div { class: "text-sm font-semibold tabular-nums", style: "{color}", "{value}" }
+            div { class: "text-sm font-semibold tabular-nums {color}",
+                if let Some(amount) = amount {
+                    LiveNumber { value: amount, text: value.clone() }
+                } else {
+                    "{value}"
+                }
+            }
             if !sub.is_empty() {
                 div { class: "text-xs tabular-nums {color}", "{sub}" }
             }
