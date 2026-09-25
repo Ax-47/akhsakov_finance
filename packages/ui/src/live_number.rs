@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 
 const MOTION_CSS: Asset = asset!("/assets/styling/motion.css");
 
-/// Injects the tick-animation stylesheet. Rendered once from `ui::App`.
+/// Injects the number-roll stylesheet. Rendered once from `ui::App`.
 #[component]
 pub fn MotionStyles() -> Element {
     rsx! {
@@ -12,51 +12,76 @@ pub fn MotionStyles() -> Element {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Tick {
-    None,
+enum Roll {
     Up,
     Down,
 }
 
-/// A formatted number that animates whenever `value` changes:
-/// it slides in from the direction of the move and briefly flashes
-/// Catppuccin green (up) or red (down) before settling to its normal colour.
+/// A formatted number that rolls like an odometer when `value` changes:
+/// only the characters that differ scroll to their new glyph (down when the
+/// value rises, up when it falls); unchanged characters stay put.
 ///
 /// `value` drives the direction; `text` is what is displayed.
 #[component]
 pub fn LiveNumber(
     value: ReadSignal<Decimal>,
-    text: String,
+    text: ReadSignal<String>,
     #[props(into, default)] class: String,
 ) -> Element {
-    let mut prev = use_signal(|| None::<Decimal>);
-    let mut tick = use_signal(|| Tick::None);
+    let mut last = use_signal(|| None::<(Decimal, String)>);
+    // Text shown before the latest change, and which way it moved.
+    let mut from = use_signal(|| None::<(String, Roll)>);
     let mut generation = use_signal(|| 0u32);
 
     use_effect(move || {
-        let now = value();
-        let before = *prev.peek();
+        let (now, now_text) = (value(), text());
+        let before = last.peek().clone();
         // Skip the first value and the jump from an unloaded zero.
-        if let Some(before) = before.filter(|b| !b.is_zero()) {
-            if now != before {
-                tick.set(if now > before { Tick::Up } else { Tick::Down });
+        if let Some((prev, prev_text)) = before.filter(|(p, _)| !p.is_zero()) {
+            if prev_text != now_text {
+                let dir = if now < prev { Roll::Down } else { Roll::Up };
+                from.set(Some((prev_text, dir)));
                 generation += 1;
             }
         }
-        prev.set(Some(now));
+        last.set(Some((now, now_text)));
     });
 
-    let dir = match tick() {
-        Tick::Up => "tick-up",
-        Tick::Down => "tick-down",
-        Tick::None => "",
+    let current = text();
+    let chars: Vec<char> = current.chars().collect();
+    let gen = generation();
+    // Right-align old vs new so "99.50" → "100.25" compares the right digits.
+    let (old_chars, dir) = match from() {
+        Some((old, dir)) => {
+            let old: Vec<char> = old.chars().collect();
+            let shift = old.len() as isize - chars.len() as isize;
+            let aligned: Vec<Option<char>> = (0..chars.len() as isize)
+                .map(|i| usize::try_from(i + shift).ok().and_then(|j| old.get(j).copied()))
+                .collect();
+            (aligned, Some(dir))
+        }
+        None => (vec![None; chars.len()], None),
+    };
+    let dir_class = match dir {
+        Some(Roll::Up) => "roll-up",
+        Some(Roll::Down) => "roll-down",
+        None => "",
     };
 
     rsx! {
-        span { class: "tick {class}",
-            // Single keyed item: a new key remounts the span, replaying the animation.
-            for g in [generation()] {
-                span { key: "{g}", class: "tick-value {dir}", "{text}" }
+        span { class: "odometer {class}", aria_label: "{current}",
+            for (i, ch) in chars.iter().copied().enumerate() {
+                if dir.is_some() && old_chars[i] != Some(ch) {
+                    // Keyed by generation: a new change remounts and replays the roll.
+                    span { key: "{i}-{gen}", class: "odo-cell {dir_class}",
+                        span { class: "odo-new", "{ch}" }
+                        span { class: "odo-old", aria_hidden: "true",
+                            if let Some(old) = old_chars[i] { "{old}" }
+                        }
+                    }
+                } else {
+                    span { key: "{i}", class: "odo-char", "{ch}" }
+                }
             }
         }
     }
@@ -98,17 +123,24 @@ mod tests {
     }
 
     #[test]
-    fn ticks_in_direction_of_change() {
+    fn rolls_only_changed_digits_in_direction_of_change() {
         let mut dom = VirtualDom::new(Harness);
         dom.rebuild_in_place();
         settle(&mut dom);
         let html = dioxus_ssr::render(&dom);
-        assert!(!html.contains("tick-up") && !html.contains("tick-down"), "{html}");
+        assert!(!html.contains("odo-cell"), "{html}");
 
+        // 100 → 105: only the last digit rolls, upward-moving value rolls "up".
         let html = set_value(&mut dom, 105);
-        assert!(html.contains("tick-up") && html.contains(">105<"), "{html}");
+        assert_eq!(html.matches("odo-cell roll-up").count(), 1, "{html}");
+        assert!(html.contains(">5<") && html.contains(">0<"), "{html}");
 
+        // 105 → 99: both remaining digits differ, value fell so it rolls "down".
         let html = set_value(&mut dom, 99);
-        assert!(html.contains("tick-down") && html.contains(">99<"), "{html}");
+        assert_eq!(html.matches("odo-cell roll-down").count(), 2, "{html}");
+
+        // 99 → 100: shorter → longer text still aligns from the right.
+        let html = set_value(&mut dom, 100);
+        assert_eq!(html.matches("odo-cell roll-up").count(), 3, "{html}");
     }
 }

@@ -102,20 +102,12 @@ pub fn HoldingsTable(positions: Vec<Position>, loaded: bool) -> Element {
                                 }
 
                                 // ── Day change ────────────────────────────────
-                                td {
-                                    class: if pos.daily_change_pct >= Decimal::ZERO {
-                                        "py-3 text-right tabular-nums text-ctp-green"
-                                    } else {
-                                        "py-3 text-right tabular-nums text-ctp-red"
-                                    },
+                                td { class: "py-3 text-right",
                                     if has_price {
                                         LiveNumber {
+                                            class: if pos.daily_change_pct >= Decimal::ZERO { "pct-pill up" } else { "pct-pill down" },
                                             value: pos.daily_change_pct,
-                                            text: if pos.daily_change_pct >= Decimal::ZERO {
-                                                format!("▲ {:.2}%", pos.daily_change_pct)
-                                            } else {
-                                                format!("▼ {:.2}%", pos.daily_change_pct.abs())
-                                            },
+                                            text: format!("{:+.2}%", pos.daily_change_pct),
                                         }
                                     } else {
                                         "—"
