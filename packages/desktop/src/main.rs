@@ -14,6 +14,14 @@ enum Route {
     Portfolio {},
     #[route("/market")]
     Market {},
+    #[route("/screener")]
+    Screener {},
+    #[route("/calendar")]
+    Calendar {},
+    #[route("/economy")]
+    Economy {},
+    #[route("/backtest")]
+    Backtest {},
     #[route("/watchlist")]
     Watchlist {},
     #[route("/settings")]
@@ -66,6 +74,34 @@ fn Settings() -> Element {
 fn Market() -> Element {
     rsx! {
         ui::MarketPage {}
+    }
+}
+
+#[component]
+fn Screener() -> Element {
+    rsx! {
+        ui::ScreenerPage {}
+    }
+}
+
+#[component]
+fn Calendar() -> Element {
+    rsx! {
+        ui::CalendarPage {}
+    }
+}
+
+#[component]
+fn Economy() -> Element {
+    rsx! {
+        ui::EconomyPage {}
+    }
+}
+
+#[component]
+fn Backtest() -> Element {
+    rsx! {
+        ui::BacktestPage {}
     }
 }
 

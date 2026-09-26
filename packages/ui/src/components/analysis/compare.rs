@@ -1,6 +1,7 @@
 //! Side-by-side comparison of stocks on valuation, profitability, growth,
 //! financial health, income and analyst measures.
 
+use crate::i18n::tr;
 use crate::components::{
     card::{Card, Chevron, MenuItem},
     charts::bars::{AxisLine, BarChart, BarSeries, DualLineChart, Unit},
@@ -42,49 +43,49 @@ pub fn measures() -> Vec<Measure> {
     vec![
         Measure {
             group: "Valuation",
-            label: "Market cap",
+            label: tr("Market cap"),
             unit: Unit::Money,
             better: Neutral,
             get: |f| current_valuation(&f.stats, &f.quarterly).market_cap,
         },
         Measure {
             group: "Valuation",
-            label: "Trailing P/E",
+            label: tr("Trailing P/E"),
             unit: Unit::Number,
             better: Lower,
             get: |f| current_valuation(&f.stats, &f.quarterly).pe_ttm,
         },
         Measure {
             group: "Valuation",
-            label: "Forward P/E",
+            label: tr("Forward P/E"),
             unit: Unit::Number,
             better: Lower,
             get: |f| f.stats.forward_pe,
         },
         Measure {
             group: "Valuation",
-            label: "Price / sales",
+            label: tr("Price / sales"),
             unit: Unit::Number,
             better: Lower,
             get: |f| current_valuation(&f.stats, &f.quarterly).price_to_sales,
         },
         Measure {
             group: "Valuation",
-            label: "Price / book",
+            label: tr("Price / book"),
             unit: Unit::Number,
             better: Lower,
             get: |f| current_valuation(&f.stats, &f.quarterly).price_to_book,
         },
         Measure {
             group: "Valuation",
-            label: "EV / revenue",
+            label: tr("EV / revenue"),
             unit: Unit::Number,
             better: Lower,
             get: |f| current_valuation(&f.stats, &f.quarterly).ev_to_revenue,
         },
         Measure {
             group: "Profitability",
-            label: "Gross margin",
+            label: tr("Gross margin"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| {
@@ -96,7 +97,7 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Profitability",
-            label: "Operating margin",
+            label: tr("Operating margin"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| {
@@ -108,7 +109,7 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Profitability",
-            label: "Net margin",
+            label: tr("Net margin"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| {
@@ -120,7 +121,7 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Profitability",
-            label: "Return on equity",
+            label: tr("Return on equity"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| {
@@ -132,35 +133,35 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Growth",
-            label: "Revenue growth (YoY)",
+            label: tr("Revenue growth (YoY)"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| yoy_growth(&f.quarterly, |p| p.revenue),
         },
         Measure {
             group: "Growth",
-            label: "Earnings growth (YoY)",
+            label: tr("Earnings growth (YoY)"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| yoy_growth(&f.quarterly, |p| p.net_income),
         },
         Measure {
             group: "Financial health",
-            label: "Debt / equity",
+            label: tr("Debt / equity"),
             unit: Unit::Number,
             better: Lower,
             get: |f| f.quarterly.first()?.debt_to_equity(),
         },
         Measure {
             group: "Financial health",
-            label: "Current ratio",
+            label: tr("Current ratio"),
             unit: Unit::Number,
             better: Higher,
             get: |f| f.quarterly.first()?.current_ratio(),
         },
         Measure {
             group: "Financial health",
-            label: "Free cash flow margin",
+            label: tr("Free cash flow margin"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| {
@@ -172,14 +173,14 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Income",
-            label: "Dividend yield",
+            label: tr("Dividend yield"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| f.stats.dividend_yield,
         },
         Measure {
             group: "Analysts",
-            label: "Upside to target",
+            label: tr("Upside to target"),
             unit: Unit::Percent,
             better: Higher,
             get: |f| {
@@ -188,7 +189,7 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Analysts",
-            label: "Rating (1 buy – 5 sell)",
+            label: tr("Rating (1 buy – 5 sell)"),
             unit: Unit::Number,
             better: Lower,
             get: |f| f.analysts.as_ref()?.mean,
@@ -407,7 +408,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
 
     rsx! {
         Card {
-            title: "Measure vs measure",
+            title: tr("Measure vs measure"),
             subtitle: format!("Two measures of this stock over its last {} quarters", labels.len()),
             // Quick picks
             div { class: "flex flex-wrap gap-1.5",
@@ -433,7 +434,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
                 button {
                     class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-overlay1 cursor-pointer \
                             transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
-                    title: "Swap",
+                    title: tr("Swap"),
                     "aria-label": "Swap measures",
                     onclick: move |_| {
                         let (x, y) = (a(), b());
@@ -463,8 +464,8 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
     }
 }
 
-const LEFT_HEX: &str = "#cba6f7"; // mauve
-const RIGHT_HEX: &str = "#89dceb"; // sky
+const LEFT_HEX: &str = "var(--catppuccin-color-mauve)"; // mauve
+const RIGHT_HEX: &str = "var(--catppuccin-color-sky)"; // sky
 
 #[component]
 fn MeasureSummary(
@@ -614,8 +615,8 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
     rsx! {
         div { class: "grid gap-5 motion-safe:animate-rise",
             Card {
-                title: "Compare measures",
-                subtitle: "Best in each row is green, worst is red · click a row to chart it".to_string(),
+                title: tr("Compare measures"),
+                subtitle: tr("Best in each row is green, worst is red · click a row to chart it").to_string(),
                 actions: rsx! {
                     if tickers.read().len() < MAX_STOCKS {
                         form {
@@ -631,7 +632,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                             input {
                                 class: "w-48 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm \
                                         text-ctp-text placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
-                                placeholder: "Add a ticker ↵",
+                                placeholder: tr("Add a ticker ↵"),
                                 value: "{custom}",
                                 oninput: move |e| custom.set(e.value()),
                             }
@@ -664,16 +665,16 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
             }
 
             if data.read().is_none() {
-                Card { title: "Measures", p { class: "py-12 text-center text-sm text-ctp-overlay1", "Loading fundamentals for {names.len()} stocks…" } }
+                Card { title: tr("Measures"), p { class: "py-12 text-center text-sm text-ctp-overlay1", "Loading fundamentals for {names.len()} stocks…" } }
             } else {
                 Card { title: "{chosen.label}", subtitle: better_hint(chosen.better).to_string(),
                     BarChart {
                         labels: names.clone(),
-                        series: vec![BarSeries { name: chosen.label.to_string(), color: "#cba6f7", values: chosen_values }],
+                        series: vec![BarSeries { name: chosen.label.to_string(), color: "var(--catppuccin-color-mauve)", values: chosen_values }],
                         unit: chosen.unit,
                     }
                 }
-                Card { title: "Measures", flush: true,
+                Card { title: tr("Measures"), flush: true,
                     div { class: "overflow-x-auto",
                         table { class: "w-full text-sm whitespace-nowrap",
                             thead {
@@ -715,9 +716,9 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
 
 fn better_hint(better: Better) -> &'static str {
     match better {
-        Better::Higher => "Higher is better",
-        Better::Lower => "Lower is better",
-        Better::Neutral => "Size, not better or worse",
+        Better::Higher => tr("Higher is better"),
+        Better::Lower => tr("Lower is better"),
+        Better::Neutral => tr("Size, not better or worse"),
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::{
     app::PortfolioScope,
     components::card::Card,
@@ -65,19 +66,19 @@ pub fn PortfoliosCard(
 
     rsx! {
         Card {
-            title: "Portfolios",
+            title: tr("Portfolios"),
             subtitle: format!("{} portfolios", rows.len()),
             flush: true,
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
                         tr { class: "text-xs text-ctp-overlay1",
-                            th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "Portfolio" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Value" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Today" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Return" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Realized" }
-                            th { class: "pl-4 pr-6 py-2.5 text-right font-medium", "Share" }
+                            th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Portfolio")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Value")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Today")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Return")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Realized")} }
+                            th { class: "pl-4 pr-6 py-2.5 text-right font-medium", {tr("Share")} }
                         }
                     }
                     tbody {
@@ -108,7 +109,7 @@ fn RowActions(id: String, name: String) -> Element {
         span { class: "ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100",
             button {
                 class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
-                title: "Rename",
+                title: tr("Rename"),
                 onclick: move |e| {
                     e.stop_propagation();
                     dialogs.open(Dialog::RenamePortfolio(uuid, rename_name.clone()));
@@ -117,7 +118,7 @@ fn RowActions(id: String, name: String) -> Element {
             }
             button {
                 class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                title: "Delete",
+                title: tr("Delete"),
                 onclick: move |e| {
                     e.stop_propagation();
                     dialogs.open(Dialog::DeletePortfolio(uuid, name.clone()));

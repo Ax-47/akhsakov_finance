@@ -1,5 +1,6 @@
 //! Small SVG charts for fundamentals: grouped bars and sparklines.
 
+use crate::i18n::tr;
 use crate::format::fmt_compact;
 use dioxus::prelude::*;
 
@@ -38,8 +39,8 @@ const LEFT: f64 = 60.0;
 const RIGHT: f64 = 8.0;
 const TOP: f64 = 10.0;
 const BOTTOM: f64 = 26.0;
-const GRID_HEX: &str = "#313244";
-const LABEL_HEX: &str = "#7f849c";
+const GRID_HEX: &str = "var(--catppuccin-color-surface0)";
+const LABEL_HEX: &str = "var(--catppuccin-color-overlay1)";
 
 /// Grouped bar chart; `labels` oldest first. Handles negative values.
 #[component]
@@ -51,7 +52,7 @@ pub fn BarChart(labels: Vec<String>, series: Vec<BarSeries>, unit: Unit) -> Elem
         .collect();
     if labels.is_empty() || values.is_empty() {
         return rsx! {
-            p { class: "py-10 text-center text-sm text-ctp-overlay0", "No data reported" }
+            p { class: "py-10 text-center text-sm text-ctp-overlay0", {tr("No data reported")} }
         };
     }
     let hi = values.iter().cloned().fold(0.0_f64, f64::max);
@@ -85,7 +86,7 @@ pub fn BarChart(labels: Vec<String>, series: Vec<BarSeries>, unit: Unit) -> Elem
                     line { x1: "{LEFT}", x2: "{W - RIGHT}", y1: "{y(t):.1}", y2: "{y(t):.1}", stroke: GRID_HEX, stroke_dasharray: "3 5" }
                     text { x: "{LEFT - 8.0}", y: "{y(t) + 4.0:.1}", text_anchor: "end", font_size: "10", fill: LABEL_HEX, "{format(t)}" }
                 }
-                line { x1: "{LEFT}", x2: "{W - RIGHT}", y1: "{zero:.1}", y2: "{zero:.1}", stroke: "#585b70" }
+                line { x1: "{LEFT}", x2: "{W - RIGHT}", y1: "{zero:.1}", y2: "{zero:.1}", stroke: "var(--catppuccin-color-surface2)" }
                 for (i, label) in labels.iter().enumerate() {
                     {
                         let x0 = LEFT + group * i as f64 + (group - bar * series.len() as f64) / 2.0;
@@ -126,7 +127,7 @@ pub fn BarChart(labels: Vec<String>, series: Vec<BarSeries>, unit: Unit) -> Elem
 #[component]
 pub fn Sparkline(
     values: Vec<Option<f64>>,
-    #[props(default = "#cba6f7")] color: &'static str,
+    #[props(default = "var(--catppuccin-color-mauve)")] color: &'static str,
 ) -> Element {
     const SW: f64 = 80.0;
     const SH: f64 = 22.0;
@@ -183,7 +184,7 @@ pub fn DualLineChart(labels: Vec<String>, left: AxisLine, right: AxisLine) -> El
     const DH: f64 = 240.0;
     const PAD_X: f64 = 64.0;
     if labels.len() < 2 {
-        return rsx! { p { class: "py-10 text-center text-sm text-ctp-overlay0", "Not enough periods reported" } };
+        return rsx! { p { class: "py-10 text-center text-sm text-ctp-overlay0", {tr("Not enough periods reported")} } };
     }
     let plot_w = DW - 2.0 * PAD_X;
     let plot_h = DH - TOP - BOTTOM;
@@ -248,7 +249,7 @@ pub fn DualLineChart(labels: Vec<String>, left: AxisLine, right: AxisLine) -> El
                     circle { cx: "{px:.1}", cy: "{py:.1}", r: "3.5", fill: left.color }
                 }
                 for (px, py) in rpoints {
-                    circle { cx: "{px:.1}", cy: "{py:.1}", r: "3.5", fill: "#1e1e2e", stroke: right.color, stroke_width: "2" }
+                    circle { cx: "{px:.1}", cy: "{py:.1}", r: "3.5", fill: "var(--catppuccin-color-base)", stroke: right.color, stroke_width: "2" }
                 }
                 for (i, label) in labels.iter().enumerate() {
                     text { x: "{x(i):.1}", y: "{DH - 8.0}", text_anchor: "middle", font_size: "10", fill: LABEL_HEX, "{label}" }

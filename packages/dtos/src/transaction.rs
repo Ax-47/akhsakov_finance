@@ -15,6 +15,21 @@ pub struct Transaction {
     /// Commission / fees paid on this transaction.
     #[serde(default)]
     pub fee: Decimal,
+    /// Currency `price` and `fee` are in: the stock's trading currency.
+    #[serde(default = "usd")]
+    pub currency: String,
+    /// USD per unit of `currency` on the trade date (1 for USD). Amounts
+    /// are compared and summed in USD.
+    #[serde(default = "one")]
+    pub fx_to_usd: Decimal,
+}
+
+fn usd() -> String {
+    "USD".into()
+}
+
+fn one() -> Decimal {
+    Decimal::ONE
 }
 
 /// Ticker used for cash deposits and withdrawals.
@@ -23,6 +38,20 @@ pub const CASH_TICKER: &str = "$CASH";
 impl Transaction {
     pub fn is_cash(&self) -> bool {
         self.ticker.as_str() == CASH_TICKER
+    }
+
+    pub fn is_usd(&self) -> bool {
+        self.currency == "USD"
+    }
+
+    /// `price` in USD at the trade-date rate.
+    pub fn usd_price(&self) -> Decimal {
+        self.price * self.fx_to_usd
+    }
+
+    /// `fee` in USD at the trade-date rate.
+    pub fn usd_fee(&self) -> Decimal {
+        self.fee * self.fx_to_usd
     }
 }
 

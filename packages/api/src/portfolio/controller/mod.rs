@@ -36,7 +36,7 @@ pub async fn delete_portfolio(id: Uuid) -> Result<(), ServerFnError> {
 /// Adds a transaction, or updates the one with the same id.
 #[post("/api/transactions/save", service: Extension<PortfolioService>)]
 pub async fn save_transaction(transaction: Transaction) -> Result<(), ServerFnError> {
-    Ok(service.save_transaction(transaction)?)
+    Ok(service.save_transaction(transaction).await?)
 }
 
 #[post("/api/transactions/delete", service: Extension<PortfolioService>)]
@@ -50,5 +50,5 @@ pub async fn import_transactions(
     portfolio_id: Uuid,
     csv: String,
 ) -> Result<ImportResult, ServerFnError> {
-    Ok(service.import_csv(portfolio_id, &csv)?)
+    Ok(service.import_csv(portfolio_id, &csv).await?)
 }

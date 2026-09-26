@@ -1,4 +1,8 @@
-//! Shared kernel: error types used across bounded contexts.
+//! Shared kernel: error types and the FX port used across bounded
+//! contexts, plus the Yahoo clients their market-data adapters share.
+
+#[cfg(feature = "server")]
+pub mod yahoo_raw;
 
 #[cfg(feature = "server")]
 use dioxus::prelude::ServerFnError;
@@ -82,4 +86,17 @@ pub fn yahoo_client() -> yfinance_rs::YfClient {
         .custom_client(http)
         .build()
         .expect("build the Yahoo client")
+}
+
+/// Exchange rates to USD, the app's base currency. Implemented over the
+/// quote service; used by contexts that price things in other currencies.
+#[cfg(feature = "server")]
+#[async_trait::async_trait]
+pub trait FxRates: Send + Sync {
+    /// USD per unit of `currency` on `date` (YYYY-MM-DD).
+    async fn usd_per_unit(&self, currency: &str, date: &str) -> Result<rust_decimal::Decimal, String>;
+    /// USD per unit of `currency` now.
+    async fn usd_per_unit_now(&self, currency: &str) -> Result<rust_decimal::Decimal, String>;
+    /// The currency `ticker` trades in.
+    async fn currency_of(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<String, String>;
 }

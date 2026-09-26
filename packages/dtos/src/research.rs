@@ -104,6 +104,46 @@ pub struct OptionChainView {
     pub puts: Vec<OptionQuote>,
 }
 
+impl Holders {
+    /// Multiplies holding and trade values by `rate` (to convert currency).
+    pub fn scale(&mut self, rate: f64) {
+        for v in self
+            .institutions
+            .iter_mut()
+            .map(|i| &mut i.value)
+            .chain(self.insider_trades.iter_mut().map(|t| &mut t.value))
+        {
+            if let Some(x) = v {
+                *x *= rate;
+            }
+        }
+    }
+}
+
+impl CorporateAction {
+    /// Multiplies cash amounts by `rate` (to convert currency).
+    pub fn scale(&mut self, rate: f64) {
+        match self {
+            Self::Dividend { amount, .. } | Self::CapitalGain { amount, .. } => *amount *= rate,
+            Self::Split { .. } => {}
+        }
+    }
+}
+
+impl OptionChainView {
+    /// Multiplies strikes and premiums by `rate` (to convert currency).
+    pub fn scale(&mut self, rate: f64) {
+        for q in self.calls.iter_mut().chain(self.puts.iter_mut()) {
+            q.strike *= rate;
+            for v in [&mut q.last, &mut q.bid, &mut q.ask] {
+                if let Some(x) = v {
+                    *x *= rate;
+                }
+            }
+        }
+    }
+}
+
 /// `StrongBuy` → `Strong buy`.
 pub fn humanize(camel: &str) -> String {
     let mut out = String::with_capacity(camel.len() + 4);

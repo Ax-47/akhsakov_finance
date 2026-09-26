@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use dioxus::prelude::*;
 #[component]
 pub fn SectionHeader(
@@ -37,7 +38,7 @@ pub fn SectionHeader(
                                 font-bold
                                 tracking-[0.04em]
                             ",
-                            "● Live"
+                            {tr("● Live")}
                         }
                     }
                 }
@@ -58,7 +59,7 @@ pub fn SectionHeader(
                     transition-colors
                 ",
                 onclick: move |_| on_refresh.call(()),
-                "↻ Refresh"
+                {tr("↻ Refresh")}
             }
         }
     }

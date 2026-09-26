@@ -1,17 +1,14 @@
-//! The largest S&P 500 companies (about three quarters of the index by
-//! value), with GICS sector and approximate shares outstanding (checked
-//! against Yahoo in September 2026). The service recalibrates share counts
-//! from live market caps, so these only size the map until that finishes.
+//! Fallback S&P 500 list for when Wikipedia can't be reached and nothing
+//! is cached yet: the largest companies (about three quarters of the index
+//! by value) with GICS sector. The last number is shares outstanding in
+//! billions (September 2026), kept for reference; sizes come from live
+//! market caps.
 
-use crate::market::repositories::Constituent;
+/// (Yahoo ticker, name, sector).
+pub type Member = (&'static str, &'static str, &'static str);
 
-const fn c(ticker: &'static str, name: &'static str, sector: &'static str, shares_bn: f64) -> Constituent {
-    Constituent {
-        ticker,
-        name,
-        sector,
-        shares_bn,
-    }
+const fn c(ticker: &'static str, name: &'static str, sector: &'static str, _shares_bn: f64) -> Member {
+    (ticker, name, sector)
 }
 
 const TECH: &str = "Technology";
@@ -26,7 +23,7 @@ const UTIL: &str = "Utilities";
 const REIT: &str = "Real Estate";
 const MAT: &str = "Materials";
 
-pub const SP500: &[Constituent] = &[
+pub const SP500: &[Member] = &[
     // Technology
     c("AAPL", "Apple", TECH, 14.9),
     c("MSFT", "Microsoft", TECH, 7.43),
@@ -163,12 +160,10 @@ mod tests {
 
     #[test]
     fn constituents_are_unique_and_valid() {
-        let mut tickers: Vec<&str> = SP500.iter().map(|c| c.ticker).collect();
+        let mut tickers: Vec<&str> = SP500.iter().map(|c| c.0).collect();
         tickers.sort();
         tickers.dedup();
         assert_eq!(tickers.len(), SP500.len());
-        assert!(SP500
-            .iter()
-            .all(|c| TickerSymbol::new(c.ticker).is_ok() && c.shares_bn > 0.0));
+        assert!(SP500.iter().all(|c| TickerSymbol::new(c.0).is_ok()));
     }
 }

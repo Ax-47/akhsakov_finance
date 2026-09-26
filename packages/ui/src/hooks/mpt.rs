@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use dtos::Position;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
@@ -15,9 +16,9 @@ pub enum ConcentrationRisk {
 impl ConcentrationRisk {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Low => "Low",
-            Self::Moderate => "Moderate",
-            Self::High => "High",
+            Self::Low => tr("Low"),
+            Self::Moderate => tr("Moderate"),
+            Self::High => tr("High"),
         }
     }
     pub fn color(&self) -> &'static str {

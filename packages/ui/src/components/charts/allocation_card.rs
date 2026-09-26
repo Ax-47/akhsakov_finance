@@ -1,6 +1,7 @@
 //! Allocation donut: one slice per holding, with the legend and the donut
 //! highlighting together on hover.
 
+use crate::i18n::tr;
 use crate::components::{
     card::Card,
     color_schema::{CHART_COLORS_HEX, CHART_COLOR_CLASSES},
@@ -26,9 +27,9 @@ pub fn AllocationCard(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) -> E
         .collect();
 
     rsx! {
-        Card { title: "Allocation",
+        Card { title: tr("Allocation"),
             if slices.is_empty() {
-                div { class: "flex items-center justify-center h-24 text-ctp-overlay0", "No data" }
+                div { class: "flex items-center justify-center h-24 text-ctp-overlay0", {tr("No data")} }
             } else {
                 Donut { slices: slices.clone(), hovered }
                 div { class: "mt-5 flex flex-col gap-0.5",
@@ -71,7 +72,7 @@ fn Donut(slices: Vec<(String, f64)>, mut hovered: Signal<Option<usize>>) -> Elem
                 class: "h-full w-full -rotate-90",
                 view_box: "0 0 {SIZE} {SIZE}",
                 onmouseleave: move |_| hovered.set(None),
-                circle { cx: "{center}", cy: "{center}", r: "{RADIUS}", fill: "none", stroke: "#313244", stroke_opacity: "0.4", stroke_width: "{STROKE}" }
+                circle { cx: "{center}", cy: "{center}", r: "{RADIUS}", fill: "none", stroke: "var(--catppuccin-color-surface0)", stroke_opacity: "0.4", stroke_width: "{STROKE}" }
                 for (i, len, offset) in arcs {
                     circle {
                         key: "{i}",

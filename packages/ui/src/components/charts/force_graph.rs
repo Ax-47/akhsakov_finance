@@ -232,7 +232,7 @@ enum EdgeState {
 
 #[component]
 fn GraphEdge(from: (f64, f64), to: (f64, f64), corr: f64, state: EdgeState) -> Element {
-    let color = if corr >= 0.0 { "#a6e3a1" } else { "#f38ba8" };
+    let color = if corr >= 0.0 { "var(--catppuccin-color-green)" } else { "var(--catppuccin-color-red)" };
     let width = 1.0 + corr.abs() * 4.0;
     let opacity = match state {
         EdgeState::Normal => 0.15 + corr.abs() * 0.5,
@@ -259,7 +259,7 @@ fn GraphEdge(from: (f64, f64), to: (f64, f64), corr: f64, state: EdgeState) -> E
                 font_weight: "700",
                 fill: color,
                 paint_order: "stroke",
-                stroke: "#1e1e2e",
+                stroke: "var(--catppuccin-color-base)",
                 stroke_width: "3",
                 "{corr:+.2}"
             }
@@ -290,7 +290,7 @@ fn GraphNode(
             text_anchor: "middle",
             font_size: "12",
             font_weight: "700",
-            fill: "#cdd6f4",
+            fill: "var(--catppuccin-color-text)",
             pointer_events: "none",
             "{ticker}"
         }

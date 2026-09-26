@@ -6,3 +6,6 @@ pub mod yahoo_gateway_error;
 
 #[cfg(feature = "server")]
 pub mod yahoo_gateway_mapper;
+
+#[cfg(feature = "server")]
+pub mod sqlite_cache;

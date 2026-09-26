@@ -1,6 +1,7 @@
 //! Diversification card: how spread out the money is (Modern Portfolio
 //! Theory concentration metrics), with a score ring and weight bar.
 
+use crate::i18n::tr;
 use crate::components::{
     card::{Card, MetricTile},
     color_schema::CHART_COLOR_CLASSES,
@@ -20,12 +21,12 @@ pub fn MptAnalysisCard(
 ) -> Element {
     rsx! {
         Card {
-            title: "Diversification",
-            subtitle: "How evenly your money is spread".to_string(),
+            title: tr("Diversification"),
+            subtitle: tr("How evenly your money is spread").to_string(),
             if let Some(analysis) = mpt {
                 MptBody { analysis, allocation }
             } else {
-                p { class: "py-10 text-center text-sm text-ctp-overlay1", "Waiting for live prices…" }
+                p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Waiting for live prices…")} }
             }
         }
     }
@@ -58,24 +59,24 @@ fn MptBody(analysis: MptAnalysis, allocation: ReadSignal<Vec<(TickerSymbol, Deci
                 }
                 div { class: "grid grid-cols-2 gap-3",
                     MetricTile {
-                        label: "Effective holdings",
+                        label: tr("Effective holdings"),
                         value: format!("{:.1}", a.effective_n),
                         hint: format!("out of {}", a.live_positions),
                     }
                     MetricTile {
-                        label: "Concentration",
+                        label: tr("Concentration"),
                         value: a.concentration_risk.label().to_string(),
                         hint: format!("HHI {:.3} · lower is better", a.hhi),
                         tone: concentration_tone,
                     }
                     MetricTile {
-                        label: "Win rate",
+                        label: tr("Win rate"),
                         value: format!("{:.0}%", a.win_rate),
-                        hint: "Holdings in profit".to_string(),
+                        hint: tr("Holdings in profit").to_string(),
                         tone: win_tone,
                     }
                     MetricTile {
-                        label: "Average return",
+                        label: tr("Average return"),
                         value: format!("{:+.2}%", a.weighted_avg_return),
                         hint: format!("Value-weighted · spread ±{:.1}%", a.return_dispersion),
                         tone: signed_color(a.weighted_avg_return),
@@ -95,16 +96,16 @@ fn ScoreRing(score: Decimal) -> Element {
     let circumference = 2.0 * std::f64::consts::PI * R;
     let dash = circumference * score / 100.0;
     let (color, verdict) = match score {
-        s if s >= 70.0 => ("#a6e3a1", "Well diversified"),
-        s if s >= 40.0 => ("#f9e2af", "Somewhat concentrated"),
-        _ => ("#f38ba8", "Concentrated"),
+        s if s >= 70.0 => ("var(--catppuccin-color-green)", "Well diversified"),
+        s if s >= 40.0 => ("var(--catppuccin-color-yellow)", "Somewhat concentrated"),
+        _ => ("var(--catppuccin-color-red)", "Concentrated"),
     };
 
     rsx! {
         div { class: "flex flex-col items-center",
             div { class: "relative h-40 w-40",
                 svg { class: "h-full w-full -rotate-90", view_box: "0 0 128 128",
-                    circle { cx: "64", cy: "64", r: "{R}", fill: "none", stroke: "#313244", stroke_width: "10" }
+                    circle { cx: "64", cy: "64", r: "{R}", fill: "none", stroke: "var(--catppuccin-color-surface0)", stroke_width: "10" }
                     circle {
                         cx: "64", cy: "64", r: "{R}",
                         fill: "none",
@@ -150,7 +151,7 @@ fn WeightBar(
     rsx! {
         div { class: "mt-6",
             div { class: "flex items-center justify-between mb-2 text-xs",
-                span { class: "text-ctp-overlay1", "Weights" }
+                span { class: "text-ctp-overlay1", {tr("Weights")} }
                 span { class: "text-ctp-overlay0", "Equal weight would be {equal:.1}% each" }
             }
             div { class: "flex h-3 gap-0.5 overflow-hidden rounded-full",

@@ -1,6 +1,7 @@
 //! Portfolio page "Plan" tab: rebalancing, tax, money-weighted return and
 //! goals. The maths lives in `dtos::planning`.
 
+use crate::i18n::tr;
 use crate::{
     app::DataRefresh,
     components::card::{ActionButton, Card, MetricTile, Stepper},
@@ -54,8 +55,8 @@ pub fn PlanTab(
 fn RebalanceCard(positions: Vec<Position>, portfolio: Option<Uuid>) -> Element {
     let Some(portfolio_id) = portfolio else {
         return rsx! {
-            Card { title: "Rebalance",
-                p { class: "text-sm text-ctp-overlay1", "Choose a portfolio at the top of the page to set target weights and rebalance it." }
+            Card { title: tr("Rebalance"),
+                p { class: "text-sm text-ctp-overlay1", {tr("Choose a portfolio at the top of the page to set target weights and rebalance it.")} }
             }
         };
     };
@@ -159,18 +160,18 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
 
     rsx! {
         Card {
-            title: "Rebalance",
-            subtitle: "Set target weights, see the trades that get you there".to_string(),
+            title: tr("Rebalance"),
+            subtitle: tr("Set target weights, see the trades that get you there").to_string(),
             actions: rsx! {
                 div { class: "flex flex-wrap gap-2",
-                    ActionButton { label: "Use current weights", tone: crate::components::card::ButtonTone::Quiet, onclick: use_current }
-                    ActionButton { label: "Save targets", onclick: save }
+                    ActionButton { label: tr("Use current weights"), tone: crate::components::card::ButtonTone::Quiet, onclick: use_current }
+                    ActionButton { label: tr("Save targets"), onclick: save }
                 }
             },
             div { class: "grid gap-6 lg:grid-cols-[1fr_1fr]",
                 div {
                     div { class: "mb-2 flex justify-between text-xs text-ctp-overlay1",
-                        span { "Holding · now → target" }
+                        span { {tr("Holding · now → target")} }
                         span { class: if target_total > Decimal::ONE_HUNDRED { "text-ctp-red" } else { "" }, "Total {target_total.normalize()}%" }
                     }
                     div { class: "flex flex-col gap-2",
@@ -211,7 +212,7 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                         },
                         input {
                             class: "w-36 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1.5 text-sm uppercase text-ctp-text placeholder:normal-case placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
-                            placeholder: "Add ticker ↵",
+                            placeholder: tr("Add ticker ↵"),
                             value: "{adding}",
                             oninput: move |e| adding.set(e.value()),
                         }
@@ -224,9 +225,9 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                 }
                 div {
                     div { class: "mb-2 flex items-center justify-between gap-3 text-xs text-ctp-overlay1",
-                        span { "Suggested trades" }
+                        span { {tr("Suggested trades")} }
                         label { class: "flex items-center gap-2",
-                            "New cash to invest $"
+                            {tr("New cash to invest $")}
                             input {
                                 class: "w-24 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1 text-right text-sm tabular-nums text-ctp-text outline-none focus:border-ctp-mauve",
                                 inputmode: "decimal",
@@ -238,17 +239,17 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                     }
                     if parsed.is_empty() {
                         p { class: "rounded-2xl bg-ctp-base/40 px-4 py-6 text-center text-sm text-ctp-overlay1",
-                            "Add targets (or use current weights) to see trades."
+                            {tr("Add targets (or use current weights) to see trades.")}
                         }
                     } else if trades.is_empty() {
-                        p { class: "rounded-2xl bg-ctp-base/40 px-4 py-6 text-center text-sm text-ctp-green", "Already on target." }
+                        p { class: "rounded-2xl bg-ctp-base/40 px-4 py-6 text-center text-sm text-ctp-green", {tr("Already on target.")} }
                     } else {
                         div { class: "flex flex-col gap-1.5",
                             for t in trades {
                                 div { key: "{t.ticker}", class: "flex items-center gap-3 rounded-xl bg-ctp-base/40 px-3 py-2 text-sm",
                                     span {
                                         class: if t.amount >= 0.0 { "w-12 rounded-full bg-ctp-green/15 py-0.5 text-center text-xs font-semibold text-ctp-green" } else { "w-12 rounded-full bg-ctp-red/15 py-0.5 text-center text-xs font-semibold text-ctp-red" },
-                                        if t.amount >= 0.0 { "Buy" } else { "Sell" }
+                                        if t.amount >= 0.0 { {tr("Buy")} } else { {tr("Sell")} }
                                     }
                                     span { class: "w-16 font-semibold text-ctp-text", "{t.ticker}" }
                                     span { class: "flex-1 text-xs text-ctp-overlay1", "{t.current_pct:.1}% → {t.target_pct:.1}%" }
@@ -260,7 +261,7 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                             }
                         }
                     }
-                    p { class: "mt-3 text-[0.7rem] text-ctp-overlay0", "Uses live prices; fees and taxes aren't included. Trades under $1 are skipped." }
+                    p { class: "mt-3 text-[0.7rem] text-ctp-overlay0", {tr("Uses live prices; fees and taxes aren't included. Trades under $1 are skipped.")} }
                 }
             }
         }
@@ -306,7 +307,7 @@ fn ReturnsCard(
     let invested: f64 = transactions
         .iter()
         .filter(|t| t.transaction_type == types::transaction_type::TransactionType::Buy)
-        .filter_map(|t| (t.shares * t.price + t.fee).to_f64())
+        .filter_map(|t| (t.shares * t.usd_price() + t.usd_fee()).to_f64())
         .sum();
     let first = transactions
         .iter()
@@ -325,26 +326,26 @@ fn ReturnsCard(
     };
 
     rsx! {
-        Card { title: "Your return", subtitle: "Money-weighted: counts when you added money".to_string(),
+        Card { title: tr("Your return"), subtitle: tr("Money-weighted: counts when you added money").to_string(),
             div { class: "grid grid-cols-2 gap-3",
                 MetricTile {
-                    label: "Money-weighted (per year)",
+                    label: tr("Money-weighted (per year)"),
                     value: mwr.map(|r| format!("{:+.2}%", r * 100.0)).unwrap_or_else(|| "—".into()),
                     tone: mwr_tone,
-                    hint: "Like a savings rate: your actual yearly growth".to_string(),
+                    hint: tr("Like a savings rate: your actual yearly growth").to_string(),
                 }
                 MetricTile {
-                    label: "Invested so far",
+                    label: tr("Invested so far"),
                     value: fmt_compact(invested),
                     hint: years.map(|y| format!("over {:.1} years", y)).unwrap_or_default(),
                 }
             }
             p { class: "mt-4 text-xs leading-relaxed text-ctp-overlay1",
-                "The Performance chart shows the time-weighted return, which ignores when you invested — best for comparing with the market. "
-                "This money-weighted return reflects your timing: buying more before a rise lifts it; before a fall lowers it."
+                {tr("The Performance chart shows the time-weighted return, which ignores when you invested — best for comparing with the market. ")}
+                {tr("This money-weighted return reflects your timing: buying more before a rise lifts it; before a fall lowers it.")}
             }
             if mwr.is_none() {
-                p { class: "mt-2 text-xs text-ctp-overlay0", "Needs at least one purchase and a current value." }
+                p { class: "mt-2 text-xs text-ctp-overlay0", {tr("Needs at least one purchase and a current value.")} }
             }
         }
     }
@@ -386,13 +387,13 @@ fn GoalsCard(prices: HashMap<TickerSymbol, Decimal>, today: Option<String>) -> E
 
     rsx! {
         Card {
-            title: "Goals",
+            title: tr("Goals"),
             subtitle: format!("Projected at {:.1}% a year (see Settings)", assumed * 100.0),
             actions: rsx! {
-                ActionButton { label: "＋ Goal", tone: crate::components::card::ButtonTone::Quiet, onclick: move |_| dialogs.open(Dialog::Goal(None)) }
+                ActionButton { label: tr("＋ Goal"), tone: crate::components::card::ButtonTone::Quiet, onclick: move |_| dialogs.open(Dialog::Goal(None)) }
             },
             if list.is_empty() {
-                p { class: "text-sm text-ctp-overlay1", "Set a target, like a house deposit by 2030, and see if you're on track." }
+                p { class: "text-sm text-ctp-overlay1", {tr("Set a target, like a house deposit by 2030, and see if you're on track.")} }
             }
             div { class: "flex flex-col gap-4",
                 for g in list {
@@ -415,7 +416,7 @@ fn GoalsCard(prices: HashMap<TickerSymbol, Decimal>, today: Option<String>) -> E
                                     if let Some(p) = &p {
                                         span {
                                             class: if p.on_track { "rounded-full bg-ctp-green/15 px-2 py-0.5 font-semibold text-ctp-green" } else { "rounded-full bg-ctp-peach/15 px-2 py-0.5 font-semibold text-ctp-peach" },
-                                            if p.on_track { "On track" } else { "Behind" }
+                                            if p.on_track { {tr("On track")} } else { {tr("Behind")} }
                                         }
                                         span { class: "text-ctp-overlay1", "Projected {fmt_compact(p.projected)} in {p.months} months" }
                                         if let Some(r) = p.required_return {
@@ -467,7 +468,7 @@ fn TaxCard(
     };
 
     rsx! {
-        Card { title: "Tax", subtitle: "First-in, first-out lots · long term = held over a year".to_string(), flush: true,
+        Card { title: tr("Tax"), subtitle: tr("First-in, first-out lots · long term = held over a year").to_string(), flush: true,
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
@@ -479,7 +480,7 @@ fn TaxCard(
                     }
                     tbody {
                         if years.is_empty() {
-                            tr { td { class: "px-6 py-4 text-sm text-ctp-overlay1", colspan: "5", "No sales or dividends yet." } }
+                            tr { td { class: "px-6 py-4 text-sm text-ctp-overlay1", colspan: "5", {tr("No sales or dividends yet.")} } }
                         }
                         for (year, short, long, divs) in years {
                             tr { key: "{year}", class: "border-t border-ctp-surface0/60",
@@ -493,7 +494,7 @@ fn TaxCard(
                     }
                 }
             }
-            div { class: "mt-4 px-6 pb-2 text-xs text-ctp-overlay1", "Open lots" }
+            div { class: "mt-4 px-6 pb-2 text-xs text-ctp-overlay1", {tr("Open lots")} }
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
@@ -519,7 +520,7 @@ fn TaxCard(
                                         }
                                         td { class: "pl-4 pr-6 py-2.5 text-right",
                                             span { class: if long { "rounded-full bg-ctp-green/15 px-2 py-0.5 text-xs text-ctp-green" } else { "rounded-full bg-ctp-surface0 px-2 py-0.5 text-xs text-ctp-subtext1" },
-                                                if long { "Long" } else { "Short" }
+                                                if long { {tr("Long")} } else { {tr("Short")} }
                                             }
                                         }
                                     }
@@ -529,7 +530,7 @@ fn TaxCard(
                     }
                 }
             }
-            p { class: "px-6 py-3 text-[0.7rem] text-ctp-overlay0", "For information only — check your country's rules and your broker's tax statement." }
+            p { class: "px-6 py-3 text-[0.7rem] text-ctp-overlay0", {tr("For information only — check your country's rules and your broker's tax statement.")} }
         }
     }
 }

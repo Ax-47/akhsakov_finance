@@ -51,7 +51,7 @@ pub fn compute_positions(
         let e = map.entry(tx.ticker.clone()).or_default();
         match tx.transaction_type {
             TransactionType::Buy => {
-                e.0 += tx.shares * tx.price + tx.fee;
+                e.0 += tx.shares * tx.usd_price() + tx.usd_fee();
                 e.1 += tx.shares;
             }
             TransactionType::Sell if e.1 > Decimal::ZERO => {
@@ -101,18 +101,18 @@ pub fn realized_pnl(transactions: &[Transaction]) -> Decimal {
         let e = book.entry(&tx.ticker).or_default();
         match tx.transaction_type {
             TransactionType::Buy => {
-                e.0 += tx.shares * tx.price + tx.fee;
+                e.0 += tx.shares * tx.usd_price() + tx.usd_fee();
                 e.1 += tx.shares;
             }
             TransactionType::Sell if e.1 > Decimal::ZERO => {
                 let avg = e.0 / e.1;
                 let sold = tx.shares.min(e.1);
-                realized += sold * (tx.price - avg) - tx.fee;
+                realized += sold * (tx.usd_price() - avg) - tx.usd_fee();
                 e.0 -= sold * avg;
                 e.1 -= sold;
             }
             TransactionType::Split if tx.shares > Decimal::ZERO => e.1 *= tx.shares,
-            TransactionType::Dividend => realized += tx.price - tx.fee,
+            TransactionType::Dividend => realized += tx.usd_price() - tx.usd_fee(),
             _ => {}
         }
     }
@@ -126,13 +126,13 @@ pub fn cash_balance(transactions: &[Transaction]) -> Option<Decimal> {
         return None;
     }
     Some(transactions.iter().fold(Decimal::ZERO, |cash, tx| {
-        let amount = tx.shares * tx.price;
+        let (amount, fee) = (tx.shares * tx.usd_price(), tx.usd_fee());
         cash + match tx.transaction_type {
-            TransactionType::Deposit => amount - tx.fee,
-            TransactionType::Withdrawal => -amount - tx.fee,
-            TransactionType::Buy => -amount - tx.fee,
-            TransactionType::Sell => amount - tx.fee,
-            TransactionType::Dividend => tx.price - tx.fee,
+            TransactionType::Deposit => amount - fee,
+            TransactionType::Withdrawal => -amount - fee,
+            TransactionType::Buy => -amount - fee,
+            TransactionType::Sell => amount - fee,
+            TransactionType::Dividend => tx.usd_price() - fee,
             _ => Decimal::ZERO,
         }
     }))
@@ -183,6 +183,8 @@ mod tests {
             price,
             date: "2026-01-01".into(),
             fee,
+            currency: "USD".into(),
+            fx_to_usd: Decimal::ONE,
         }
     }
 
@@ -206,5 +208,24 @@ mod tests {
         // 1000 − 505 + 149 + 12
         assert_eq!(cash_balance(&txs), Some(dec!(656)));
         assert_eq!(cash_balance(&txs[1..]), None);
+    }
+
+    #[test]
+    fn foreign_trades_are_costed_in_usd_at_the_trade_rate() {
+        use TransactionType::*;
+        let thb = |kind, shares, price, fee, fx| Transaction {
+            currency: "THB".into(),
+            fx_to_usd: fx,
+            ..tx("PTT.BK", kind, shares, price, fee)
+        };
+        let txs = vec![
+            thb(Buy, dec!(100), dec!(35), dec!(20), dec!(0.03)), // $105 + $0.60
+            thb(Sell, dec!(50), dec!(40), dec!(0), dec!(0.025)), // $1 × 50
+        ];
+        let data = GetDashBoardResponse { portfolios: vec![], transactions: txs.clone() };
+        let pos = compute_positions(&data, &HashMap::new());
+        assert_eq!(pos[0].avg_cost, dec!(1.056));
+        // 50 × ($1.00 − $1.056)
+        assert_eq!(realized_pnl(&txs), dec!(-2.8));
     }
 }

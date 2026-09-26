@@ -18,8 +18,9 @@ pub use controller::*;
 pub use services::ResearchService;
 
 #[cfg(feature = "server")]
-pub fn research_services_setup() -> ResearchService {
-    ResearchService::new(std::sync::Arc::new(
-        infrastructures::YahooResearchGateway::new(),
-    ))
+pub fn research_services_setup(fx: std::sync::Arc<dyn crate::shared::FxRates>) -> ResearchService {
+    ResearchService::new(
+        std::sync::Arc::new(infrastructures::YahooResearchGateway::new()),
+        fx,
+    )
 }

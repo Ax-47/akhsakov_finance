@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::components::{
     analysis::stock::open_stock,
     card::{Card, Segmented, ToggleButton},
@@ -74,12 +75,12 @@ pub fn StockHeatmap(positions: ReadSignal<Vec<Position>>) -> Element {
 
     rsx! {
         Card {
-            title: "Heatmap",
-            subtitle: "Size is value, colour is change".to_string(),
+            title: tr("Heatmap"),
+            subtitle: tr("Size is value, colour is change").to_string(),
             actions: rsx! {
                 Segmented {
-                    ToggleButton { label: "Today", active: metric() == Metric::Day, onclick: move |_| metric.set(Metric::Day) }
-                    ToggleButton { label: "All time", active: metric() == Metric::Total, onclick: move |_| metric.set(Metric::Total) }
+                    ToggleButton { label: tr("Today"), active: metric() == Metric::Day, onclick: move |_| metric.set(Metric::Day) }
+                    ToggleButton { label: tr("All time"), active: metric() == Metric::Total, onclick: move |_| metric.set(Metric::Total) }
                 }
             },
             Treemap { items, saturation, height: HEIGHT_PX }
@@ -100,7 +101,7 @@ pub fn Treemap(items: ReadSignal<Vec<HeatItem>>, saturation: f64, height: u32) -
             div {
                 class: "flex items-center justify-center text-ctp-overlay0 text-xs",
                 style: "height:{height}px;",
-                "Waiting for prices…"
+                {tr("Waiting for prices…")}
             }
         };
     }
@@ -398,29 +399,22 @@ fn worst_ratio(row: &[f64], side: f64) -> f64 {
 
 // ─── Colour ───────────────────────────────────────────────────────────────────
 
-const GREEN: (f64, f64, f64) = (166.0, 227.0, 161.0); // ctp-green
-const RED: (f64, f64, f64) = (243.0, 139.0, 168.0); // ctp-red
-const NEUTRAL: (f64, f64, f64) = (88.0, 91.0, 112.0); // ctp-surface2
-
-/// Blends from neutral toward green / red as `change` approaches ±`saturation`.
+/// Blends from the neutral surface toward green / red as `change`
+/// approaches ±`saturation`, in the current theme's colours.
 fn change_color(change: f64, saturation: f64) -> String {
-    let t = (change.abs() / saturation).clamp(0.0, 1.0).sqrt();
-    let target = if change >= 0.0 { GREEN } else { RED };
-    let mix = |a: f64, b: f64| (a + (b - a) * t).round() as u8;
+    let t = (change.abs() / saturation).clamp(0.0, 1.0).sqrt() * 100.0;
+    let target = if change >= 0.0 { "green" } else { "red" };
     format!(
-        "rgb({},{},{})",
-        mix(NEUTRAL.0, target.0),
-        mix(NEUTRAL.1, target.1),
-        mix(NEUTRAL.2, target.2)
+        "color-mix(in oklab, var(--catppuccin-color-{target}) {t:.0}%, var(--catppuccin-color-surface2))"
     )
 }
 
 /// Dark text once the tile is saturated enough, light text on near-neutral tiles.
 fn text_color(change: f64, saturation: f64) -> &'static str {
     if change.abs() / saturation > 0.3 {
-        "#11111b" // ctp-crust
+        "var(--catppuccin-color-crust)" // ctp-crust
     } else {
-        "#cdd6f4" // ctp-text
+        "var(--catppuccin-color-text)" // ctp-text
     }
 }
 

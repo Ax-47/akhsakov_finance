@@ -9,6 +9,17 @@ pub struct Quote {
     pub current_price: Decimal,
     pub previous_close_price: Decimal,
     pub timestamp: i64,
+    /// ISO code of the prices. The API converts stocks to USD; FX pairs
+    /// and indices keep their own units.
+    #[serde(default = "usd")]
+    pub currency: String,
+    /// Served from the saved copy because the provider couldn't be reached.
+    #[serde(default)]
+    pub stale: bool,
+}
+
+fn usd() -> String {
+    "USD".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

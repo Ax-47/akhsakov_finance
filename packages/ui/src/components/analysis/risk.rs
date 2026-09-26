@@ -2,6 +2,7 @@
 //! bad day gets, which holdings drive the risk, and how it compares with
 //! the S&P 500. Uses today's weights applied to past daily returns.
 
+use crate::i18n::tr;
 use super::stats::{daily_returns, day_label, RiskReport};
 use crate::hooks::mpt::MptAnalysis;
 use crate::{
@@ -20,9 +21,9 @@ use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::HashMap;
 use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
-const PORTFOLIO_HEX: &str = "#cba6f7"; // mauve
-const MARKET_HEX: &str = "#9399b2"; // overlay2
-const LOSS_HEX: &str = "#f38ba8"; // red
+const PORTFOLIO_HEX: &str = "var(--catppuccin-color-mauve)"; // mauve
+const MARKET_HEX: &str = "var(--catppuccin-color-overlay2)"; // overlay2
+const LOSS_HEX: &str = "var(--catppuccin-color-red)"; // red
 
 #[derive(Clone, Copy, PartialEq)]
 enum Grade {
@@ -42,9 +43,9 @@ impl Grade {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Low => "Low risk",
-            Self::Moderate => "Moderate risk",
-            Self::High => "High risk",
+            Self::Low => tr("Low risk"),
+            Self::Moderate => tr("Moderate risk"),
+            Self::High => tr("High risk"),
         }
     }
 
@@ -137,14 +138,14 @@ pub fn RiskTab(
 
     let risk = match report() {
         None => rsx! {
-            Card { title: "Risk overview", actions: range_toggle,
-                p { class: "py-10 text-center text-sm text-ctp-overlay1", "Crunching price history…" }
+            Card { title: tr("Risk overview"), actions: range_toggle,
+                p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Crunching price history…")} }
             }
         },
         Some(None) => rsx! {
-            Card { title: "Risk overview", actions: range_toggle,
+            Card { title: tr("Risk overview"), actions: range_toggle,
                 p { class: "py-10 text-center text-sm text-ctp-overlay1",
-                    "Not enough shared price history yet to measure risk."
+                    {tr("Not enough shared price history yet to measure risk.")}
                 }
             }
         },
@@ -185,7 +186,7 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
 
     rsx! {
         Card {
-            title: "Risk overview",
+            title: tr("Risk overview"),
             subtitle: format!("{} trading days · {} – {}", r.days, day_label(r.first_day), day_label(r.last_day)),
             actions,
             div { class: "flex flex-col sm:flex-row sm:items-start gap-4 mb-6",
@@ -198,53 +199,53 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
                     " with "
                     Strong { "{pct(r.volatility):.0}% volatility" }
                     ", {vs_market} the S&P 500 ({pct(r.market_return):+.1}% / {pct(r.market_volatility):.0}%). "
-                    "On a bad day — 1 in 20 — expect to lose about "
+                    {tr("On a bad day — 1 in 20 — expect to lose about ")}
                     Strong { "{usd(r.var_95 * value)}" }
                     " or more."
                 }
             }
             div { class: "grid grid-cols-2 lg:grid-cols-4 gap-3",
                 MetricTile {
-                    label: "Volatility",
+                    label: tr("Volatility"),
                     value: format!("{:.1}%", pct(r.volatility)),
                     hint: format!("Yearly swing · S&P {:.1}%", pct(r.market_volatility)),
                     tone: tone(r.volatility <= r.market_volatility),
                 }
                 MetricTile {
-                    label: "Max drawdown",
+                    label: tr("Max drawdown"),
                     value: format!("−{:.1}%", pct(r.max_drawdown)),
                     hint: format!("Worst peak-to-trough · S&P −{:.1}%", pct(r.market_max_drawdown)),
                     tone: tone(r.max_drawdown <= r.market_max_drawdown),
                 }
                 MetricTile {
-                    label: "Value at risk (95%)",
+                    label: tr("Value at risk (95%)"),
                     value: format!("−{:.2}%", pct(r.var_95)),
                     hint: format!("1 in 20 days: ≥ {} loss", usd(r.var_95 * value)),
                 }
                 MetricTile {
-                    label: "Expected shortfall",
+                    label: tr("Expected shortfall"),
                     value: format!("−{:.2}%", pct(r.cvar_95)),
                     hint: format!("Average bad day: {}", usd(r.cvar_95 * value)),
                 }
                 MetricTile {
-                    label: "Sharpe ratio",
+                    label: tr("Sharpe ratio"),
                     value: format!("{:.2}", r.sharpe),
                     hint: format!("Return per risk · Sortino {:.2}", r.sortino),
                     tone: tone(r.sharpe >= 1.0),
                 }
                 MetricTile {
-                    label: "Beta",
+                    label: tr("Beta"),
                     value: format!("{:.2}", r.beta),
                     hint: format!("Moves {:.1}× the S&P · corr {:.2}", r.beta, r.market_correlation),
                 }
                 MetricTile {
-                    label: "Alpha",
+                    label: tr("Alpha"),
                     value: format!("{:+.1}%", pct(r.alpha)),
-                    hint: "Yearly return beyond beta".to_string(),
+                    hint: tr("Yearly return beyond beta").to_string(),
                     tone: tone(r.alpha >= 0.0),
                 }
                 MetricTile {
-                    label: "Diversification",
+                    label: tr("Diversification"),
                     value: format!("{:.2}×", r.diversification_ratio),
                     hint: "1.0× = no benefit · higher is better".to_string(),
                     tone: tone(r.diversification_ratio >= 1.2),
@@ -321,7 +322,7 @@ fn PerformanceChart(report: RiskReport) -> Element {
     let base_y = y(1.0);
 
     rsx! {
-        Card { title: "Performance", subtitle: "Growth of $100 vs the S&P 500".to_string(),
+        Card { title: tr("Performance"), subtitle: tr("Growth of $100 vs the S&P 500").to_string(),
             div { class: "flex flex-wrap gap-x-5 gap-y-1 mb-3 text-xs",
                 LegendDot { color: PORTFOLIO_HEX, label: format!("Portfolio ${:.0}", port_end * 100.0) }
                 LegendDot { color: MARKET_HEX, label: format!("S&P 500 ${:.0}", market_end * 100.0) }
@@ -335,7 +336,7 @@ fn PerformanceChart(report: RiskReport) -> Element {
                 }
                 line {
                     x1: "0", x2: "{CHART_W}", y1: "{base_y:.1}", y2: "{base_y:.1}",
-                    stroke: "#45475a", stroke_dasharray: "4 4", vector_effect: "non-scaling-stroke",
+                    stroke: "var(--catppuccin-color-surface1)", stroke_dasharray: "4 4", vector_effect: "non-scaling-stroke",
                 }
                 polygon { points: "{port_area}", fill: "url(#perf-fill)" }
                 polyline {
@@ -348,7 +349,7 @@ fn PerformanceChart(report: RiskReport) -> Element {
                 }
             }
             div { class: "mt-4 mb-1 flex justify-between text-[0.7rem] text-ctp-overlay1",
-                span { "Drawdown" }
+                span { {tr("Drawdown")} }
                 span { class: "text-ctp-red", "worst −{-dd_floor * 100.0:.1}%" }
             }
             svg { class: "w-full h-12", view_box: "0 0 {CHART_W} {DD_H}", preserve_aspect_ratio: "none",
@@ -402,7 +403,7 @@ fn StressTest(report: RiskReport, value: f64) -> Element {
     ];
 
     rsx! {
-        Card { title: "Stress test", subtitle: "What a bad stretch would cost today".to_string(),
+        Card { title: tr("Stress test"), subtitle: tr("What a bad stretch would cost today").to_string(),
             div { class: "flex flex-col",
                 for (label, note, change) in shocks.into_iter().chain(history) {
                     StressRow { label, note, change, value }
@@ -439,18 +440,18 @@ fn RiskContribution(report: RiskReport, tickers: Vec<TickerSymbol>) -> Element {
 
     rsx! {
         Card {
-            title: "Where your risk comes from",
-            subtitle: "Share of portfolio swings each holding causes, next to its weight".to_string(),
+            title: tr("Where your risk comes from"),
+            subtitle: tr("Share of portfolio swings each holding causes, next to its weight").to_string(),
             flush: true,
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
                         tr { class: "text-xs text-ctp-overlay1",
-                            th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "Asset" }
-                            th { class: "px-4 py-2.5 text-left font-medium", "Weight → risk share" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Volatility" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Beta" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Max drawdown" }
+                            th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Asset")} }
+                            th { class: "px-4 py-2.5 text-left font-medium", {tr("Weight → risk share")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Volatility")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Beta")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Max drawdown")} }
                             th { class: "pl-4 pr-6 py-2.5 text-right font-medium", "" }
                         }
                     }

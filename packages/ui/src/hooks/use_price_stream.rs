@@ -1,6 +1,6 @@
 use api::{
     events::quote_update_event::QuoteUpdateEvent,
-    quote::quote::{get_charts, get_quote, ClientEvent},
+    quote::quote::{get_quotes, ClientEvent},
     quote_subscribe,
 };
 use dioxus::{
@@ -8,71 +8,55 @@ use dioxus::{
     prelude::*,
 };
 use std::collections::HashMap;
-use types::{
-    candle::Candle, interval::Interval, quote::Quote, range::Range, ticker_symbol::TickerSymbol,
-};
+use types::{quote::Quote, ticker_symbol::TickerSymbol};
 
-pub fn use_price_stream(
-    tickers: Memo<Vec<TickerSymbol>>,
-    range: Range,
-    interval: Interval,
-    is_prepost_market: bool,
-) -> (
-    ReadSignal<HashMap<TickerSymbol, Quote>>,
-    ReadSignal<HashMap<TickerSymbol, Vec<Candle>>>,
-) {
-    let mut price_map = use_signal(|| HashMap::<TickerSymbol, Quote>::new());
-    let mut chart_map = use_signal(|| HashMap::<TickerSymbol, Vec<Candle>>::new());
+/// Set when prices come from the saved copy because Yahoo can't be
+/// reached; cleared by the next live price.
+pub static OFFLINE: GlobalSignal<bool> = Signal::global(|| false);
+
+/// Live quotes for `tickers`: one batched request for the starting prices,
+/// then updates over a websocket. Changing `tickers` re-subscribes.
+pub fn use_price_stream(tickers: Memo<Vec<TickerSymbol>>) -> ReadSignal<HashMap<TickerSymbol, Quote>> {
+    let mut price_map = use_signal(HashMap::<TickerSymbol, Quote>::new);
     let mut socket = use_websocket(|| quote_subscribe(WebSocketOptions::new()));
 
     use_effect(move || {
-        let current_tickers = tickers.read().clone();
-        if current_tickers.is_empty() {
+        let current = tickers.read().clone();
+        if current.is_empty() {
             return;
         }
         spawn(async move {
-            let Ok(charts) =
-                get_charts(current_tickers.clone(), range, interval, is_prepost_market).await
-            else {
-                return;
-            };
-
-            let quote_futures = current_tickers.iter().map(|ticker| {
-                let t = ticker.clone();
-                async move {
-                    let result = get_quote(t.clone()).await;
-                    (t, result)
-                }
-            });
-            let quotes: HashMap<TickerSymbol, Quote> = futures::future::join_all(quote_futures)
-                .await
-                .into_iter()
-                .filter_map(|(ticker, result)| result.ok().map(|q| (ticker, q)))
+            // Only fetch tickers not already priced; the stream keeps the rest fresh.
+            let missing: Vec<TickerSymbol> = current
+                .iter()
+                .filter(|t| !price_map.peek().contains_key(*t))
+                .cloned()
                 .collect();
-            price_map.with_mut(|map| {
-                for (ticker, quote) in quotes {
-                    map.insert(ticker, quote);
+            if !missing.is_empty() {
+                if let Ok(quotes) = get_quotes(missing).await {
+                    if !quotes.is_empty() {
+                        *OFFLINE.write() = quotes.values().any(|q| q.stale);
+                    }
+                    price_map.with_mut(|map| map.extend(quotes));
                 }
-            });
-            chart_map.with_mut(|map| {
-                for (ticker, candles) in charts {
-                    map.insert(ticker, candles);
-                }
-            });
-            let _ = socket.send(ClientEvent::Watch(current_tickers)).await;
+            }
+            let _ = socket.send(ClientEvent::Watch(current)).await;
         });
     });
 
     use_future(move || async move {
-        while let Ok(updates) = socket.recv().await {
+        while let Ok(QuoteUpdateEvent::QuoteUpdate(update)) = socket.recv().await {
             price_map.with_mut(|map| {
-                let QuoteUpdateEvent::QuoteUpdate(update) = updates;
                 if let Some(old) = map.get_mut(&update.ticker_symbol) {
                     old.current_price = update.current_price;
+                    old.stale = false;
                 }
             });
+            if *OFFLINE.peek() {
+                *OFFLINE.write() = false;
+            }
         }
     });
 
-    (price_map.into(), chart_map.into())
+    price_map.into()
 }

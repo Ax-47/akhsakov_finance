@@ -1,106 +1,79 @@
-//! Checks active price alerts against live quotes while the app is open.
+//! Shows notifications (e.g. fired price alerts) as they arrive. The
+//! server checks alerts every minute, even with no app open, and pushes
+//! them to your phone if set up; this just surfaces them in the app.
 
-use crate::{app::DataRefresh, format::fmt_usd, hooks::use_price_stream, notify::Toasts};
-use dioxus::prelude::*;
-use dtos::{
-    portfolio::GetDashBoardResponse,
-    position::{compute_positions, portfolio_summary},
+use crate::i18n::tr;
+use crate::{
+    app::DataRefresh,
+    components::card::Card,
+    notify::{sleep_ms, Toasts},
 };
-use rust_decimal::Decimal;
-use std::collections::{HashMap, HashSet};
-use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
-use uuid::Uuid;
+use dioxus::prelude::*;
+use dtos::notifications::Notification;
 
-/// Mounted once, in `App`. Fires each alert at most once.
+const POLL_MS: u32 = 30_000;
+
+/// Mounted once, in `App`: toasts each unread notification once, then
+/// marks them read.
 #[component]
 pub fn AlertWatcher() -> Element {
-    let refresh = use_context::<DataRefresh>();
     let toasts = use_context::<Toasts>();
-    let data = use_context::<Signal<GetDashBoardResponse>>();
-    let mut fired = use_signal(HashSet::<Uuid>::new);
-
-    let alerts = use_resource(move || async move {
-        let _reload = refresh.0();
-        api::get_alerts().await.unwrap_or_default()
-    });
-    let active = use_memo(move || {
-        alerts
-            .read()
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|a| a.is_active())
-            .collect::<Vec<_>>()
-    });
-
-    // Alert tickers, plus holdings when a weight alert needs the total.
-    let tickers = use_memo(move || {
-        let mut set: HashSet<TickerSymbol> =
-            active.read().iter().map(|a| a.ticker.clone()).collect();
-        if active
-            .read()
-            .iter()
-            .any(|a| a.kind == dtos::watch::AlertKind::WeightAbove)
-        {
-            set.extend(
-                data.read()
-                    .transactions
-                    .iter()
-                    .filter(|t| !t.is_cash())
-                    .map(|t| t.ticker.clone()),
-            );
-        }
-        set.into_iter().collect::<Vec<_>>()
-    });
-    let (quotes, _) = use_price_stream(tickers, Range::D1, Interval::I2m, false);
-
-    use_effect(move || {
-        let quotes = quotes.read();
-        if active.read().is_empty() || quotes.is_empty() {
-            return;
-        }
-        let prices: HashMap<TickerSymbol, (Decimal, Decimal)> = quotes
-            .iter()
-            .map(|(t, q)| {
-                let day = if q.previous_close_price.is_zero() {
-                    Decimal::ZERO
-                } else {
-                    (q.current_price / q.previous_close_price - Decimal::ONE) * Decimal::ONE_HUNDRED
-                };
-                (t.clone(), (q.current_price, day))
-            })
-            .collect();
-        let positions = compute_positions(&data.read(), &prices);
-        let (total, ..) = portfolio_summary(&positions);
-        let weight = |t: &TickerSymbol| {
-            let p = positions.iter().find(|p| &p.ticker == t)?;
-            (total > Decimal::ZERO).then(|| p.market_value() / total * Decimal::ONE_HUNDRED)
-        };
-
-        for alert in active.read().iter() {
-            if fired.peek().contains(&alert.id) {
-                continue;
+    let refresh = use_context::<DataRefresh>();
+    let auth = use_context::<crate::auth::AuthState>();
+    use_future(move || async move {
+        loop {
+            let result = api::get_notifications().await;
+            // Signed out elsewhere or the session expired: show sign-in.
+            if matches!(&result, Err(ServerFnError::ServerError { code: 401, .. }))
+                || matches!(&result, Err(e) if e.to_string().contains("Sign in first"))
+            {
+                auth.recheck();
             }
-            let (price, day) = prices
-                .get(&alert.ticker)
-                .map(|(p, d)| (Some(*p), Some(*d)))
-                .unwrap_or((None, None));
-            if !alert.is_met(price, day, weight(&alert.ticker)) {
-                continue;
-            }
-            fired.write().insert(alert.id);
-            let now = price
-                .map(|p| format!("Now {}", fmt_usd(p, 2)))
-                .unwrap_or_default();
-            toasts.show(format!("🔔 {}", alert.describe()), now);
-            let id = alert.id;
-            spawn(async move {
-                if api::mark_alert_triggered(id).await.is_ok() {
+            if let Ok(list) = result {
+                let unread: Vec<Notification> = list.into_iter().filter(|n| !n.read).collect();
+                if !unread.is_empty() {
+                    for n in unread.iter().rev() {
+                        toasts.show(n.title.clone(), n.body.clone());
+                    }
+                    let _ = api::mark_notifications_read().await;
+                    // Fired alerts change the alert list.
                     refresh.reload();
                 }
-            });
+            }
+            sleep_ms(POLL_MS).await;
         }
     });
-
     rsx! {}
+}
+
+/// The latest notifications.
+#[component]
+pub fn NotificationsCard() -> Element {
+    let refresh = use_context::<DataRefresh>();
+    let list = use_resource(move || async move {
+        let _reload = refresh.0();
+        api::get_notifications().await.unwrap_or_default()
+    });
+    let items = list.read().clone().unwrap_or_default();
+    rsx! {
+        Card {
+            title: tr("Notifications"),
+            subtitle: tr("Alerts are checked on the server every minute. Push them to your phone in Settings.").to_string(),
+            flush: true,
+            if items.is_empty() {
+                p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("Nothing yet.")} }
+            }
+            for n in items.into_iter().take(10) {
+                div { key: "{n.id}", class: "flex items-start gap-4 border-t border-ctp-surface0/60 px-6 py-3",
+                    div { class: "min-w-0 flex-1",
+                        div { class: "text-sm text-ctp-text", "{n.title}" }
+                        if !n.body.is_empty() {
+                            div { class: "text-xs text-ctp-overlay1", "{n.body}" }
+                        }
+                    }
+                    span { class: "shrink-0 text-xs tabular-nums text-ctp-overlay0", "{n.created_at} UTC" }
+                }
+            }
+        }
+    }
 }

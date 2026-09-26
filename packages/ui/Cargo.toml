@@ -18,8 +18,9 @@ rust_decimal_macros = "1"
 futures = "0.3"
 gloo-timers = {version="0.4.0", features=["futures"]}
 uuid = { workspace = true, features = ["v4"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+serde_json = { workspace = true }
+base64 = "0.22"
 [features]
 server = ["api/server"]
 
-[dev-dependencies]
-chrono = "0.4.45"

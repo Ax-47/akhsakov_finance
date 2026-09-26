@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use super::force_graph::ForceGraph;
 use crate::components::{
     analysis::stats::{correlation_matrix, daily_returns, Returns},
@@ -63,8 +64,8 @@ pub fn CorrelationGraph(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) ->
 
     rsx! {
         Card {
-            title: "Relations",
-            subtitle: "Stocks that move together sit close — drag to explore".to_string(),
+            title: tr("Relations"),
+            subtitle: tr("Stocks that move together sit close — drag to explore").to_string(),
             actions: rsx! {
                 Segmented {
                     ToggleButton { label: "3M", active: range() == Range::M3, onclick: move |_| range.set(Range::M3) }

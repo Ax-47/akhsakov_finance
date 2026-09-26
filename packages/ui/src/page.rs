@@ -1,5 +1,6 @@
 //! Page shell and hero shared by the dashboard and portfolio pages.
 
+use crate::i18n::tr;
 use crate::{
     format::{fmt_signed, fmt_usd},
     LiveNumber,
@@ -14,7 +15,7 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 pub fn Page(children: Element) -> Element {
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
-        div { class: "mocha relative min-h-screen overflow-hidden bg-ctp-base text-ctp-text",
+        div { class: "{crate::theme::theme_class()} relative min-h-screen overflow-hidden bg-ctp-base text-ctp-text",
             div { class: "pointer-events-none absolute inset-x-0 top-0 h-[28rem] overflow-hidden", aria_hidden: "true",
                 div { class: "absolute -top-32 -left-24 h-80 w-80 rounded-full bg-ctp-mauve/20 blur-3xl" }
                 div { class: "absolute -top-20 left-1/3 h-72 w-72 rounded-full bg-ctp-pink/15 blur-3xl" }
@@ -49,10 +50,10 @@ pub fn PageHero(
                             span { class: "absolute inline-flex h-full w-full rounded-full bg-ctp-green opacity-60 motion-safe:animate-ping" }
                             span { class: "relative inline-flex h-2 w-2 rounded-full bg-ctp-green" }
                         }
-                        "Live prices"
+                        {tr("Live prices")}
                     } else {
                         span { class: "h-2 w-2 rounded-full bg-ctp-overlay0" }
-                        "Fetching prices…"
+                        {tr("Fetching prices…")}
                     }
                 }
                 if let Some(actions) = actions {

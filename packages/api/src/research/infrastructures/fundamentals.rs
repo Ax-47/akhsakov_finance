@@ -1,9 +1,9 @@
 //! Fundamentals from Yahoo: profile, statistics, statements, valuation
 //! history and analyst views.
 
+use crate::research::repositories::RawFundamentals;
 use dtos::fundamentals::{
-    valuation_history, Analysts, EpsSurprise, KeyStats, PeriodFinancials, Profile,
-    StockFundamentals,
+    Analysts, EpsSurprise, KeyStats, PeriodFinancials, Profile, StockFundamentals,
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
@@ -12,7 +12,7 @@ use yfinance_rs::{
     YfClient,
 };
 
-pub async fn fetch(client: &YfClient, symbol: &str) -> Result<StockFundamentals, String> {
+pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, String> {
     let t = Ticker::new(client, symbol);
     let (info, q_inc, q_bal, q_cf, a_inc, a_bal, a_cf, earnings, trend, history) = tokio::join!(
         t.info(),
@@ -28,6 +28,12 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<StockFundamentals,
     );
     let info = info.map_err(|e| format!("{symbol}: {e}"))?;
 
+    // Statements can be reported in another currency than the share price.
+    let financial_currency = q_inc
+        .as_ref()
+        .ok()
+        .and_then(|rows| rows.iter().find_map(|r| r.total_revenue.as_ref()))
+        .map(|m| m.currency().code().to_string());
     let quarterly = merge(
         q_inc.unwrap_or_default(),
         q_bal.unwrap_or_default(),
@@ -51,6 +57,12 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<StockFundamentals,
     let price = closes.last().map(|c| c.1);
 
     let ks = &info.key_statistics;
+    let currency = ks
+        .market_cap
+        .as_ref()
+        .map(|m| m.currency().code().to_string())
+        .or_else(|| ks.fifty_two_week_high.as_ref().map(|p| p.currency().code().to_string()))
+        .unwrap_or_else(|| "USD".into());
     let forward_eps = trend.ok().and_then(|rows| {
         ["+1y", "0y"].iter().find_map(|code| {
             rows.iter()
@@ -128,14 +140,19 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<StockFundamentals,
         sma200: price_f64(info.moving_averages.two_hundred_day.as_ref()),
     };
 
-    Ok(StockFundamentals {
-        profile,
-        stats,
-        valuation: valuation_history(&quarterly, &closes),
-        quarterly,
-        annual,
-        eps_surprises,
-        analysts,
+    Ok(RawFundamentals {
+        data: StockFundamentals {
+            profile,
+            stats,
+            valuation: vec![],
+            quarterly,
+            annual,
+            eps_surprises,
+            analysts,
+            financial_currency: financial_currency.unwrap_or_else(|| currency.clone()),
+            currency,
+        },
+        closes,
     })
 }
 

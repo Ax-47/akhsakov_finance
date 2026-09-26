@@ -1,5 +1,7 @@
-//! Watched stocks with live prices, and every price alert.
+//! Watchlists (several, named) with live prices, tags from your notes,
+//! and every price alert.
 
+use crate::i18n::tr;
 use crate::{
     app::DataRefresh,
     components::{
@@ -13,35 +15,58 @@ use crate::{
     page::{GhostButton, Page},
 };
 use dioxus::prelude::*;
-use dtos::watch::Alert;
+use dtos::watch::{Alert, Note, Watchlist};
+use uuid::Uuid;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
-use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
+use types::ticker_symbol::TickerSymbol;
 
 #[component]
 pub fn WatchlistPage() -> Element {
     let refresh = use_context::<DataRefresh>();
     let dialogs = use_context::<Dialogs>();
     let mut adding = use_signal(String::new);
+    // The list shown; the first one until you pick another.
+    let selected = use_signal(|| None::<Uuid>);
+    let mut tag_filter = use_signal(|| None::<String>);
 
-    let watchlist = use_resource(move || async move {
+    let lists = use_resource(move || async move {
         let _reload = refresh.0();
-        api::get_watchlist().await.ok()
+        api::get_watchlists().await.ok()
+    });
+    let notes = use_resource(move || async move {
+        let _reload = refresh.0();
+        api::get_notes().await.unwrap_or_default()
+    });
+    let current = use_memo(move || {
+        let lists = lists.read().clone().flatten().unwrap_or_default();
+        let id = selected();
+        lists
+            .iter()
+            .find(|l| Some(l.id) == id)
+            .or_else(|| lists.first())
+            .cloned()
+    });
+    let tags_of = move |ticker: &str| -> Vec<String> {
+        notes
+            .read()
+            .as_ref()
+            .and_then(|n: &Vec<Note>| n.iter().find(|n| n.ticker == ticker).map(|n| n.tags.clone()))
+            .unwrap_or_default()
+    };
+    // Items of the current list, narrowed to the chosen tag.
+    let watchlist = use_memo(move || {
+        let items = current().map(|l| l.items).unwrap_or_default();
+        match tag_filter() {
+            Some(tag) => items.into_iter().filter(|i| tags_of(i.ticker.as_str()).contains(&tag)).collect(),
+            None => items,
+        }
     });
     let alerts = use_resource(move || async move {
         let _reload = refresh.0();
         api::get_alerts().await.unwrap_or_default()
     });
-    let tickers = use_memo(move || {
-        watchlist
-            .read()
-            .clone()
-            .flatten()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|w| w.ticker)
-            .collect::<Vec<_>>()
-    });
-    let (quotes, _) = use_price_stream(tickers, Range::D1, Interval::I2m, false);
+    let tickers = use_memo(move || watchlist().into_iter().map(|w| w.ticker).collect::<Vec<_>>());
+    let quotes = use_price_stream(tickers);
     let mut by_cap = use_signal(|| true);
     // Names and market caps; the colour comes from the live price stream.
     let snapshot = use_resource(move || async move {
@@ -89,9 +114,24 @@ pub fn WatchlistPage() -> Element {
     });
     let all_alerts = alerts.read().clone().unwrap_or_default();
 
+    let list_id = current().map(|l| l.id);
+    let list_tags: Vec<String> = {
+        let mut tags: Vec<String> = current()
+            .map(|l| l.items)
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|i| tags_of(i.ticker.as_str()))
+            .collect();
+        tags.sort();
+        tags.dedup();
+        tags
+    };
     let add = move |_| async move {
-        if let Ok(t) = TickerSymbol::new(&adding()) {
-            if api::watch_ticker(t).await.is_ok() {
+        let (Ok(t), Some(list)) = (TickerSymbol::new(&adding()), list_id) else {
+            return;
+        };
+        {
+            if api::watch_in(list, t).await.is_ok() {
                 adding.set(String::new());
                 refresh.reload();
             }
@@ -103,22 +143,45 @@ pub fn WatchlistPage() -> Element {
             header { class: "motion-safe:animate-rise flex flex-wrap items-end justify-between gap-4",
                 div {
                     h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
-                        "Watchlist"
+                        {tr("Watchlist")}
                     }
-                    p { class: "mt-2 text-sm text-ctp-overlay1", "Stocks you follow, and alerts on price moves." }
+                    p { class: "mt-2 text-sm text-ctp-overlay1", {tr("Stocks you follow, and alerts on price moves.")} }
                 }
-                GhostButton { label: "🔔 New alert", onclick: move |_| dialogs.open(Dialog::NewAlert(None)) }
+                GhostButton { label: tr("🔔 New alert"), onclick: move |_| dialogs.open(Dialog::NewAlert(None)) }
             }
 
-            div { class: "mt-10 grid gap-5 motion-safe:animate-rise",
+            div { class: "mt-8 motion-safe:animate-rise",
+                ListBar { lists: lists.read().clone().flatten().unwrap_or_default(), current: list_id, selected }
+            }
+            if !list_tags.is_empty() {
+                div { class: "mt-3 flex flex-wrap items-center gap-2 text-xs",
+                    span { class: "text-ctp-overlay1", {tr("Tags")} }
+                    for tag in list_tags {
+                        {
+                            let on = tag_filter().as_deref() == Some(tag.as_str());
+                            let t = tag.clone();
+                            rsx! {
+                                button {
+                                    key: "{tag}",
+                                    class: if on { "rounded-full bg-ctp-mauve/20 px-2.5 py-1 text-ctp-mauve cursor-pointer" } else { "rounded-full bg-ctp-surface0 px-2.5 py-1 text-ctp-subtext0 cursor-pointer hover:text-ctp-text" },
+                                    onclick: move |_| tag_filter.set(if on { None } else { Some(t.clone()) }),
+                                    "#{tag}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            div { class: "mt-5 grid gap-5 motion-safe:animate-rise",
                 if !tickers.read().is_empty() {
                     Card {
-                        title: "Heatmap",
-                        subtitle: "Colour is today's change. Click a stock to open it.".to_string(),
+                        title: tr("Heatmap"),
+                        subtitle: tr("Colour is today's change. Click a stock to open it.").to_string(),
                         actions: rsx! {
                             Segmented {
-                                ToggleButton { label: "Market cap", active: by_cap(), onclick: move |_| by_cap.set(true) }
-                                ToggleButton { label: "Equal", active: !by_cap(), onclick: move |_| by_cap.set(false) }
+                                ToggleButton { label: tr("Market cap"), active: by_cap(), onclick: move |_| by_cap.set(true) }
+                                ToggleButton { label: tr("Equal"), active: !by_cap(), onclick: move |_| by_cap.set(false) }
                             }
                         },
                         Treemap { items: tiles, saturation: DAY_SATURATION, height: 320 }
@@ -126,7 +189,7 @@ pub fn WatchlistPage() -> Element {
                     }
                 }
                 Card {
-                    title: "Watching",
+                    title: current().map_or("Watching".to_string(), |l| l.name),
                     subtitle: format!("{} stocks", tickers.read().len()),
                     flush: true,
                     actions: rsx! {
@@ -136,30 +199,31 @@ pub fn WatchlistPage() -> Element {
                             input {
                                 class: "w-40 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm uppercase text-ctp-text \
                                         placeholder:normal-case placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
-                                placeholder: "Add ticker",
+                                placeholder: tr("Add ticker"),
                                 value: "{adding}",
                                 oninput: move |e| adding.set(e.value()),
                             }
-                            GhostButton { label: "Add", onclick: add }
+                            GhostButton { label: tr("Add"), onclick: add }
                         }
                     },
-                    match watchlist.read().clone() {
-                        None => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-overlay1", "Loading…" } },
-                        Some(None) => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-red", "Couldn't load your watchlist." } },
-                        Some(Some(items)) if items.is_empty() => rsx! {
+                    match (lists.read().clone(), watchlist()) {
+                        (None, _) => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("Loading…")} } },
+                        (Some(None), _) => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-red", {tr("Couldn't load your watchlists.")} } },
+                        (_, items) if items.is_empty() => rsx! {
                             p { class: "px-6 pb-8 text-sm text-ctp-overlay1",
-                                "Nothing yet. Add a ticker above, use ☆ Watch on any stock page, or search in the sidebar."
+                                if tag_filter().is_some() { {tr("No stocks here have that tag.")} } else { {tr("Nothing yet. Add a ticker above, use ☆ Watch on any stock page, or search in the sidebar.")} }
                             }
                         },
-                        Some(Some(items)) => rsx! {
+                        (_, items) => rsx! {
                             for item in items {
                                 {
                                     let quote = quotes.read().get(&item.ticker).cloned();
                                     let price = quote.as_ref().map(|q| q.current_price);
                                     let day = quote.as_ref().filter(|q| !q.previous_close_price.is_zero()).map(|q| (q.current_price / q.previous_close_price - Decimal::ONE) * Decimal::ONE_HUNDRED);
                                     let count = all_alerts.iter().filter(|a| a.ticker == item.ticker && a.is_active()).count();
+                                    let tags = tags_of(item.ticker.as_str());
                                     rsx! {
-                                        WatchRow { key: "{item.ticker}", ticker: item.ticker.clone(), price, day, alerts: count }
+                                        WatchRow { key: "{item.ticker}", ticker: item.ticker.clone(), price, day, alerts: count, list: list_id, tags }
                                     }
                                 }
                             }
@@ -167,6 +231,7 @@ pub fn WatchlistPage() -> Element {
                     }
                 }
                 AlertsCard { alerts: all_alerts.clone() }
+                crate::alerts::NotificationsCard {}
             }
         }
     }
@@ -178,6 +243,8 @@ fn WatchRow(
     price: Option<Decimal>,
     day: Option<Decimal>,
     alerts: usize,
+    list: Option<Uuid>,
+    tags: Vec<String>,
 ) -> Element {
     let refresh = use_context::<DataRefresh>();
     let dialogs = use_context::<Dialogs>();
@@ -187,6 +254,11 @@ fn WatchRow(
             class: "group flex items-center gap-4 border-t border-ctp-surface0/60 px-6 py-3.5 cursor-pointer transition-colors hover:bg-ctp-surface0/30",
             onclick: move |_| open_stock(&open),
             span { class: "w-24 font-semibold text-ctp-text", "{ticker}" }
+            span { class: "hidden min-w-0 flex-1 gap-1 truncate sm:flex",
+                for tag in tags {
+                    span { key: "{tag}", class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-[0.65rem] text-ctp-subtext0", "#{tag}" }
+                }
+            }
             span { class: "flex-1 text-right tabular-nums text-ctp-text",
                 {price.map(|p| fmt_usd(p, 2)).unwrap_or_else(|| "—".into())}
             }
@@ -199,7 +271,7 @@ fn WatchRow(
             span { class: "flex gap-1 opacity-0 transition-opacity group-hover:opacity-100",
                 button {
                     class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
-                    title: "New alert",
+                    title: tr("New alert"),
                     onclick: move |e| {
                         e.stop_propagation();
                         dialogs.open(Dialog::NewAlert(Some(alert.clone())));
@@ -208,12 +280,16 @@ fn WatchRow(
                 }
                 button {
                     class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                    title: "Stop watching",
+                    title: tr("Remove from this list"),
                     onclick: move |e| {
                         e.stop_propagation();
                         let t = remove.clone();
                         spawn(async move {
-                            if api::unwatch_ticker(t).await.is_ok() {
+                            let done = match list {
+                                Some(list) => api::unwatch_from(list, t).await,
+                                None => api::unwatch_ticker(t).await,
+                            };
+                            if done.is_ok() {
                                 refresh.reload();
                             }
                         });
@@ -225,17 +301,112 @@ fn WatchRow(
     }
 }
 
+/// Pills to switch lists, plus create / rename / delete.
+#[component]
+fn ListBar(lists: Vec<Watchlist>, current: Option<Uuid>, selected: Signal<Option<Uuid>>) -> Element {
+    let refresh = use_context::<DataRefresh>();
+    // Some(name) while typing a new list's name; `renaming` edits the current one.
+    let mut naming = use_signal(|| None::<String>);
+    let mut renaming = use_signal(|| false);
+    let mut confirm_delete = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let message = |e: ServerFnError| match e {
+        ServerFnError::ServerError { message, .. } => message,
+        e => e.to_string(),
+    };
+    let save_name = move |_| async move {
+        let Some(name) = naming() else { return };
+        let result = if renaming() {
+            match current {
+                Some(id) => api::rename_watchlist(id, name).await,
+                None => Ok(()),
+            }
+        } else {
+            api::create_watchlist(name).await.map(|id| selected.set(Some(id)))
+        };
+        match result {
+            Ok(()) => {
+                naming.set(None);
+                renaming.set(false);
+                error.set(None);
+                refresh.reload();
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    let delete = move |_| async move {
+        let Some(id) = current else { return };
+        match api::delete_watchlist(id).await {
+            Ok(()) => {
+                selected.set(None);
+                confirm_delete.set(false);
+                refresh.reload();
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    let current_name = lists.iter().find(|l| Some(l.id) == current).map(|l| l.name.clone()).unwrap_or_default();
+    rsx! {
+        div { class: "flex flex-wrap items-center gap-2",
+            for l in lists.iter().cloned() {
+                button {
+                    key: "{l.id}",
+                    class: if Some(l.id) == current {
+                        "rounded-full border border-ctp-mauve bg-ctp-mauve/15 px-3.5 py-1.5 text-sm font-medium text-ctp-text cursor-pointer"
+                    } else {
+                        "rounded-full border border-ctp-surface0 px-3.5 py-1.5 text-sm text-ctp-subtext0 cursor-pointer hover:border-ctp-surface1 hover:text-ctp-text"
+                    },
+                    onclick: move |_| selected.set(Some(l.id)),
+                    "{l.name} "
+                    span { class: "text-xs text-ctp-overlay0", "{l.items.len()}" }
+                }
+            }
+            if let Some(name) = naming() {
+                form {
+                    class: "flex items-center gap-2",
+                    onsubmit: move |e| e.prevent_default(),
+                    input {
+                        class: "w-44 rounded-full border border-ctp-mauve bg-ctp-crust/40 px-3.5 py-1.5 text-sm text-ctp-text outline-none",
+                        placeholder: tr("List name"),
+                        autofocus: true,
+                        value: "{name}",
+                        oninput: move |e| naming.set(Some(e.value())),
+                    }
+                    GhostButton { label: if renaming() { tr("Rename") } else { tr("Create") }, onclick: save_name }
+                    GhostButton { label: tr("Cancel"), onclick: move |_| { naming.set(None); renaming.set(false); error.set(None); } }
+                }
+            } else {
+                GhostButton { label: tr("＋ New list"), onclick: move |_| naming.set(Some(String::new())) }
+                if current.is_some() {
+                    GhostButton { label: tr("Rename"), onclick: move |_| { renaming.set(true); naming.set(Some(current_name.clone())); } }
+                    if lists.len() > 1 {
+                        if confirm_delete() {
+                            GhostButton { label: tr("Delete this list?"), onclick: delete }
+                            GhostButton { label: tr("Keep"), onclick: move |_| confirm_delete.set(false) }
+                        } else {
+                            GhostButton { label: tr("Delete"), onclick: move |_| confirm_delete.set(true) }
+                        }
+                    }
+                }
+            }
+            if let Some(e) = error() {
+                span { class: "text-xs text-ctp-red", "{e}" }
+            }
+        }
+    }
+}
+
 #[component]
 fn AlertsCard(alerts: Vec<Alert>) -> Element {
     let refresh = use_context::<DataRefresh>();
     let active = alerts.iter().filter(|a| a.is_active()).count();
     rsx! {
         Card {
-            title: "Alerts",
+            title: tr("Alerts"),
             subtitle: format!("{active} active · {} fired", alerts.len() - active),
             flush: true,
             if alerts.is_empty() {
-                p { class: "px-6 pb-8 text-sm text-ctp-overlay1", "No alerts. Create one with 🔔 New alert." }
+                p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("No alerts. Create one with 🔔 New alert.")} }
             }
             for a in alerts {
                 div { key: "{a.id}", class: "group flex items-center gap-4 border-t border-ctp-surface0/60 px-6 py-3",
@@ -245,7 +416,7 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
                         } else {
                             "w-16 shrink-0 rounded-full bg-ctp-surface0 px-2 py-0.5 text-center text-[0.68rem] font-semibold text-ctp-overlay1"
                         },
-                        if a.is_active() { "Active" } else { "Fired" }
+                        if a.is_active() { {tr("Active")} } else { {tr("Fired")} }
                     }
                     span { class: "flex-1 text-sm text-ctp-text", "{a.describe()}" }
                     if let Some(when) = &a.triggered_at {
@@ -253,7 +424,7 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
                     }
                     button {
                         class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 opacity-0 cursor-pointer transition-opacity group-hover:opacity-100 hover:bg-ctp-surface0 hover:text-ctp-red",
-                        title: "Delete alert",
+                        title: tr("Delete alert"),
                         onclick: move |_| async move {
                             if api::delete_alert(a.id).await.is_ok() {
                                 refresh.reload();

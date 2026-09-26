@@ -25,3 +25,4 @@ pub trait PortfolioRepository: Send + Sync {
     fn insert_transactions(&self, txs: &[Transaction]) -> Result<(), RepositoryError>;
     fn delete_transaction(&self, id: Uuid) -> Result<(), RepositoryError>;
 }
+

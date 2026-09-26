@@ -16,6 +16,35 @@ pub enum DatabaseError {
     Sqlite(#[from] rusqlite::Error),
     #[error("database lock poisoned")]
     Poisoned,
+    #[error("file error: {0}")]
+    File(String),
+    #[error("not a backup of this app: {0}")]
+    NotABackup(String),
+}
+
+/// A file restored over live data must be an intact database of this app,
+/// no newer than this version.
+fn check_backup(conn: &Connection) -> Result<(), DatabaseError> {
+    let bad = |why: &str| DatabaseError::NotABackup(why.to_string());
+    let ok: String = conn
+        .query_row("PRAGMA quick_check", [], |r| r.get(0))
+        .map_err(|_| bad("the file isn't a SQLite database"))?;
+    if ok != "ok" {
+        return Err(bad("the file is damaged"));
+    }
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version < 1 || version as usize > MIGRATIONS.len() {
+        return Err(bad("it's from an unknown or newer version"));
+    }
+    let tables: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('portfolios', 'transactions')",
+        [],
+        |r| r.get(0),
+    )?;
+    if tables != 2 {
+        return Err(bad("it has no portfolio tables"));
+    }
+    Ok(())
 }
 
 /// Cheap to clone; all clones share one connection.
@@ -55,6 +84,35 @@ impl Database {
     ) -> Result<T, DatabaseError> {
         let conn = self.0.lock().map_err(|_| DatabaseError::Poisoned)?;
         Ok(f(&conn)?)
+    }
+
+    /// A consistent copy of the whole database as SQLite file bytes.
+    pub fn export(&self) -> Result<Vec<u8>, DatabaseError> {
+        let path = std::env::temp_dir().join(format!("akhsakov-export-{}.db", uuid::Uuid::new_v4()));
+        self.with(|c| c.execute("VACUUM INTO ?1", [path.to_string_lossy()]))?;
+        let bytes = std::fs::read(&path).map_err(|e| DatabaseError::File(e.to_string()));
+        let _ = std::fs::remove_file(&path);
+        bytes
+    }
+
+    /// Replaces every table with the contents of `bytes` (an exported
+    /// database), then upgrades it to the current schema. The file is
+    /// checked first; on any problem nothing changes.
+    pub fn restore(&self, bytes: &[u8]) -> Result<(), DatabaseError> {
+        let path = std::env::temp_dir().join(format!("akhsakov-restore-{}.db", uuid::Uuid::new_v4()));
+        std::fs::write(&path, bytes).map_err(|e| DatabaseError::File(e.to_string()))?;
+        let result = (|| {
+            let source = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            check_backup(&source)?;
+            let mut live = self.0.lock().map_err(|_| DatabaseError::Poisoned)?;
+            rusqlite::backup::Backup::new(&source, &mut live)?
+                .run_to_completion(256, std::time::Duration::ZERO, None)?;
+            live.pragma_update(None, "foreign_keys", "ON")?;
+            migrate(&live)?;
+            Ok(())
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
     }
 
     /// Runs `f` inside a transaction, committing only if it succeeds.
@@ -119,6 +177,79 @@ const MIGRATIONS: &[&str] = &[
         date          TEXT NOT NULL,
         monthly       TEXT NOT NULL DEFAULT '0',
         portfolio_id  TEXT REFERENCES portfolios(id) ON DELETE CASCADE
+    );",
+    // 3: each trade's currency and its USD rate on the trade date
+    "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
+    ALTER TABLE transactions ADD COLUMN fx_to_usd TEXT NOT NULL DEFAULT '1';",
+    // 4: cached index membership
+    "CREATE TABLE index_members (
+        index_key  TEXT NOT NULL,
+        position   INTEGER NOT NULL,
+        ticker     TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        sector     TEXT NOT NULL,
+        PRIMARY KEY (index_key, position)
+    );
+    CREATE TABLE index_fetched (
+        index_key   TEXT PRIMARY KEY,
+        fetched_at  TEXT NOT NULL
+    );",
+    // 5: named watchlists (existing items move to the first) and stock notes
+    "CREATE TABLE watchlists (
+        id        TEXT PRIMARY KEY,
+        name      TEXT NOT NULL,
+        position  INTEGER NOT NULL
+    );
+    INSERT INTO watchlists (id, name, position)
+        VALUES ('00000000-0000-0000-0000-000000000001', 'Watchlist', 0);
+    CREATE TABLE watch_items (
+        list_id   TEXT NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+        ticker    TEXT NOT NULL,
+        added_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (list_id, ticker)
+    );
+    INSERT INTO watch_items (list_id, ticker, added_at)
+        SELECT '00000000-0000-0000-0000-000000000001', ticker, added_at FROM watchlist;
+    DROP TABLE watchlist;
+    CREATE TABLE notes (
+        ticker      TEXT PRIMARY KEY,
+        text        TEXT NOT NULL,
+        tags        TEXT NOT NULL DEFAULT '',
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
+    // 6: notifications, push channels, and saved prices for offline use
+    "CREATE TABLE notifications (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        body        TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        read        INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE notify_config (
+        key    TEXT PRIMARY KEY,
+        value  TEXT NOT NULL
+    );
+    CREATE TABLE quote_cache (
+        ticker      TEXT PRIMARY KEY,
+        json        TEXT NOT NULL,
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE chart_cache (
+        key         TEXT PRIMARY KEY,
+        json        TEXT NOT NULL,
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
+    // 7: accounts and sign-in sessions
+    "CREATE TABLE users (
+        username       TEXT PRIMARY KEY,
+        password_hash  TEXT NOT NULL,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE sessions (
+        token       TEXT PRIMARY KEY,
+        username    TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT NOT NULL
     );",
 ];
 
@@ -201,5 +332,31 @@ mod tests {
             .with(|c| c.pragma_query_value(None, "user_version", |r| r.get(0)))
             .unwrap();
         assert_eq!(version as usize, MIGRATIONS.len());
+    }
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::*;
+
+    fn names(db: &Database) -> Vec<String> {
+        db.with(|c| c.prepare("SELECT name FROM portfolios")?.query_map([], |r| r.get(0))?.collect())
+            .unwrap()
+    }
+
+    #[test]
+    fn export_then_restore_round_trips() {
+        let a = Database::in_memory().unwrap();
+        a.with(|c| c.execute("INSERT INTO portfolios (id, name) VALUES ('p', 'Kept')", [])).unwrap();
+        let bytes = a.export().unwrap();
+        assert!(bytes.starts_with(b"SQLite format 3"));
+
+        let b = Database::in_memory().unwrap();
+        b.with(|c| c.execute("INSERT INTO portfolios (id, name) VALUES ('q', 'Replaced')", [])).unwrap();
+        b.restore(&bytes).unwrap();
+        assert_eq!(names(&b), vec!["Kept".to_string()]);
+
+        assert!(matches!(b.restore(b"not a database"), Err(DatabaseError::NotABackup(_))));
+        assert_eq!(names(&b), vec!["Kept".to_string()], "a bad file changes nothing");
     }
 }

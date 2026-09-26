@@ -19,6 +19,77 @@ pub struct StockFundamentals {
     /// Reported vs estimated EPS, oldest first.
     pub eps_surprises: Vec<EpsSurprise>,
     pub analysts: Option<Analysts>,
+    /// Currency of prices, market cap, EPS and targets. The API converts
+    /// everything to USD, so clients see "USD".
+    #[serde(default = "usd")]
+    pub currency: String,
+    /// Currency the statements are reported in (can differ, e.g. ADRs).
+    #[serde(default = "usd")]
+    pub financial_currency: String,
+}
+
+fn usd() -> String {
+    "USD".into()
+}
+
+impl StockFundamentals {
+    /// Converts every amount to USD: price-like figures at `trading` USD per
+    /// unit, statement figures at `financial`. Ratios are left alone.
+    pub fn to_usd(&mut self, trading: f64, financial: f64) {
+        let scale = |v: &mut Option<f64>, rate: f64| {
+            if let Some(x) = v {
+                *x *= rate;
+            }
+        };
+        let s = &mut self.stats;
+        for v in [
+            &mut s.price,
+            &mut s.market_cap,
+            &mut s.eps_ttm,
+            &mut s.forward_eps,
+            &mut s.high_52w,
+            &mut s.low_52w,
+            &mut s.sma50,
+            &mut s.sma200,
+        ] {
+            scale(v, trading);
+        }
+        for e in &mut self.eps_surprises {
+            scale(&mut e.actual, trading);
+            scale(&mut e.estimate, trading);
+        }
+        if let Some(a) = &mut self.analysts {
+            scale(&mut a.target_low, trading);
+            scale(&mut a.target_mean, trading);
+            scale(&mut a.target_high, trading);
+        }
+        for p in self.quarterly.iter_mut().chain(self.annual.iter_mut()) {
+            for v in [
+                &mut p.revenue,
+                &mut p.gross_profit,
+                &mut p.operating_income,
+                &mut p.net_income,
+                &mut p.operating_cashflow,
+                &mut p.free_cash_flow,
+                &mut p.total_assets,
+                &mut p.total_liabilities,
+                &mut p.total_equity,
+                &mut p.cash,
+                &mut p.long_term_debt,
+                &mut p.current_assets,
+                &mut p.current_liabilities,
+            ] {
+                scale(v, financial);
+            }
+        }
+        for v in &mut self.valuation {
+            v.price *= trading;
+            scale(&mut v.market_cap, trading);
+            scale(&mut v.enterprise_value, trading);
+        }
+        self.currency = "USD".into();
+        self.financial_currency = "USD".into();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

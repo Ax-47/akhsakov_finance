@@ -96,5 +96,7 @@ pub fn to_quote(q: YQuote) -> Result<Quote, YahooGateWayError> {
             .map(|p| p.into_inner())
             .unwrap_or(Decimal::ZERO),
         timestamp: q.as_of.map(|ts| ts.timestamp()).unwrap_or(0),
+        currency: q.currency.code().to_string(),
+        stale: false,
     })
 }

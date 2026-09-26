@@ -2,10 +2,9 @@
 
 mod fundamentals;
 
-use crate::research::repositories::ResearchGateway;
+use crate::research::repositories::{RawFundamentals, ResearchGateway};
 use async_trait::async_trait;
 use dtos::{
-    fundamentals::StockFundamentals,
     research::{
         humanize, CorporateAction, Holders, InsiderTrade, Institution, NewsItem, OptionChainView,
         OptionQuote, RatingChange,
@@ -42,7 +41,7 @@ fn debug_name(v: impl std::fmt::Debug) -> String {
 
 #[async_trait]
 impl ResearchGateway for YahooResearchGateway {
-    async fn fundamentals(&self, ticker: &TickerSymbol) -> Result<StockFundamentals, String> {
+    async fn fundamentals(&self, ticker: &TickerSymbol) -> Result<RawFundamentals, String> {
         fundamentals::fetch(&self.client, ticker.as_str()).await
     }
 

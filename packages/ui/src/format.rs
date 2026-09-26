@@ -22,6 +22,13 @@ pub fn set_display_currency(symbol: &'static str, rate: Decimal) {
     }
 }
 
+/// Symbol and units-per-USD of the display currency, for charts drawn in
+/// JavaScript.
+pub fn display_currency() -> (&'static str, f64) {
+    let (symbol, rate) = display();
+    (symbol, rate.to_f64().unwrap_or(1.0))
+}
+
 fn display() -> (&'static str, Decimal) {
     // Outside an app (tests) there is nothing to subscribe.
     if Runtime::try_current().is_some() {

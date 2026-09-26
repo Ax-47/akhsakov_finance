@@ -2,6 +2,7 @@
 //! takes? Plots holdings against the Security Market Line; anything above
 //! the line beat what its beta implied.
 
+use crate::i18n::tr;
 use crate::components::card::{Card, MetricTile, Stepper};
 use crate::format::signed_color;
 use crate::hooks::capm::{compute_capm, CAPMInputs, PortfolioCAPM, PositionCAPM};
@@ -43,19 +44,19 @@ pub fn CAPMCard(
     }
     let capm = compute_capm(&positions, total_value, &betas, &inputs);
     let beta_note = if beta_map.is_empty() {
-        "Betas default to 1.00 until price history loads · edit any to override"
+        tr("Betas default to 1.00 until price history loads · edit any to override")
     } else {
-        "Betas from price history vs the S&P 500 · edit any to override"
+        tr("Betas from price history vs the S&P 500 · edit any to override")
     };
 
     rsx! {
         Card {
-            title: "CAPM",
-            subtitle: "Is each holding earning enough for the market risk it takes?".to_string(),
+            title: tr("CAPM"),
+            subtitle: tr("Is each holding earning enough for the market risk it takes?").to_string(),
             actions: rsx! {
                 div { class: "flex flex-wrap gap-2",
                     Stepper {
-                        label: "Risk-free",
+                        label: tr("Risk-free"),
                         suffix: "%",
                         aria_label: "Risk-free rate",
                         value: rf_str(),
@@ -63,7 +64,7 @@ pub fn CAPMCard(
                         on_change: move |v| rf_str.set(v),
                     }
                     Stepper {
-                        label: "Market",
+                        label: tr("Market"),
                         suffix: "%",
                         aria_label: "Expected market return",
                         value: rm_str(),
@@ -87,7 +88,7 @@ pub fn CAPMCard(
                 }
                 p { class: "mt-3 text-[0.7rem] text-ctp-overlay0", "{beta_note}. Actual return is since purchase." }
             } else {
-                p { class: "py-10 text-center text-sm text-ctp-overlay1", "Waiting for live prices…" }
+                p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Waiting for live prices…")} }
             }
         }
     }
@@ -110,23 +111,23 @@ fn Summary(result: PortfolioCAPM) -> Element {
     rsx! {
         div { class: "grid grid-cols-2 lg:grid-cols-4 gap-3",
             MetricTile {
-                label: "Portfolio beta",
+                label: tr("Portfolio beta"),
                 value: format!("{:.2}", r.portfolio_beta),
                 hint: beta_label(r.portfolio_beta).to_string(),
             }
             MetricTile {
-                label: "Expected return",
+                label: tr("Expected return"),
                 value: format!("{:+.2}%", r.portfolio_expected_return),
                 hint: format!("Rf + β × {:.2}% premium", r.inputs.market_premium()),
             }
             MetricTile {
-                label: "Actual return",
+                label: tr("Actual return"),
                 value: format!("{:+.2}%", r.portfolio_actual_return),
-                hint: "Value-weighted, since purchase".to_string(),
+                hint: tr("Value-weighted, since purchase").to_string(),
                 tone: signed_color(r.portfolio_actual_return),
             }
             MetricTile {
-                label: "Alpha",
+                label: tr("Alpha"),
                 value: format!("{:+.2}%", r.portfolio_alpha),
                 hint: alpha_hint,
                 tone: signed_color(r.portfolio_alpha),
@@ -144,11 +145,11 @@ const RIGHT: f64 = 16.0;
 const TOP: f64 = 14.0;
 const BOTTOM: f64 = 30.0;
 
-const GAIN_HEX: &str = "#a6e3a1";
-const LOSS_HEX: &str = "#f38ba8";
-const LINE_HEX: &str = "#cba6f7";
-const GRID_HEX: &str = "#313244";
-const LABEL_HEX: &str = "#7f849c";
+const GAIN_HEX: &str = "var(--catppuccin-color-green)";
+const LOSS_HEX: &str = "var(--catppuccin-color-red)";
+const LINE_HEX: &str = "var(--catppuccin-color-mauve)";
+const GRID_HEX: &str = "var(--catppuccin-color-surface0)";
+const LABEL_HEX: &str = "var(--catppuccin-color-overlay1)";
 
 #[component]
 fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
@@ -218,7 +219,7 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
     rsx! {
         div { class: "mt-6",
             div { class: "flex flex-wrap items-center justify-between gap-2 mb-2 text-xs",
-                span { class: "text-ctp-overlay1", "Return vs beta" }
+                span { class: "text-ctp-overlay1", {tr("Return vs beta")} }
                 span { class: "flex gap-4 text-ctp-overlay0",
                     span { class: "flex items-center gap-1.5",
                         span { class: "h-2 w-2 rounded-full", style: "background:{GAIN_HEX};" }
@@ -245,11 +246,11 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
 
                 // Security Market Line.
                 line { x1: "{x0:.1}", y1: "{y0:.1}", x2: "{x1:.1}", y2: "{y1:.1}", stroke: LINE_HEX, stroke_width: "2", stroke_linecap: "round" }
-                text { x: "{x1 - 4.0:.1}", y: "{y1 - 8.0:.1}", text_anchor: "end", font_size: "10", fill: LINE_HEX, "Security market line" }
+                text { x: "{x1 - 4.0:.1}", y: "{y1 - 8.0:.1}", text_anchor: "end", font_size: "10", fill: LINE_HEX, {tr("Security market line")} }
 
                 // Market reference point.
-                circle { cx: "{mkt_x:.1}", cy: "{mkt_y:.1}", r: "4", fill: "#1e1e2e", stroke: LINE_HEX, stroke_width: "2" }
-                text { x: "{mkt_x:.1}", y: "{mkt_y + 16.0:.1}", text_anchor: "middle", font_size: "10", fill: LABEL_HEX, "Market" }
+                circle { cx: "{mkt_x:.1}", cy: "{mkt_y:.1}", r: "4", fill: "var(--catppuccin-color-base)", stroke: LINE_HEX, stroke_width: "2" }
+                text { x: "{mkt_x:.1}", y: "{mkt_y + 16.0:.1}", text_anchor: "middle", font_size: "10", fill: LABEL_HEX, {tr("Market")} }
 
                 // Holdings, with a stem to the line showing alpha.
                 for (ticker, beta, x, y, y_line, weight) in dots {
@@ -266,7 +267,7 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
                             stroke: if y <= y_line { GAIN_HEX } else { LOSS_HEX },
                             stroke_width: "1.5",
                         }
-                        text { x: "{x + 12.0:.1}", y: "{y + 4.0:.1}", font_size: "11", font_weight: "600", fill: "#cdd6f4", "{ticker}" }
+                        text { x: "{x + 12.0:.1}", y: "{y + 4.0:.1}", font_size: "11", font_weight: "600", fill: "var(--catppuccin-color-text)", "{ticker}" }
                         title { "{ticker}: β {beta:.2}, weight {weight:.1}%" }
                     }
                 }
@@ -274,7 +275,7 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
                 // Whole portfolio.
                 circle { cx: "{port_x:.1}", cy: "{port_y:.1}", r: "9", fill: "none", stroke: LINE_HEX, stroke_width: "2.5" }
                 circle { cx: "{port_x:.1}", cy: "{port_y:.1}", r: "3", fill: LINE_HEX }
-                text { x: "{port_x - 14.0:.1}", y: "{port_y + 4.0:.1}", text_anchor: "end", font_size: "11", font_weight: "700", fill: LINE_HEX, "Portfolio" }
+                text { x: "{port_x - 14.0:.1}", y: "{port_y + 4.0:.1}", text_anchor: "end", font_size: "11", font_weight: "700", fill: LINE_HEX, {tr("Portfolio")} }
             }
         }
     }
@@ -294,12 +295,12 @@ fn PositionTable(
             table { class: "w-full text-sm whitespace-nowrap",
                 thead {
                     tr { class: "text-xs text-ctp-overlay1",
-                        th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "Asset" }
-                        th { class: "px-4 py-2.5 text-right font-medium", "Weight" }
-                        th { class: "px-4 py-2.5 text-right font-medium", "Beta" }
-                        th { class: "px-4 py-2.5 text-right font-medium", "Expected" }
-                        th { class: "px-4 py-2.5 text-right font-medium", "Actual" }
-                        th { class: "pl-4 pr-6 py-2.5 text-right font-medium", "Alpha" }
+                        th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Asset")} }
+                        th { class: "px-4 py-2.5 text-right font-medium", {tr("Weight")} }
+                        th { class: "px-4 py-2.5 text-right font-medium", {tr("Beta")} }
+                        th { class: "px-4 py-2.5 text-right font-medium", {tr("Expected")} }
+                        th { class: "px-4 py-2.5 text-right font-medium", {tr("Actual")} }
+                        th { class: "pl-4 pr-6 py-2.5 text-right font-medium", {tr("Alpha")} }
                     }
                 }
                 tbody {
@@ -343,10 +344,10 @@ fn PositionTable(
 
 fn beta_label(b: Decimal) -> &'static str {
     match b {
-        b if b < dec!(0.5) => "Defensive",
-        b if b < dec!(0.8) => "Below market",
-        b if b < dec!(1.2) => "Moves with the market",
-        b if b < dec!(1.5) => "Above market",
-        _ => "Aggressive",
+        b if b < dec!(0.5) => tr("Defensive"),
+        b if b < dec!(0.8) => tr("Below market"),
+        b if b < dec!(1.2) => tr("Moves with the market"),
+        b if b < dec!(1.5) => tr("Above market"),
+        _ => tr("Aggressive"),
     }
 }

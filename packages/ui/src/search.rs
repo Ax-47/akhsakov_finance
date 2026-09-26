@@ -1,6 +1,7 @@
 //! Ticker search: type a symbol or company name, pick a result to open its
 //! stock page. Enter opens the typed symbol directly.
 
+use crate::i18n::tr;
 use crate::{components::analysis::stock::open_stock, notify::sleep_ms};
 use dioxus::prelude::*;
 use types::ticker_symbol::TickerSymbol;
@@ -44,7 +45,7 @@ pub fn SearchBox() -> Element {
                     class: "w-full rounded-xl border border-ctp-surface0 bg-ctp-base/60 px-3 py-2 text-sm text-ctp-text \
                             placeholder:text-ctp-overlay0 outline-none transition-colors focus:border-ctp-mauve",
                     r#type: "search",
-                    placeholder: "Search stocks…",
+                    placeholder: tr("Search stocks…"),
                     "aria-label": "Search stocks",
                     value: "{query}",
                     oninput: move |e| query.set(e.value()),
@@ -61,8 +62,8 @@ pub fn SearchBox() -> Element {
                 div { class: "absolute left-0 right-0 top-full z-30 mt-2 min-w-64 overflow-hidden rounded-2xl border border-ctp-surface0 \
                               bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60",
                     match results.read().clone() {
-                        None => rsx! { p { class: "px-3 py-2 text-xs text-ctp-overlay1", "Searching…" } },
-                        Some(None) => rsx! { p { class: "px-3 py-2 text-xs text-ctp-overlay1", "Search is unavailable right now. Press Enter to open the symbol." } },
+                        None => rsx! { p { class: "px-3 py-2 text-xs text-ctp-overlay1", {tr("Searching…")} } },
+                        Some(None) => rsx! { p { class: "px-3 py-2 text-xs text-ctp-overlay1", {tr("Search is unavailable right now. Press Enter to open the symbol.")} } },
                         Some(Some(hits)) if hits.is_empty() => rsx! {
                             p { class: "px-3 py-2 text-xs text-ctp-overlay1", "No matches. Press Enter to open “{query}”." }
                         },

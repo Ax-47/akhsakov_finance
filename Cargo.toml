@@ -32,3 +32,18 @@ ui = { path = "packages/ui" }
 types = { path = "packages/types" }
 api = { path = "packages/api" }
 dtos = { path = "packages/dtos" }
+
+# Dependencies are optimised even in dev builds (`dx serve`): password
+# hashing, SQLite, JSON and decimal maths run several times faster, while
+# our own crates stay quick to rebuild.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Smaller WebAssembly for `dx build --release` on the web.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"

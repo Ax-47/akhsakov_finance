@@ -73,6 +73,21 @@ pub async fn get_chart(
         })
 }
 
+/// Latest quotes (USD for stocks) for many tickers in one call; tickers
+/// that can't be priced are left out.
+#[post("/api/quotes/many", quote_service: Extension<QuoteService>)]
+pub async fn get_quotes(tickers: Vec<TickerSymbol>) -> Result<HashMap<TickerSymbol, Quote>, ServerFnError> {
+    let fetched = futures::future::join_all(tickers.into_iter().map(|ticker| {
+        let qs = quote_service.clone();
+        async move { (ticker.clone(), qs.get_quote(ticker).await) }
+    }))
+    .await;
+    Ok(fetched
+        .into_iter()
+        .filter_map(|(ticker, result)| result.ok().map(|q| (ticker, q)))
+        .collect())
+}
+
 #[get("/api/quotes", quote_service: Extension<QuoteService>)]
 pub async fn get_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
     quote_service
@@ -84,6 +99,36 @@ pub async fn get_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
             details: None,
         })
 }
+/// Latest quote in the instrument's own currency (`currency` says which),
+/// e.g. to prefill a trade as the broker shows it.
+#[get("/api/quotes/native", quote_service: Extension<QuoteService>)]
+pub async fn get_native_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
+    quote_service
+        .native_quote(ticker)
+        .await
+        .map_err(|e| ServerFnError::ServerError {
+            message: e.to_string(),
+            code: 502,
+            details: None,
+        })
+}
+
+/// USD per unit of `currency` at the close on `date` (YYYY-MM-DD).
+#[get("/api/quotes/fx", quote_service: Extension<QuoteService>)]
+pub async fn get_fx_rate(
+    currency: String,
+    date: String,
+) -> Result<rust_decimal::Decimal, ServerFnError> {
+    quote_service
+        .usd_rate_on(&currency.to_uppercase(), &date)
+        .await
+        .map_err(|e| ServerFnError::ServerError {
+            message: e.to_string(),
+            code: 502,
+            details: None,
+        })
+}
+
 /// Instruments matching a symbol or company name, e.g. "nvidia".
 #[get("/api/quotes/search", quote_service: Extension<QuoteService>)]
 pub async fn search_tickers(query: String) -> Result<Vec<dtos::watch::SearchHit>, ServerFnError> {
@@ -127,8 +172,12 @@ async fn handle_socket(
                 Err(_) => break,
             },
             res = rx.recv() => match res {
-                Ok(q) => {
-                    if socket.send(q).await.is_err() {
+                Ok(QuoteUpdateEvent::QuoteUpdate(update)) => {
+                    // Stocks in other currencies are sent in USD.
+                    let Some(update) = quote_service.to_usd(update).await else {
+                        continue;
+                    };
+                    if socket.send(QuoteUpdateEvent::QuoteUpdate(update)).await.is_err() {
                         break;
                     }
                 }

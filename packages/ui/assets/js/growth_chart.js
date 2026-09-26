@@ -2,21 +2,27 @@ window.GrowthChart = window.GrowthChart || {};
 // Newest config per chart id: an older draw that finishes late is skipped.
 window.GrowthChart.latest = window.GrowthChart.latest || {};
 
-// Load ECharts once, however many charts ask for it.
+// ECharts ships with the app (assets/js/echarts.min.js, loaded by the App
+// root) so charts work offline. Wait for it briefly; fall back to the CDN.
 window.GrowthChart.ready =
   window.GrowthChart.ready ||
   function () {
     if (typeof echarts !== "undefined") return Promise.resolve();
     if (!window.GrowthChart.loading) {
       window.GrowthChart.loading = new Promise(function (resolve, reject) {
-        var s = document.createElement("script");
-        s.src = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js";
-        s.onload = resolve;
-        s.onerror = function () {
-          window.GrowthChart.loading = null;
-          reject(new Error("[GrowthChart] failed to load ECharts CDN"));
-        };
-        document.head.appendChild(s);
+        var waited = 0;
+        (function poll() {
+          if (typeof echarts !== "undefined") return resolve();
+          if ((waited += 100) < 5000) return setTimeout(poll, 100);
+          var s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js";
+          s.onload = resolve;
+          s.onerror = function () {
+            window.GrowthChart.loading = null;
+            reject(new Error("[GrowthChart] ECharts unavailable"));
+          };
+          document.head.appendChild(s);
+        })();
       });
     }
     return window.GrowthChart.loading;
@@ -24,21 +30,30 @@ window.GrowthChart.ready =
 
 window.GrowthChart.init = function (id, cfg) {
   window.GrowthChart.latest[id] = cfg;
-  var style = getComputedStyle(document.documentElement);
+  // Theme colours come from the chart's container (the themed page sets
+  // the --catppuccin-color-* variables).
+  var style = getComputedStyle(document.getElementById(id) || document.documentElement);
   function v(name) {
-    return style.getPropertyValue(name).trim();
+    return style.getPropertyValue("--catppuccin-color-" + name).trim();
   }
+  // Series colours may be "var(--catppuccin-color-…)".
+  function resolve(c) {
+    var m = /^var\((--[\w-]+)\)$/.exec((c || "").trim());
+    return m ? style.getPropertyValue(m[1]).trim() || c : c;
+  }
+  (cfg.series || []).forEach(function (s) { s.color = resolve(s.color); });
   var colors = {
-    text: v("--color-ctp-text"),
-    subtext0: v("--color-ctp-subtext0"),
-    overlay0: v("--color-ctp-overlay0"),
-    surface0: v("--color-ctp-surface0"),
-    surface1: v("--color-ctp-surface1"),
-    surface2: v("--color-ctp-surface2"),
-    base: v("--color-ctp-base"),
-    mantle: v("--color-ctp-mantle"),
-    green: v("--color-ctp-green"),
-    red: v("--color-ctp-red"),
+    text: v("text"),
+    subtext0: v("subtext0"),
+    overlay0: v("overlay0"),
+    surface0: v("surface0"),
+    surface1: v("surface1"),
+    surface2: v("surface2"),
+    base: v("base"),
+    mantle: v("mantle"),
+    crust: v("crust"),
+    green: v("green"),
+    red: v("red"),
   };
 
   function hexToRgba(hex, alpha) {
@@ -129,7 +144,7 @@ window.GrowthChart.init = function (id, cfg) {
             var v = Array.isArray(p.value) ? p.value[1] : p.value;
             return (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
           },
-          color: "#11111b",
+          color: colors.crust,
           backgroundColor: s.color,
           borderRadius: 999,
           padding: [4, 10],

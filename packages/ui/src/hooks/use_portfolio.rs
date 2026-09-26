@@ -12,7 +12,7 @@ use dtos::{
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::{HashMap, HashSet};
-use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
+use types::ticker_symbol::TickerSymbol;
 
 pub struct PortfolioState {
     /// Latest price per ticker.
@@ -37,22 +37,11 @@ pub struct PortfolioState {
     pub mpt: Option<MptAnalysis>,
 }
 
-/// `scope` is a portfolio id, or `None` for all holdings. Prices stream for
-/// every ticker, so switching scope doesn't reconnect.
+/// `scope` is a portfolio id, or `None` for all holdings. Prices come from
+/// the app-wide stream, so pages and scope changes don't reconnect.
 pub fn use_portfolio(scope: Option<String>) -> PortfolioState {
     let data = use_context::<Signal<GetDashBoardResponse>>();
-
-    let tickers = use_memo(move || {
-        data()
-            .transactions
-            .iter()
-            .filter(|tx| !tx.is_cash())
-            .map(|tx| tx.ticker.clone())
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>()
-    });
-    let (quotes, _) = use_price_stream(tickers, Range::D1, Interval::I2m, false);
+    let LiveQuotes(quotes) = use_context::<LiveQuotes>();
 
     let prices: HashMap<TickerSymbol, (Decimal, Decimal)> = quotes
         .read()
@@ -104,6 +93,32 @@ pub fn use_portfolio(scope: Option<String>) -> PortfolioState {
         day_pct: pct(day_change, total_value),
         allocation,
     }
+}
+
+/// Live prices of every stock in any portfolio, streamed once for the
+/// whole app (see [`use_live_quotes_provider`]).
+#[derive(Clone, Copy)]
+pub struct LiveQuotes(pub ReadSignal<HashMap<TickerSymbol, types::quote::Quote>>);
+
+/// Starts the app-wide portfolio price stream. Call once, below the
+/// portfolio data context.
+pub fn use_live_quotes_provider() {
+    let data = use_context::<Signal<GetDashBoardResponse>>();
+    let tickers = use_memo(move || {
+        let mut all: Vec<TickerSymbol> = data
+            .read()
+            .transactions
+            .iter()
+            .filter(|tx| !tx.is_cash())
+            .map(|tx| tx.ticker.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        all.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        all
+    });
+    let quotes = use_price_stream(tickers);
+    use_context_provider(|| LiveQuotes(quotes));
 }
 
 /// Percent move from the previous close to the current price.

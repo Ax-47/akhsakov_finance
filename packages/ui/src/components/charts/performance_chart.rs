@@ -1,6 +1,7 @@
 //! Performance card: compare any mix of all holdings, a single portfolio,
 //! an index or a stock over a period. Each line is picked from a chip.
 
+use crate::i18n::tr;
 use super::{
     performance::{compare, Comparison, LabelStyle, Subject},
     GrowthChart, Series,
@@ -20,7 +21,7 @@ const PERIODS: [Range; 5] = [Range::D1, Range::M1, Range::M6, Range::Ytd, Range:
 const MAX_LINES: usize = 5;
 
 /// Line colours by position (blue, yellow, mauve, green, peach).
-const LINE_COLORS: [&str; MAX_LINES] = ["#89b4fa", "#f9e2af", "#cba6f7", "#a6e3a1", "#fab387"];
+const LINE_COLORS: [&str; MAX_LINES] = ["var(--catppuccin-color-blue)", "var(--catppuccin-color-yellow)", "var(--catppuccin-color-mauve)", "var(--catppuccin-color-green)", "var(--catppuccin-color-peach)"];
 
 /// Indexes offered in the picker, as (Yahoo symbol, display name).
 const INDEXES: [(&str, &str); 3] = [
@@ -133,7 +134,7 @@ pub fn ChartSection(
     rsx! {
         document::Script { src: asset!("/assets/js/growth_chart.js") }
         Card {
-            title: "Performance",
+            title: tr("Performance"),
             subtitle: period_phrase(period()).to_string(),
             actions: rsx! {
                 Segmented {
@@ -236,7 +237,7 @@ fn AddLineButton(
             class: "flex h-9 w-9 items-center justify-center rounded-full border border-ctp-surface1 \
                     text-lg text-ctp-overlay1 cursor-pointer transition-colors hover:border-ctp-mauve hover:text-ctp-text",
             "aria-label": "Compare another line",
-            title: "Compare another line",
+            title: tr("Compare another line"),
             onclick: move |_| {
                 let next = next_unused(&picks.read(), &transactions.read());
                 picks.write().push(next);
@@ -330,7 +331,7 @@ fn PickMenu(
                 input {
                     class: "w-full rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1.5 text-sm \
                             text-ctp-text placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
-                    placeholder: "Other ticker, e.g. AAPL ↵",
+                    placeholder: tr("Other ticker, e.g. AAPL ↵"),
                     value: "{custom}",
                     oninput: move |e| custom.set(e.value()),
                 }
@@ -343,7 +344,7 @@ fn PickMenu(
                         picks.write().remove(index);
                         open_menu.set(None);
                     },
-                    "Remove line"
+                    {tr("Remove line")}
                 }
             }
         }
@@ -383,7 +384,7 @@ fn subject(pick: &Pick, transactions: &[Transaction]) -> Subject {
 
 fn pick_name(pick: &Pick, portfolios: &[(String, String)]) -> String {
     match pick {
-        Pick::AllHoldings => "All holdings".into(),
+        Pick::AllHoldings => tr("All holdings").into(),
         Pick::Portfolio(id) => portfolios
             .iter()
             .find(|(pid, _)| pid == id)
@@ -434,24 +435,24 @@ fn period_label(period: Range) -> &'static str {
         Range::M1 => "1M",
         Range::M3 => "3M",
         Range::M6 => "6M",
-        Range::Ytd => "YTD",
+        Range::Ytd => tr("YTD"),
         Range::Y1 => "1Y",
         Range::Y5 => "5Y",
-        Range::Max => "All",
+        Range::Max => tr("All"),
         other => other.code(),
     }
 }
 
 fn period_phrase(period: Range) -> &'static str {
     match period {
-        Range::D1 => "Today",
-        Range::D5 => "Past week",
-        Range::M1 => "Past month",
-        Range::M6 => "Past 6 months",
-        Range::Ytd => "Year to date",
-        Range::Y1 => "Past year",
-        Range::Y5 => "Past 5 years",
-        _ => "All time",
+        Range::D1 => tr("Today"),
+        Range::D5 => tr("Past week"),
+        Range::M1 => tr("Past month"),
+        Range::M6 => tr("Past 6 months"),
+        Range::Ytd => tr("Year to date"),
+        Range::Y1 => tr("Past year"),
+        Range::Y5 => tr("Past 5 years"),
+        _ => tr("All time"),
     }
 }
 

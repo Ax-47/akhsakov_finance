@@ -1,7 +1,10 @@
+use crate::i18n::tr;
 use dioxus::prelude::*;
 use dtos::portfolio::GetDashBoardResponse;
 
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+/// Bundled so charts work offline; see `growth_chart.js`.
+const ECHARTS_JS: Asset = asset!("/assets/js/echarts.min.js");
 
 /// Which portfolio the portfolio page shows: an id, or `None` for all
 /// holdings. App-wide so other pages can open a specific portfolio.
@@ -84,8 +87,24 @@ impl DataRefresh {
 /// Use this in any platform's `App` root to get Tailwind styles globally.
 #[component]
 pub fn App(children: Element) -> Element {
+    crate::theme::use_theme_init();
+    crate::i18n::use_language_init();
+    rsx! {
+        document::Stylesheet { href: TAILWIND_CSS }
+        document::Script { src: ECHARTS_JS }
+        crate::MotionStyles {}
+        crate::auth::AuthGate {
+            AppInner { {children} }
+        }
+    }
+}
+
+/// App-wide state and data, once signed in.
+#[component]
+fn AppInner(children: Element) -> Element {
     let mut app_data: Signal<GetDashBoardResponse> = use_signal(GetDashBoardResponse::default);
     use_context_provider(|| app_data);
+    crate::hooks::use_live_quotes_provider();
     use_context_provider(|| PortfolioScope(Signal::new(None)));
     let refresh = use_context_provider(|| DataRefresh(Signal::new(0)));
     use_context_provider(|| crate::editors::Dialogs(Signal::new(None)));
@@ -116,12 +135,10 @@ pub fn App(children: Element) -> Element {
     });
 
     rsx! {
-        document::Stylesheet { href: TAILWIND_CSS }
-        crate::MotionStyles {}
         if ready() {
             {children}
         } else {
-            div { class: "mocha flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-overlay1", "Loading…" }
+            div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-overlay1", {tr("Loading…")} }
         }
         crate::editors::EditorHost {}
         crate::alerts::AlertWatcher {}

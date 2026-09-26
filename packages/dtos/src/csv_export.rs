@@ -3,7 +3,8 @@
 
 use crate::{position::Position, transaction::Transaction};
 
-/// `date,symbol,type,quantity,price,fee,portfolio`, oldest first.
+/// `date,symbol,type,quantity,price,fee,currency,fx_to_usd,portfolio`,
+/// oldest first. Price and fee are in the trade's currency.
 /// `portfolio_name` maps a transaction to its portfolio's name.
 pub fn transactions_csv(
     transactions: &[Transaction],
@@ -11,16 +12,18 @@ pub fn transactions_csv(
 ) -> String {
     let mut rows: Vec<&Transaction> = transactions.iter().collect();
     rows.sort_by(|a, b| a.date.cmp(&b.date));
-    let mut out = String::from("date,symbol,type,quantity,price,fee,portfolio\n");
+    let mut out = String::from("date,symbol,type,quantity,price,fee,currency,fx_to_usd,portfolio\n");
     for t in rows {
         out.push_str(&format!(
-            "{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{}\n",
             t.date,
             t.ticker,
             t.transaction_type,
             t.shares.normalize(),
             t.price.normalize(),
             t.fee.normalize(),
+            t.currency,
+            t.fx_to_usd.normalize(),
             quote(&portfolio_name(t)),
         ));
     }
@@ -59,6 +62,7 @@ fn quote(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::csv_import::parse_transactions_csv;
+    use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
     use uuid::Uuid;
@@ -76,16 +80,20 @@ mod tests {
                 price: dec!(215.87),
                 date: "2026-05-20".into(),
                 fee: dec!(1),
+                currency: "USD".into(),
+                fx_to_usd: Decimal::ONE,
             },
             Transaction {
                 id: Uuid::new_v4(),
                 portfolio_id: portfolio,
-                ticker: TickerSymbol::new("NVDA").unwrap(),
+                ticker: TickerSymbol::new("PTT.BK").unwrap(),
                 transaction_type: TransactionType::Sell,
-                shares: dec!(0.5),
-                price: dec!(250),
+                shares: dec!(100),
+                price: dec!(34.25),
                 date: "2026-06-01".into(),
                 fee: dec!(0),
+                currency: "THB".into(),
+                fx_to_usd: dec!(0.0305),
             },
         ];
         let csv = transactions_csv(&txs, |_| "Growth, long term".into());
@@ -103,6 +111,8 @@ mod tests {
                 t.shares,
                 t.price,
                 t.fee,
+                t.currency.clone(),
+                t.fx_to_usd,
             )
         };
         assert_eq!(

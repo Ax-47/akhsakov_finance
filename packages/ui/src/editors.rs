@@ -1,6 +1,7 @@
 //! Dialogs that change stored data: portfolios, transactions and CSV import.
 //! Each calls a server function and reloads the app's data on success.
 
+use crate::i18n::tr;
 use crate::{
     app::DataRefresh,
     components::card::{ActionButton, ButtonTone, Field, Modal, Segmented, ToggleButton, INPUT},
@@ -66,17 +67,17 @@ pub fn PortfolioDialog(
     };
 
     rsx! {
-        Modal { title: if target.is_some() { "Rename portfolio" } else { "New portfolio" }, on_close,
+        Modal { title: if target.is_some() { tr("Rename portfolio") } else { tr("New portfolio") }, on_close,
             form {
                 class: "grid gap-4",
                 onsubmit: move |e| e.prevent_default(),
-                Field { label: "Name",
+                Field { label: tr("Name"),
                     input { class: INPUT, autofocus: true, placeholder: "e.g. Retirement", value: "{name}", oninput: move |e| name.set(e.value()) }
                 }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
-                    ActionButton { label: "Cancel", tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
-                    ActionButton { label: if target.is_some() { "Save" } else { "Create" }, disabled: busy(), onclick: submit }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: if target.is_some() { tr("Save") } else { tr("Create") }, disabled: busy(), onclick: submit }
                 }
             }
         }
@@ -115,8 +116,8 @@ pub fn DeletePortfolioDialog(id: Uuid, name: String, on_close: EventHandler<()>)
             }
             ErrorLine { error: error() }
             div { class: "mt-6 flex justify-end gap-2",
-                ActionButton { label: "Cancel", tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
-                ActionButton { label: "Delete portfolio", tone: ButtonTone::Danger, disabled: busy(), onclick: confirm }
+                ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                ActionButton { label: tr("Delete portfolio"), tone: ButtonTone::Danger, disabled: busy(), onclick: confirm }
             }
         }
     }
@@ -196,7 +197,7 @@ pub fn TransactionDialog(
     };
 
     rsx! {
-        Modal { title: if existing.is_some() { "Edit transaction" } else { "Add transaction" }, on_close,
+        Modal { title: if existing.is_some() { tr("Edit transaction") } else { tr("Add transaction") }, on_close,
             form {
                 class: "grid gap-4",
                 onsubmit: move |e| e.prevent_default(),
@@ -211,7 +212,7 @@ pub fn TransactionDialog(
                     }
                 }
                 div { class: "grid grid-cols-2 gap-3",
-                    Field { label: "Portfolio",
+                    Field { label: tr("Portfolio"),
                         select {
                             class: "{INPUT} cursor-pointer [&_option]:bg-ctp-mantle",
                             onchange: move |e| form.write().portfolio = Uuid::parse_str(&e.value()).ok(),
@@ -220,16 +221,36 @@ pub fn TransactionDialog(
                             }
                         }
                     }
-                    Field { label: "Date",
+                    Field { label: tr("Date"),
                         input { class: INPUT, r#type: "date", value: "{f.date}", oninput: move |e| form.write().date = e.value() }
                     }
                     if !is_cash_kind(&f.kind) {
-                        Field { label: "Ticker",
+                        Field { label: tr("Ticker"), hint: tr("Other markets too, e.g. PTT.BK, 7203.T, VOD.L"),
                             input {
                                 class: "{INPUT} uppercase",
                                 placeholder: "e.g. NVDA",
                                 value: "{f.ticker}",
                                 oninput: move |e| form.write().ticker = e.value(),
+                                // Look up the trading currency (and a price to start from).
+                                onchange: move |e| async move {
+                                    let Ok(ticker) = TickerSymbol::new(&e.value()) else { return };
+                                    if let Ok(q) = api::quote::quote::get_native_quote(ticker).await {
+                                        let mut f = form.write();
+                                        f.currency = q.currency;
+                                        if f.price.trim().is_empty() && q.current_price > Decimal::ZERO {
+                                            f.price = q.current_price.round_dp(4).normalize().to_string();
+                                        }
+                                    }
+                                },
+                            }
+                        }
+                    }
+                    Field { label: tr("Currency"),
+                        select {
+                            class: "{INPUT} cursor-pointer [&_option]:bg-ctp-mantle",
+                            onchange: move |e| form.write().currency = e.value(),
+                            for code in currency_choices(&f.currency) {
+                                option { key: "{code}", value: "{code}", selected: f.currency == code, "{code}" }
                             }
                         }
                     }
@@ -244,7 +265,7 @@ pub fn TransactionDialog(
                         }
                     }
                     if f.kind != TransactionType::Split {
-                        Field { label: if f.kind == TransactionType::Dividend { "Tax withheld" } else { "Fee" },
+                        Field { label: if f.kind == TransactionType::Dividend { tr("Tax withheld") } else { tr("Fee") },
                             input { class: INPUT, inputmode: "decimal", placeholder: "0", value: "{f.fee}", oninput: move |e| form.write().fee = e.value() }
                         }
                     }
@@ -252,10 +273,15 @@ pub fn TransactionDialog(
                 if let Some(total) = f.total() {
                     p { class: "text-xs text-ctp-overlay1", "Total: {total}" }
                 }
+                if f.currency != "USD" {
+                    p { class: "text-xs text-ctp-overlay1",
+                        "Converted to USD at the {f.currency} rate on the trade date."
+                    }
+                }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
-                    ActionButton { label: "Cancel", tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
-                    ActionButton { label: "Save", disabled: busy(), onclick: submit }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Save"), disabled: busy(), onclick: submit }
                 }
             }
         }
@@ -272,6 +298,11 @@ struct TxForm {
     shares: String,
     price: String,
     fee: String,
+    /// Currency of price and fee; detected from the ticker.
+    currency: String,
+    /// The edited transaction's (currency, date, rate): the rate is kept
+    /// unless the currency or date changes.
+    saved_rate: Option<(String, String, Decimal)>,
 }
 
 impl TxForm {
@@ -290,6 +321,8 @@ impl TxForm {
                 shares: t.shares.normalize().to_string(),
                 price: t.price.normalize().to_string(),
                 fee: t.fee.normalize().to_string(),
+                currency: t.currency.clone(),
+                saved_rate: Some((t.currency.clone(), t.date.clone(), t.fx_to_usd)),
             },
             None => Self {
                 portfolio,
@@ -299,14 +332,26 @@ impl TxForm {
                 shares: String::new(),
                 price: String::new(),
                 fee: String::new(),
+                currency: "USD".into(),
+                saved_rate: None,
             },
+        }
+    }
+
+    /// USD per unit for the saved transaction; zero asks the server to look
+    /// up the trade date's rate.
+    fn fx_to_usd(&self) -> Decimal {
+        match &self.saved_rate {
+            _ if self.currency == "USD" => Decimal::ONE,
+            Some((currency, date, rate)) if *currency == self.currency && *date == self.date => *rate,
+            _ => Decimal::ZERO,
         }
     }
 
     fn total(&self) -> Option<String> {
         let (s, p) = (num(&self.shares)?, num(&self.price)?);
         matches!(self.kind, TransactionType::Buy | TransactionType::Sell)
-            .then(|| format!("${:.2}", s * p))
+            .then(|| format!("{:.2} {}", s * p, self.currency))
     }
 
     fn build(&self, id: Uuid) -> Result<Transaction, String> {
@@ -342,8 +387,22 @@ impl TxForm {
             } else {
                 num(&self.fee).ok_or("Enter a number for the fee")?
             },
+            currency: self.currency.clone(),
+            fx_to_usd: self.fx_to_usd(),
         })
     }
+}
+
+/// Display currencies, plus `current` if it's another one (e.g. SEK).
+fn currency_choices(current: &str) -> Vec<String> {
+    let mut codes: Vec<String> = dtos::settings::CURRENCIES
+        .iter()
+        .map(|(code, _)| code.to_string())
+        .collect();
+    if !codes.iter().any(|c| c == current) {
+        codes.push(current.to_string());
+    }
+    codes
 }
 
 fn num(s: &str) -> Option<Decimal> {
@@ -363,7 +422,7 @@ pub fn DeleteTransactionButton(id: Uuid) -> Element {
             } else {
                 "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-red"
             },
-            title: if failed() { "Couldn't delete — try again" } else { "Delete" },
+            title: if failed() { tr("Couldn't delete — try again") } else { tr("Delete") },
             onclick: move |e| async move {
                 e.stop_propagation();
                 if !armed() {
@@ -376,7 +435,7 @@ pub fn DeleteTransactionButton(id: Uuid) -> Element {
                 }
             },
             onmouseleave: move |_| armed.set(false),
-            if armed() { "Delete?" } else { "🗑" }
+            if armed() { {tr("Delete?")} } else { "🗑" }
         }
     }
 }
@@ -415,17 +474,17 @@ pub fn AlertDialog(
         }
     };
     let value_label = match kind() {
-        AlertKind::PriceAbove | AlertKind::PriceBelow => "Price ($)",
-        _ => "Percent (%)",
+        AlertKind::PriceAbove | AlertKind::PriceBelow => tr("Price ($)"),
+        _ => tr("Percent (%)"),
     };
 
     rsx! {
-        Modal { title: "New alert", on_close,
+        Modal { title: tr("New alert"), on_close,
             form { class: "grid gap-4", onsubmit: move |e| e.prevent_default(),
-                Field { label: "Ticker",
+                Field { label: tr("Ticker"),
                     input { class: "{INPUT} uppercase", placeholder: "e.g. NVDA", value: "{symbol}", oninput: move |e| symbol.set(e.value()) }
                 }
-                Field { label: "When",
+                Field { label: tr("When"),
                     div { class: "grid gap-1.5",
                         for k in AlertKind::ALL {
                             button {
@@ -445,11 +504,11 @@ pub fn AlertDialog(
                 Field { label: value_label,
                     input { class: INPUT, inputmode: "decimal", value: "{value}", oninput: move |e| value.set(e.value()) }
                 }
-                p { class: "text-xs text-ctp-overlay1", "Alerts are checked against live prices while the app is open, and fire once." }
+                p { class: "text-xs text-ctp-overlay1", {tr("Alerts are checked against live prices while the app is open, and fire once.")} }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
-                    ActionButton { label: "Cancel", tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
-                    ActionButton { label: "Create alert", disabled: busy(), onclick: submit }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Create alert"), disabled: busy(), onclick: submit }
                 }
             }
         }
@@ -530,26 +589,26 @@ pub fn GoalDialog(#[props(default)] goal: Option<Goal>, on_close: EventHandler<(
     };
 
     rsx! {
-        Modal { title: if goal.is_some() { "Edit goal" } else { "New goal" }, on_close,
+        Modal { title: if goal.is_some() { tr("Edit goal") } else { tr("New goal") }, on_close,
             form { class: "grid gap-4", onsubmit: move |e| e.prevent_default(),
-                Field { label: "Name",
+                Field { label: tr("Name"),
                     input { class: INPUT, autofocus: true, placeholder: "e.g. House deposit", value: "{name}", oninput: move |e| name.set(e.value()) }
                 }
                 div { class: "grid grid-cols-2 gap-3",
-                    Field { label: "Target ($)",
+                    Field { label: tr("Target ($)"),
                         input { class: INPUT, inputmode: "decimal", value: "{target}", oninput: move |e| target.set(e.value()) }
                     }
-                    Field { label: "By",
+                    Field { label: tr("By"),
                         input { class: INPUT, r#type: "date", value: "{date}", oninput: move |e| date.set(e.value()) }
                     }
-                    Field { label: "Adding per month ($)",
+                    Field { label: tr("Adding per month ($)"),
                         input { class: INPUT, inputmode: "decimal", placeholder: "0", value: "{monthly}", oninput: move |e| monthly.set(e.value()) }
                     }
-                    Field { label: "Counts",
+                    Field { label: tr("Counts"),
                         select {
                             class: "{INPUT} cursor-pointer [&_option]:bg-ctp-mantle",
                             onchange: move |e| portfolio.set(Uuid::parse_str(&e.value()).ok()),
-                            option { value: "", selected: portfolio().is_none(), "All holdings" }
+                            option { value: "", selected: portfolio().is_none(), {tr("All holdings")} }
                             for (pid, pname) in choices.iter().cloned() {
                                 option { value: "{pid}", selected: portfolio() == Some(pid), "{pname}" }
                             }
@@ -558,8 +617,8 @@ pub fn GoalDialog(#[props(default)] goal: Option<Goal>, on_close: EventHandler<(
                 }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
-                    ActionButton { label: "Cancel", tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
-                    ActionButton { label: "Save", disabled: busy(), onclick: submit }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Save"), disabled: busy(), onclick: submit }
                 }
             }
         }
@@ -599,7 +658,7 @@ pub fn ImportDialog(
     };
 
     rsx! {
-        Modal { title: "Import transactions", on_close,
+        Modal { title: tr("Import transactions"), on_close,
             if let Some(r) = result() {
                 p { class: "text-sm text-ctp-text", "Imported {r.imported} transactions." }
                 if !r.errors.is_empty() {
@@ -611,11 +670,11 @@ pub fn ImportDialog(
                     }
                 }
                 div { class: "mt-6 flex justify-end",
-                    ActionButton { label: "Done", onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Done"), onclick: move |_| on_close.call(()) }
                 }
             } else {
                 div { class: "grid gap-4",
-                    Field { label: "Into portfolio",
+                    Field { label: tr("Into portfolio"),
                         select {
                             class: "{INPUT} cursor-pointer [&_option]:bg-ctp-mantle",
                             onchange: move |e| target.set(Uuid::parse_str(&e.value()).ok()),
@@ -625,8 +684,8 @@ pub fn ImportDialog(
                         }
                     }
                     Field {
-                        label: "CSV file",
-                        hint: "Needs columns for date, ticker/symbol, quantity and price; type/action and fee are optional.",
+                        label: tr("CSV file"),
+                        hint: tr("Needs columns for date, ticker/symbol, quantity and price; type/action and fee are optional."),
                         input {
                             class: "block w-full text-sm text-ctp-subtext0 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-ctp-surface0 file:px-4 file:py-2 file:text-sm file:text-ctp-text",
                             r#type: "file",
@@ -641,7 +700,7 @@ pub fn ImportDialog(
                             },
                         }
                     }
-                    Field { label: "…or paste CSV",
+                    Field { label: tr("…or paste CSV"),
                         textarea {
                             class: "{INPUT} h-32 font-mono text-xs",
                             placeholder: "date,symbol,action,quantity,price,fee\n2026-05-20,NVDA,buy,2,219.80,1",
@@ -651,8 +710,8 @@ pub fn ImportDialog(
                     }
                     ErrorLine { error: error() }
                     div { class: "flex justify-end gap-2",
-                        ActionButton { label: "Cancel", tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
-                        ActionButton { label: "Import", disabled: busy() || csv.read().trim().is_empty(), onclick: submit }
+                        ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                        ActionButton { label: tr("Import"), disabled: busy() || csv.read().trim().is_empty(), onclick: submit }
                     }
                 }
             }
@@ -683,6 +742,8 @@ mod tests {
             shares: "1,000".into(),
             price: "2.5".into(),
             fee: "".into(),
+            currency: "USD".into(),
+            saved_rate: None,
         }
     }
 
@@ -707,6 +768,19 @@ mod tests {
         assert!(bad.build(Uuid::nil()).is_err());
         let round_trip = TxForm::from_existing(Some(&buy), None);
         assert_eq!(round_trip.build(buy.id).unwrap(), buy);
+    }
+
+    #[test]
+    fn keeps_a_foreign_rate_until_currency_or_date_changes() {
+        let thb = TxForm { currency: "THB".into(), ..form(TransactionType::Buy) };
+        assert_eq!(thb.build(Uuid::nil()).unwrap().fx_to_usd, dec!(0), "server looks it up");
+        let saved = Transaction { fx_to_usd: dec!(0.03), ..thb.build(Uuid::nil()).unwrap() };
+        let edit = TxForm::from_existing(Some(&saved), None);
+        assert_eq!(edit.build(saved.id).unwrap().fx_to_usd, dec!(0.03));
+        let moved = TxForm { date: "2026-06-01".into(), ..edit.clone() };
+        assert_eq!(moved.build(saved.id).unwrap().fx_to_usd, dec!(0));
+        let usd = TxForm { currency: "USD".into(), ..edit };
+        assert_eq!(usd.build(saved.id).unwrap().fx_to_usd, dec!(1));
     }
 }
 

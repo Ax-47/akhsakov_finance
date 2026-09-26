@@ -1,9 +1,10 @@
-//! SQLite adapter for [`WatchlistRepository`].
+//! SQLite adapter for [`WatchlistRepository`]. Tags are stored one per
+//! line.
 
 use crate::{
     database::Database, shared::RepositoryError, watchlist::repositories::WatchlistRepository,
 };
-use dtos::watch::{Alert, AlertKind, WatchItem};
+use dtos::watch::{Alert, AlertKind, Note, WatchItem, Watchlist};
 use rusqlite::params;
 use rust_decimal::Decimal;
 use std::str::FromStr;
@@ -25,35 +26,127 @@ fn corrupt(what: &str, value: &str) -> RepositoryError {
 }
 
 impl WatchlistRepository for SqliteWatchlistRepository {
-    fn watchlist(&self) -> Result<Vec<WatchItem>, RepositoryError> {
-        let rows: Vec<(String, String)> = self.db.with(|c| {
-            c.prepare("SELECT ticker, added_at FROM watchlist ORDER BY added_at, ticker")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect()
-        })?;
-        rows.into_iter()
-            .map(|(t, added_at)| {
-                Ok(WatchItem {
-                    ticker: TickerSymbol::new(&t).map_err(|_| corrupt("ticker", &t))?,
-                    added_at,
+    fn watchlists(&self) -> Result<Vec<Watchlist>, RepositoryError> {
+        let (lists, items): (Vec<(String, String)>, Vec<(String, String, String)>) =
+            self.db.with(|c| {
+                let lists = c
+                    .prepare("SELECT id, name FROM watchlists ORDER BY position, name")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let items = c
+                    .prepare(
+                        "SELECT list_id, ticker, added_at FROM watch_items ORDER BY added_at, ticker",
+                    )?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                Ok((lists, items))
+            })?;
+        lists
+            .into_iter()
+            .map(|(id, name)| {
+                Ok(Watchlist {
+                    items: items
+                        .iter()
+                        .filter(|(list, ..)| *list == id)
+                        .map(|(_, t, added_at)| {
+                            Ok(WatchItem {
+                                ticker: TickerSymbol::new(t).map_err(|_| corrupt("ticker", t))?,
+                                added_at: added_at.clone(),
+                            })
+                        })
+                        .collect::<Result<_, RepositoryError>>()?,
+                    id: Uuid::parse_str(&id).map_err(|_| corrupt("watchlist id", &id))?,
+                    name,
                 })
             })
             .collect()
     }
 
-    fn watch(&self, ticker: &TickerSymbol) -> Result<(), RepositoryError> {
+    fn create_list(&self, id: Uuid, name: &str) -> Result<(), RepositoryError> {
         self.db.with(|c| {
             c.execute(
-                "INSERT OR IGNORE INTO watchlist (ticker) VALUES (?1)",
-                [ticker.as_str()],
+                "INSERT INTO watchlists (id, name, position)
+                 VALUES (?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM watchlists))",
+                params![id.to_string(), name],
             )
         })?;
         Ok(())
     }
 
-    fn unwatch(&self, ticker: &TickerSymbol) -> Result<(), RepositoryError> {
+    fn rename_list(&self, id: Uuid, name: &str) -> Result<(), RepositoryError> {
+        let changed = self.db.with(|c| {
+            c.execute(
+                "UPDATE watchlists SET name = ?2 WHERE id = ?1",
+                params![id.to_string(), name],
+            )
+        })?;
+        if changed == 0 {
+            return Err(RepositoryError::NotFound(format!("watchlist {id}")));
+        }
+        Ok(())
+    }
+
+    fn delete_list(&self, id: Uuid) -> Result<(), RepositoryError> {
         self.db
-            .with(|c| c.execute("DELETE FROM watchlist WHERE ticker = ?1", [ticker.as_str()]))?;
+            .with(|c| c.execute("DELETE FROM watchlists WHERE id = ?1", [id.to_string()]))?;
+        Ok(())
+    }
+
+    fn watch(&self, list: Uuid, ticker: &TickerSymbol) -> Result<(), RepositoryError> {
+        self.db.with(|c| {
+            c.execute(
+                "INSERT OR IGNORE INTO watch_items (list_id, ticker) VALUES (?1, ?2)",
+                params![list.to_string(), ticker.as_str()],
+            )
+        })?;
+        Ok(())
+    }
+
+    fn unwatch(&self, list: Option<Uuid>, ticker: &TickerSymbol) -> Result<(), RepositoryError> {
+        self.db.with(|c| match list {
+            Some(list) => c.execute(
+                "DELETE FROM watch_items WHERE list_id = ?1 AND ticker = ?2",
+                params![list.to_string(), ticker.as_str()],
+            ),
+            None => c.execute("DELETE FROM watch_items WHERE ticker = ?1", [ticker.as_str()]),
+        })?;
+        Ok(())
+    }
+
+    fn notes(&self) -> Result<Vec<Note>, RepositoryError> {
+        Ok(self.db.with(|c| {
+            c.prepare("SELECT ticker, text, tags, updated_at FROM notes ORDER BY ticker")?
+                .query_map([], |r| {
+                    let tags: String = r.get(2)?;
+                    Ok(Note {
+                        ticker: r.get(0)?,
+                        text: r.get(1)?,
+                        tags: tags
+                            .split('\n')
+                            .filter(|t| !t.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                        updated_at: r.get(3)?,
+                    })
+                })?
+                .collect()
+        })?)
+    }
+
+    fn save_note(&self, note: &Note) -> Result<(), RepositoryError> {
+        self.db.with(|c| {
+            c.execute(
+                "INSERT OR REPLACE INTO notes (ticker, text, tags, updated_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                params![note.ticker, note.text, note.tags.join("\n")],
+            )
+        })?;
+        Ok(())
+    }
+
+    fn delete_note(&self, ticker: &str) -> Result<(), RepositoryError> {
+        self.db
+            .with(|c| c.execute("DELETE FROM notes WHERE ticker = ?1", [ticker]))?;
         Ok(())
     }
 

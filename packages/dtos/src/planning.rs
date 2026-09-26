@@ -120,7 +120,7 @@ pub fn fifo_lots(transactions: &[Transaction]) -> (Vec<Lot>, Vec<RealizedGain>) 
                 ticker: tx.ticker.clone(),
                 date: tx.date.clone(),
                 shares: tx.shares,
-                cost: (tx.shares * tx.price + tx.fee) / tx.shares,
+                cost: (tx.shares * tx.usd_price() + tx.usd_fee()) / tx.shares,
             }),
             TransactionType::Split if tx.shares > Decimal::ZERO => {
                 for lot in lots.iter_mut() {
@@ -130,7 +130,7 @@ pub fn fifo_lots(transactions: &[Transaction]) -> (Vec<Lot>, Vec<RealizedGain>) 
             }
             TransactionType::Sell if tx.shares > Decimal::ZERO => {
                 let mut remaining = tx.shares;
-                let fee_per_share = tx.fee / tx.shares;
+                let fee_per_share = tx.usd_fee() / tx.shares;
                 while remaining > Decimal::ZERO {
                     let Some(lot) = lots.front_mut() else { break };
                     let take = remaining.min(lot.shares);
@@ -139,7 +139,7 @@ pub fn fifo_lots(transactions: &[Transaction]) -> (Vec<Lot>, Vec<RealizedGain>) 
                         bought: lot.date.clone(),
                         sold: tx.date.clone(),
                         shares: take,
-                        proceeds: take * (tx.price - fee_per_share),
+                        proceeds: take * (tx.usd_price() - fee_per_share),
                         cost: take * lot.cost,
                         long_term: days_between(&lot.date, &tx.date).is_some_and(|d| d > 365),
                     });
@@ -182,7 +182,7 @@ pub fn realized_by_year(transactions: &[Transaction]) -> Vec<(i32, Decimal, Deci
         .filter(|t| t.transaction_type == TransactionType::Dividend)
     {
         if let Some(y) = year(&tx.date) {
-            years.entry(y).or_default().2 += tx.price - tx.fee;
+            years.entry(y).or_default().2 += tx.usd_price() - tx.usd_fee();
         }
     }
     years
@@ -210,8 +210,8 @@ pub fn investor_cash_flows(
     let mut flows: Vec<(String, f64)> = transactions
         .iter()
         .filter_map(|t| {
-            let gross = (t.shares * t.price).to_f64()?;
-            let fee = t.fee.to_f64()?;
+            let gross = (t.shares * t.usd_price()).to_f64()?;
+            let fee = t.usd_fee().to_f64()?;
             let amount = match t.transaction_type {
                 // With cash tracked, only deposits / withdrawals cross the
                 // account boundary; trades are internal.
@@ -219,7 +219,7 @@ pub fn investor_cash_flows(
                 TransactionType::Withdrawal if tracks_cash => gross - fee,
                 TransactionType::Buy if !tracks_cash => -(gross + fee),
                 TransactionType::Sell if !tracks_cash => gross - fee,
-                TransactionType::Dividend if !tracks_cash => t.price.to_f64()? - fee,
+                TransactionType::Dividend if !tracks_cash => t.usd_price().to_f64()? - fee,
                 _ => return None,
             };
             Some((t.date.clone(), amount))
@@ -382,6 +382,8 @@ mod tests {
             price,
             date: date.into(),
             fee,
+            currency: "USD".into(),
+            fx_to_usd: Decimal::ONE,
         }
     }
 

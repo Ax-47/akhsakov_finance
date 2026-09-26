@@ -17,8 +17,12 @@ pub use controller::*;
 pub use services::PortfolioService;
 
 #[cfg(feature = "server")]
-pub fn portfolio_services_setup(db: crate::database::Database) -> PortfolioService {
-    PortfolioService::new(std::sync::Arc::new(
-        infrastructures::SqlitePortfolioRepository::new(db),
-    ))
+pub fn portfolio_services_setup(
+    db: crate::database::Database,
+    fx: std::sync::Arc<dyn crate::shared::FxRates>,
+) -> PortfolioService {
+    PortfolioService::new(
+        std::sync::Arc::new(infrastructures::SqlitePortfolioRepository::new(db)),
+        fx,
+    )
 }

@@ -1,35 +1,61 @@
-//! Markets: the S&P 500 as a sector heatmap, with breadth, sector moves
-//! and the day's biggest movers.
+//! Markets: an index (S&P 500, Nasdaq-100, Dow, SET50) as a sector
+//! heatmap, with breadth, sector moves, the day's biggest movers and a
+//! stock table for a chosen sector.
 
+use crate::i18n::tr;
 use crate::{
     components::{
         analysis::stock::open_stock,
-        card::{Card, MetricTile},
+        card::{Card, MetricTile, Segmented, ToggleButton},
         charts::{HeatItem, HeatmapLegend, Treemap, DAY_SATURATION},
     },
     format::{fmt_compact, fmt_usd},
     notify::sleep_ms,
     page::{GhostButton, Page},
+    stock_table::StockTable,
 };
 use dioxus::prelude::*;
 use dtos::market::{sector_moves, weighted_change, HeatmapItem, MarketIndex, SectorMove};
 use rust_decimal::Decimal;
 use types::ticker_symbol::TickerSymbol;
 
-const INDEX: MarketIndex = MarketIndex::Sp500;
 const REFRESH_MS: u32 = 60_000;
 const RETRY_MS: u32 = 5_000;
 const MOVERS: usize = 6;
 
 #[component]
 pub fn MarketPage() -> Element {
+    let mut index = use_signal(|| MarketIndex::Sp500);
+    rsx! {
+        Page {
+            header { class: "flex flex-wrap items-end justify-between gap-4 motion-safe:animate-rise",
+                div {
+                    h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
+                        {tr("Markets")}
+                    }
+                    p { class: "mt-2 text-sm text-ctp-overlay1", {tr("Today's move across an index. Refreshes every minute.")} }
+                }
+                Segmented {
+                    for i in MarketIndex::ALL {
+                        ToggleButton { key: "{i.key()}", label: tr(i.label()), active: index() == i, onclick: move |_| index.set(i) }
+                    }
+                }
+            }
+            // Keyed: switching index starts a fresh refresh loop.
+            div { IndexView { key: "{index().key()}", index: index() } }
+        }
+    }
+}
+
+#[component]
+fn IndexView(index: MarketIndex) -> Element {
     let mut data = use_signal(|| None::<Result<Vec<HeatmapItem>, String>>);
     // A sector to zoom the map into.
     let mut focus = use_signal(|| None::<String>);
 
     use_future(move || async move {
         loop {
-            let result = api::get_index_heatmap(INDEX).await.map_err(|e| match e {
+            let result = api::get_index_heatmap(index).await.map_err(|e| match e {
                 ServerFnError::ServerError { message, .. } => message,
                 e => e.to_string(),
             });
@@ -80,58 +106,57 @@ pub fn MarketPage() -> Element {
     drop(all);
 
     let map_title = match focus() {
-        Some(sector) => format!("{} · {sector}", INDEX.label()),
-        None => INDEX.label().to_string(),
+        Some(sector) => format!("{} · {sector}", tr(index.label())),
+        None => format!("{} · {count} stocks", tr(index.label())),
+    };
+    let focused_rows: Vec<dtos::market::StockRow> = match focus() {
+        Some(sector) => items
+            .read()
+            .iter()
+            .filter(|i| i.sector.as_deref() == Some(sector.as_str()))
+            .map(|i| i.row())
+            .collect(),
+        None => vec![],
     };
 
     rsx! {
-        Page {
-            header { class: "motion-safe:animate-rise",
-                h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
-                    "Markets"
-                }
-                p { class: "mt-2 text-sm text-ctp-overlay1",
-                    "Today's move in the {INDEX.label()}'s {count} largest companies. Refreshes every minute."
-                }
-            }
-
             match data() {
                 None => rsx! {
                     div { class: "mt-10 motion-safe:animate-rise",
-                        Card { title: INDEX.label(),
-                            div { class: "flex h-[560px] items-center justify-center text-sm text-ctp-overlay1", "Loading prices…" }
+                        Card { title: tr(index.label()),
+                            div { class: "flex h-[560px] items-center justify-center text-sm text-ctp-overlay1", {tr("Loading prices…")} }
                         }
                     }
                 },
                 Some(Err(message)) => rsx! {
                     div { class: "mt-10 motion-safe:animate-rise",
-                        Card { title: INDEX.label(),
+                        Card { title: tr(index.label()),
                             p { class: "text-sm text-ctp-red", "Couldn't load prices: {message}" }
-                            p { class: "mt-1 text-xs text-ctp-overlay1", "Retrying in a few seconds…" }
+                            p { class: "mt-1 text-xs text-ctp-overlay1", {tr("Retrying in a few seconds…")} }
                         }
                     }
                 },
                 Some(Ok(_)) => rsx! {
                     div { class: "mt-10 grid grid-cols-2 gap-3 lg:grid-cols-4 motion-safe:animate-rise",
                         MetricTile {
-                            label: INDEX.label(),
+                            label: tr(index.label()),
                             value: pct(index_change),
-                            hint: "Weighted by market cap",
+                            hint: tr("Weighted by market cap"),
                             tone: tone(index_change),
                         }
                         MetricTile {
-                            label: "Breadth",
+                            label: tr("Breadth"),
                             value: format!("{advancing} ▲  {declining} ▼"),
                             hint: format!("{:.0}% of stocks up", advancing as f64 / count.max(1) as f64 * 100.0),
                         }
                         MetricTile {
-                            label: "Best sector",
+                            label: tr("Best sector"),
                             value: pct(best.as_ref().map(|s| s.change_pct)),
                             hint: best.map(|s| s.sector).unwrap_or_default(),
                             tone: "text-ctp-green",
                         }
                         MetricTile {
-                            label: "Worst sector",
+                            label: tr("Worst sector"),
                             value: pct(worst.as_ref().map(|s| s.change_pct)),
                             hint: worst.map(|s| s.sector).unwrap_or_default(),
                             tone: "text-ctp-red",
@@ -141,10 +166,10 @@ pub fn MarketPage() -> Element {
                     div { class: "mt-5 motion-safe:animate-rise",
                         Card {
                             title: map_title,
-                            subtitle: "Size is market cap, colour is today's change. Click a stock to open it.".to_string(),
+                            subtitle: tr("Size is market cap, colour is today's change. Click a stock to open it.").to_string(),
                             actions: rsx! {
                                 if focus().is_some() {
-                                    GhostButton { label: "← All sectors", onclick: move |_| focus.set(None) }
+                                    GhostButton { label: tr("← All sectors"), onclick: move |_| focus.set(None) }
                                 }
                             },
                             Treemap { items: tiles, saturation: DAY_SATURATION, height: 560 }
@@ -153,16 +178,24 @@ pub fn MarketPage() -> Element {
                     }
 
                     div { class: "mt-5 grid gap-5 lg:grid-cols-2 motion-safe:animate-rise",
-                        Card { title: "Sectors", subtitle: "Click one to zoom the map".to_string(),
+                        Card { title: tr("Sectors"), subtitle: tr("Click one to zoom the map").to_string(),
                             SectorBars { sectors: sectors(), focus }
                         }
-                        Card { title: "Movers",
+                        Card { title: tr("Movers"),
                             Movers { items: items() }
+                        }
+                    }
+
+                    if let Some(sector) = focus() {
+                        div { class: "mt-5 motion-safe:animate-rise",
+                            Card { title: "{sector}", subtitle: format!("{} stocks, largest first", focused_rows.len()), flush: true,
+                                StockTable { rows: focused_rows.clone() }
+                                div { class: "h-3" }
+                            }
                         }
                     }
                 },
             }
-        }
     }
 }
 
@@ -212,8 +245,8 @@ fn Movers(items: Vec<HeatmapItem>) -> Element {
     let losers: Vec<HeatmapItem> = sorted.iter().rev().take(MOVERS).cloned().collect();
     rsx! {
         div { class: "grid gap-6 sm:grid-cols-2",
-            MoverList { title: "Top gainers", items: gainers }
-            MoverList { title: "Top losers", items: losers }
+            MoverList { title: tr("Top gainers"), items: gainers }
+            MoverList { title: tr("Top losers"), items: losers }
         }
     }
 }

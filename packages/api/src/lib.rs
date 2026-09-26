@@ -6,11 +6,23 @@
 pub mod database;
 pub mod shared;
 
+pub mod auth;
+pub use auth::controller::*;
+
 pub mod research;
 pub use research::controller::*;
 
+pub mod backup;
+pub use backup::controller::*;
+
+pub mod economy;
+pub use economy::controller::*;
+
 pub mod market;
 pub use market::controller::*;
+
+pub mod notifications;
+pub use notifications::controller::*;
 
 pub mod planning;
 pub use planning::controller::*;
@@ -32,12 +44,30 @@ pub use watchlist::controller::*;
 pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::axum::Router {
     use dioxus::server::axum::Extension;
     let db = database::Database::open_default().expect("open the database");
-    router
-        .layer(Extension(quote_services_setup()))
-        .layer(Extension(research::research_services_setup()))
-        .layer(Extension(market::market_services_setup()))
-        .layer(Extension(portfolio::portfolio_services_setup(db.clone())))
-        .layer(Extension(watchlist::watchlist_services_setup(db.clone())))
+    let quotes = quote_services_setup(db.clone());
+    let fx: std::sync::Arc<dyn shared::FxRates> = std::sync::Arc::new(QuoteFxRates(quotes.clone()));
+    let portfolio = portfolio::portfolio_services_setup(db.clone(), fx.clone());
+    let watchlist = watchlist::watchlist_services_setup(db.clone());
+    let notifications = notifications::notification_services_setup(
+        db.clone(),
+        watchlist.clone(),
+        portfolio.clone(),
+        quotes.clone(),
+    );
+    let auth = auth::auth_services_setup(db.clone());
+    // Layers wrap what's added before them: the sign-in check runs first,
+    // then the services are attached.
+    let router = router
+        .layer(Extension(auth.clone()))
+        .layer(Extension(quotes))
+        .layer(Extension(research::research_services_setup(fx.clone())))
+        .layer(Extension(economy::economy_services_setup()))
+        .layer(Extension(backup::backup_services_setup(db.clone())))
+        .layer(Extension(market::market_services_setup(db.clone(), fx)))
+        .layer(Extension(portfolio))
+        .layer(Extension(watchlist))
+        .layer(Extension(notifications))
         .layer(Extension(planning::planning_services_setup(db.clone())))
-        .layer(Extension(settings::settings_services_setup(db)))
+        .layer(Extension(settings::settings_services_setup(db)));
+    auth::protect(router, auth)
 }

@@ -1,6 +1,7 @@
 //! Stock page sections backed by the research API: news, rating changes,
 //! dividends & splits, ownership and options.
 
+use crate::i18n::tr;
 use crate::{
     components::{
         analysis::stats::day_label,
@@ -17,7 +18,7 @@ use types::ticker_symbol::TickerSymbol;
 #[component]
 fn Loading(title: String) -> Element {
     rsx! {
-        Card { title, p { class: "py-10 text-center text-sm text-ctp-overlay1", "Loading…" } }
+        Card { title, p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Loading…")} } }
     }
 }
 
@@ -41,13 +42,13 @@ pub fn NewsTab(ticker: TickerSymbol) -> Element {
     });
     let result = news.read().clone();
     match result {
-        None => rsx! { Loading { title: "News" } },
-        Some(None) => rsx! { Empty { title: "News", text: UNAVAILABLE } },
+        None => rsx! { Loading { title: tr("News") } },
+        Some(None) => rsx! { Empty { title: tr("News"), text: UNAVAILABLE } },
         Some(Some(items)) if items.is_empty() => {
-            rsx! { Empty { title: "News", text: "No recent news." } }
+            rsx! { Empty { title: tr("News"), text: "No recent news." } }
         }
         Some(Some(items)) => rsx! {
-            Card { title: "News", subtitle: format!("{} latest stories", items.len()), flush: true,
+            Card { title: tr("News"), subtitle: format!("{} latest stories", items.len()), flush: true,
                 for n in items {
                     a {
                         key: "{n.title}",
@@ -83,7 +84,7 @@ pub fn RatingChanges(ticker: TickerSymbol) -> Element {
             rsx! { Empty { title, text: "No recent upgrades or downgrades." } }
         }
         Some(Some(rows)) => rsx! {
-            Card { title, subtitle: "Analyst upgrades and downgrades".to_string(), flush: true,
+            Card { title, subtitle: tr("Analyst upgrades and downgrades").to_string(), flush: true,
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-sm whitespace-nowrap",
                         tbody {
@@ -170,19 +171,19 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
         .collect();
 
     rsx! {
-        Card { title, subtitle: "Dividends per share, by year".to_string(),
+        Card { title, subtitle: tr("Dividends per share, by year").to_string(),
             if years.is_empty() {
-                p { class: "text-sm text-ctp-overlay1", "This stock hasn't paid dividends." }
+                p { class: "text-sm text-ctp-overlay1", {tr("This stock hasn't paid dividends.")} }
             } else {
                 BarChart {
                     labels: years.iter().map(|y| y.0.clone()).collect::<Vec<_>>(),
-                    series: vec![BarSeries { name: "Dividends per share".into(), color: "#94e2d5", values: years.iter().map(|y| Some(y.1)).collect() }],
+                    series: vec![BarSeries { name: "Dividends per share".into(), color: "var(--catppuccin-color-teal)", values: years.iter().map(|y| Some(y.1)).collect() }],
                     unit: Unit::Money,
                 }
             }
             if !splits.is_empty() {
                 div { class: "mt-5",
-                    div { class: "mb-2 text-xs text-ctp-overlay1", "Splits" }
+                    div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Splits")} }
                     div { class: "flex flex-wrap gap-2",
                         for (date, n, d) in splits {
                             span { class: "rounded-full border border-ctp-surface0 px-3 py-1 text-xs text-ctp-subtext1",
@@ -206,10 +207,10 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
         async move { api::get_holders(t).await.ok() }
     });
     let Some(result) = holders.read().clone() else {
-        return rsx! { Loading { title: "Ownership" } };
+        return rsx! { Loading { title: tr("Ownership") } };
     };
     let Some(h) = result else {
-        return rsx! { Empty { title: "Ownership", text: UNAVAILABLE } };
+        return rsx! { Empty { title: tr("Ownership"), text: UNAVAILABLE } };
     };
     let pct = |v: f64| format!("{:.2}%", v * 100.0);
     let shares = |v: f64| fmt_compact(v).replacen('$', "", 1);
@@ -228,19 +229,19 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                     }
                 }
             }
-            Card { title: "Top institutions", flush: true,
+            Card { title: tr("Top institutions"), flush: true,
                 if h.institutions.is_empty() {
-                    p { class: "px-6 pb-6 text-sm text-ctp-overlay1", "No institutional holders reported." }
+                    p { class: "px-6 pb-6 text-sm text-ctp-overlay1", {tr("No institutional holders reported.")} }
                 } else {
                     div { class: "overflow-x-auto",
                         table { class: "w-full text-sm whitespace-nowrap",
                             thead {
                                 tr { class: "text-xs text-ctp-overlay1",
-                                    th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "Holder" }
-                                    th { class: "px-4 py-2.5 text-right font-medium", "Shares" }
+                                    th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Holder")} }
+                                    th { class: "px-4 py-2.5 text-right font-medium", {tr("Shares")} }
                                     th { class: "px-4 py-2.5 text-right font-medium", "% held" }
-                                    th { class: "px-4 py-2.5 text-right font-medium", "Value" }
-                                    th { class: "pl-4 pr-6 py-2.5 text-right font-medium", "Reported" }
+                                    th { class: "px-4 py-2.5 text-right font-medium", {tr("Value")} }
+                                    th { class: "pl-4 pr-6 py-2.5 text-right font-medium", {tr("Reported")} }
                                 }
                             }
                             tbody {
@@ -258,9 +259,9 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                     }
                 }
             }
-            Card { title: "Insider trades", subtitle: "Executives and directors buying or selling".to_string(), flush: true,
+            Card { title: tr("Insider trades"), subtitle: tr("Executives and directors buying or selling").to_string(), flush: true,
                 if h.insider_trades.is_empty() {
-                    p { class: "px-6 pb-6 text-sm text-ctp-overlay1", "No recent insider trades." }
+                    p { class: "px-6 pb-6 text-sm text-ctp-overlay1", {tr("No recent insider trades.")} }
                 } else {
                     div { class: "overflow-x-auto",
                         table { class: "w-full text-sm whitespace-nowrap",
@@ -298,10 +299,10 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
 /// Yahoo's holder category keys as readable labels.
 fn holder_label(key: &str) -> String {
     match key {
-        "insidersPercentHeld" => "Held by insiders".into(),
-        "institutionsPercentHeld" => "Held by institutions".into(),
-        "institutionsFloatPercentHeld" => "Institutions (of float)".into(),
-        "institutionsCount" => "Institutions".into(),
+        "insidersPercentHeld" => tr("Held by insiders").into(),
+        "institutionsPercentHeld" => tr("Held by institutions").into(),
+        "institutionsFloatPercentHeld" => tr("Institutions (of float)").into(),
+        "institutionsCount" => tr("Institutions").into(),
         other => dtos::research::humanize(other),
     }
 }
@@ -318,13 +319,13 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
         async move { api::get_option_chain(t, e).await.ok() }
     });
     let Some(result) = chain.read().clone() else {
-        return rsx! { Loading { title: "Options" } };
+        return rsx! { Loading { title: tr("Options") } };
     };
     let Some(view) = result else {
-        return rsx! { Empty { title: "Options", text: UNAVAILABLE } };
+        return rsx! { Empty { title: tr("Options"), text: UNAVAILABLE } };
     };
     if view.expirations.is_empty() {
-        return rsx! { Empty { title: "Options", text: "No listed options." } };
+        return rsx! { Empty { title: tr("Options"), text: "No listed options." } };
     }
     let rows = if side() {
         view.calls.clone()
@@ -334,13 +335,13 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
 
     rsx! {
         Card {
-            title: "Options",
+            title: tr("Options"),
             subtitle: format!("Expiring {}", view.expiration.map(|e| day_label(e.div_euclid(86_400))).unwrap_or_default()),
             flush: true,
             actions: rsx! {
                 Segmented {
-                    ToggleButton { label: "Calls", active: side(), onclick: move |_| side.set(true) }
-                    ToggleButton { label: "Puts", active: !side(), onclick: move |_| side.set(false) }
+                    ToggleButton { label: tr("Calls"), active: side(), onclick: move |_| side.set(true) }
+                    ToggleButton { label: tr("Puts"), active: !side(), onclick: move |_| side.set(false) }
                 }
             },
             div { class: "flex gap-1.5 overflow-x-auto px-6 pb-3",
@@ -358,7 +359,7 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
                 }
             }
             OptionTable { rows }
-            p { class: "px-6 py-3 text-[0.7rem] text-ctp-overlay0", "Highlighted rows are in the money." }
+            p { class: "px-6 py-3 text-[0.7rem] text-ctp-overlay0", {tr("Highlighted rows are in the money.")} }
         }
     }
 }

@@ -23,10 +23,11 @@ impl SqlitePortfolioRepository {
 }
 
 const INSERT_TX: &str =
-    "INSERT OR REPLACE INTO transactions (id, portfolio_id, ticker, kind, shares, price, fee, date)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+    "INSERT OR REPLACE INTO transactions
+         (id, portfolio_id, ticker, kind, shares, price, fee, date, currency, fx_to_usd)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
 
-fn tx_params(tx: &Transaction) -> [String; 8] {
+fn tx_params(tx: &Transaction) -> [String; 10] {
     [
         tx.id.to_string(),
         tx.portfolio_id.to_string(),
@@ -36,11 +37,15 @@ fn tx_params(tx: &Transaction) -> [String; 8] {
         tx.price.to_string(),
         tx.fee.to_string(),
         tx.date.clone(),
+        tx.currency.clone(),
+        tx.fx_to_usd.to_string(),
     ]
 }
 
 /// Raw row; converted after the query so parse errors become `Corrupt`.
 type TxRow = (
+    String,
+    String,
     String,
     String,
     String,
@@ -61,11 +66,13 @@ fn read_tx_row(r: &Row) -> rusqlite::Result<TxRow> {
         r.get(5)?,
         r.get(6)?,
         r.get(7)?,
+        r.get(8)?,
+        r.get(9)?,
     ))
 }
 
 fn to_transaction(
-    (id, portfolio_id, ticker, kind, shares, price, fee, date): TxRow,
+    (id, portfolio_id, ticker, kind, shares, price, fee, date, currency, fx_to_usd): TxRow,
 ) -> Result<Transaction, RepositoryError> {
     let bad = |what: &str, value: &str| {
         RepositoryError::Corrupt(format!("transaction {id}: {what} \"{value}\""))
@@ -80,6 +87,8 @@ fn to_transaction(
         price: Decimal::from_str(&price).map_err(|_| bad("price", &price))?,
         fee: Decimal::from_str(&fee).map_err(|_| bad("fee", &fee))?,
         date,
+        currency,
+        fx_to_usd: Decimal::from_str(&fx_to_usd).map_err(|_| bad("fx rate", &fx_to_usd))?,
     })
 }
 
@@ -134,7 +143,7 @@ impl PortfolioRepository for SqlitePortfolioRepository {
 
     fn transactions(&self) -> Result<Vec<Transaction>, RepositoryError> {
         let rows: Vec<TxRow> = self.db.with(|c| {
-            c.prepare("SELECT id, portfolio_id, ticker, kind, shares, price, fee, date FROM transactions ORDER BY date, rowid")?
+            c.prepare("SELECT id, portfolio_id, ticker, kind, shares, price, fee, date, currency, fx_to_usd FROM transactions ORDER BY date, rowid")?
                 .query_map([], read_tx_row)?
                 .collect()
         })?;

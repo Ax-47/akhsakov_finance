@@ -252,7 +252,7 @@ fn holdings(prices: &PriceGrid, transactions: &[Transaction]) -> Raw {
                 date_to_unix(&tx.date)?,
                 *prices.index_of.get(&tx.ticker)?,
                 sign * tx.shares.to_f64()?,
-                tx.price.to_f64()?,
+                tx.usd_price().to_f64()?,
             ))
         })
         .collect();
@@ -364,6 +364,8 @@ mod tests {
             price: Decimal::try_from(price).unwrap(),
             date: format!("{y:04}-{m:02}-{d:02}"),
             fee: Decimal::ZERO,
+            currency: "USD".into(),
+            fx_to_usd: Decimal::ONE,
         }
     }
 

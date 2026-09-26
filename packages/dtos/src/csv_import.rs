@@ -2,8 +2,10 @@
 //!
 //! Columns are matched by header name (case-insensitive), so most broker
 //! exports work as-is: date, ticker/symbol, type/action/side,
-//! shares/quantity, price, fee/commission. `,`, `;` and tab separators and
-//! quoted fields are supported.
+//! shares/quantity, price, fee/commission, currency and fx rate. `,`, `;`
+//! and tab separators and quoted fields are supported. Rows in another
+//! currency without a rate get `fx_to_usd = 0`, which the server fills in
+//! from the trade date's exchange rate.
 
 use crate::transaction::Transaction;
 use rust_decimal::Decimal;
@@ -25,6 +27,8 @@ const KIND: &[&str] = &["type", "action", "side", "transaction type", "activity"
 const SHARES: &[&str] = &["shares", "quantity", "qty", "units", "amount"];
 const PRICE: &[&str] = &["price", "price per share", "avg price", "execution price", "fill price"];
 const FEE: &[&str] = &["fee", "fees", "commission", "commissions"];
+const CURRENCY: &[&str] = &["currency", "ccy", "trade currency"];
+const FX: &[&str] = &["fx_to_usd", "fx rate", "exchange rate", "fx"];
 
 /// Parses CSV text into transactions for `portfolio_id`; bad lines are
 /// reported and skipped rather than failing the whole import.
@@ -48,7 +52,7 @@ pub fn parse_transactions_csv(text: &str, portfolio_id: Uuid) -> (Vec<Transactio
             headers.join(", ")
         )]);
     };
-    let (kind_i, fee_i) = (col(KIND), col(FEE));
+    let (kind_i, fee_i, currency_i, fx_i) = (col(KIND), col(FEE), col(CURRENCY), col(FX));
 
     let mut txs = Vec::new();
     let mut errors = Vec::new();
@@ -67,6 +71,15 @@ pub fn parse_transactions_csv(text: &str, portfolio_id: Uuid) -> (Vec<Transactio
                 None if raw_shares < Decimal::ZERO => TransactionType::Sell,
                 None => TransactionType::Buy,
             };
+            let currency = currency_i
+                .map(|i| cell(i).to_uppercase())
+                .filter(|c| c.len() == 3 && c.chars().all(|c| c.is_ascii_alphabetic()))
+                .unwrap_or_else(|| "USD".into());
+            let fx_to_usd = if currency == "USD" {
+                Decimal::ONE
+            } else {
+                fx_i.and_then(|i| parse_number(cell(i))).filter(|r| *r > Decimal::ZERO).unwrap_or_default()
+            };
             Ok(Transaction {
                 id: Uuid::new_v4(),
                 portfolio_id,
@@ -76,6 +89,8 @@ pub fn parse_transactions_csv(text: &str, portfolio_id: Uuid) -> (Vec<Transactio
                 price,
                 date,
                 fee,
+                currency,
+                fx_to_usd,
             })
         };
         match row() {

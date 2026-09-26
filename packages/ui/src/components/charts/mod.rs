@@ -4,6 +4,7 @@ pub mod correlation_graph;
 pub mod force_graph;
 pub mod growth_chart;
 pub mod heatmap;
+pub mod technical_chart;
 pub mod performance;
 pub mod performance_chart;
 
@@ -11,4 +12,5 @@ pub use allocation_card::*;
 pub use correlation_graph::*;
 pub use growth_chart::*;
 pub use heatmap::*;
+pub use technical_chart::TechnicalChart;
 pub use performance_chart::ChartSection;

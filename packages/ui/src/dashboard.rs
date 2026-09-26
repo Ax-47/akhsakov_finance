@@ -1,4 +1,6 @@
+use crate::i18n::tr;
 use crate::{
+    income_tab::{IncomeTab, ReturnDrivers},
     app::PortfolioScope,
     components::{
         analysis::{stock::open_stock, RiskTab},
@@ -27,6 +29,7 @@ const CONCENTRATION_WARN_PCT: Decimal = dec!(25);
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Overview,
+    Income,
     Risk,
     Plan,
     Activity,
@@ -74,7 +77,7 @@ pub fn Dashboard() -> Element {
                 .find(|(pid, _)| *pid == id)
                 .map(|(_, name)| name.clone())
         })
-        .unwrap_or_else(|| "Your portfolio".to_string());
+        .unwrap_or_else(|| tr("Your portfolio").to_string());
     let empty = positions.is_empty() && transactions.is_empty();
 
     rsx! {
@@ -83,8 +86,8 @@ pub fn Dashboard() -> Element {
                 title,
                 actions: rsx! {
                     div { class: "flex flex-wrap items-center gap-2",
-                        GhostButton { label: "＋ Transaction", onclick: move |_| dialogs.open(Dialog::AddTransaction(scope_id)) }
-                        GhostButton { label: "Print", onclick: move |_| print_report() }
+                        GhostButton { label: tr("＋ Transaction"), onclick: move |_| dialogs.open(Dialog::AddTransaction(scope_id)) }
+                        GhostButton { label: tr("Print"), onclick: move |_| print_report() }
                         ScopePicker { scope, portfolios: portfolios.clone() }
                     }
                 },
@@ -93,18 +96,18 @@ pub fn Dashboard() -> Element {
                 day_change,
                 day_pct,
                 HeroStat {
-                    label: "Return",
+                    label: tr("Return"),
                     value: format!("{} ({pnl_pct:+.2}%)", fmt_signed(total_pnl, 2)),
                     color: signed_color(total_pnl),
                 }
-                HeroStat { label: "Invested", value: fmt_usd(total_cost, 2) }
+                HeroStat { label: tr("Invested"), value: fmt_usd(total_cost, 2) }
                 HeroStat {
-                    label: "Realized",
+                    label: tr("Realized"),
                     value: fmt_signed(realized, 2),
                     color: signed_color(realized),
                 }
                 if let Some(cash) = cash {
-                    HeroStat { label: "Cash", value: fmt_usd(cash, 2) }
+                    HeroStat { label: tr("Cash"), value: fmt_usd(cash, 2) }
                 }
             }
 
@@ -125,22 +128,27 @@ pub fn Dashboard() -> Element {
                 nav { class: "flex items-center justify-between gap-4 mt-10 mb-5",
                     Segmented {
                         ToggleButton {
-                            label: "Overview",
+                            label: tr("Overview"),
                             active: tab() == Tab::Overview,
                             onclick: move |_| tab.set(Tab::Overview),
                         }
                         ToggleButton {
-                            label: "Risk",
+                            label: tr("Income"),
+                            active: tab() == Tab::Income,
+                            onclick: move |_| tab.set(Tab::Income),
+                        }
+                        ToggleButton {
+                            label: tr("Risk"),
                             active: tab() == Tab::Risk,
                             onclick: move |_| tab.set(Tab::Risk),
                         }
                         ToggleButton {
-                            label: "Plan",
+                            label: tr("Plan"),
                             active: tab() == Tab::Plan,
                             onclick: move |_| tab.set(Tab::Plan),
                         }
                         ToggleButton {
-                            label: "Activity",
+                            label: tr("Activity"),
                             active: tab() == Tab::Activity,
                             onclick: move |_| tab.set(Tab::Activity),
                         }
@@ -162,6 +170,16 @@ pub fn Dashboard() -> Element {
                                 StockHeatmap { positions: positions.clone() }
                                 AllocationCard { allocation: allocation.clone() }
                             }
+                            ReturnDrivers {
+                                transactions: transactions.clone(),
+                                positions: positions.clone(),
+                                prices: ticker_price_map.clone(),
+                            }
+                        }
+                    },
+                    Tab::Income => rsx! {
+                        TabPanel {
+                            IncomeTab { positions: positions.clone(), transactions: transactions.clone(), total_value }
                         }
                     },
                     Tab::Risk => rsx! {
@@ -244,7 +262,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
                         oninput: move |e| query.set(e.value()),
                     }
                     MenuItem {
-                        label: "All holdings",
+                        label: tr("All holdings"),
                         selected: scope().is_none(),
                         taken: false,
                         onclick: move |_| choose(None),
@@ -317,7 +335,7 @@ fn Insights(positions: Vec<Position>, total_value: Decimal) -> Element {
         div { class: "mt-10 grid grid-cols-2 lg:grid-cols-4 gap-3 motion-safe:animate-rise",
             if let Some(p) = best {
                 InsightTile {
-                    label: "Best today",
+                    label: tr("Best today"),
                     ticker: p.ticker.to_string(),
                     value: format!("{:+.2}%", p.daily_change_pct),
                     color: signed_color(p.daily_change_pct),
@@ -325,7 +343,7 @@ fn Insights(positions: Vec<Position>, total_value: Decimal) -> Element {
             }
             if let Some(p) = worst {
                 InsightTile {
-                    label: "Worst today",
+                    label: tr("Worst today"),
                     ticker: p.ticker.to_string(),
                     value: format!("{:+.2}%", p.daily_change_pct),
                     color: signed_color(p.daily_change_pct),
@@ -333,7 +351,7 @@ fn Insights(positions: Vec<Position>, total_value: Decimal) -> Element {
             }
             if let Some(p) = largest {
                 InsightTile {
-                    label: "Largest holding",
+                    label: tr("Largest holding"),
                     ticker: p.ticker.to_string(),
                     value: format!("{largest_weight:.1}%"),
                     color: largest_color,
@@ -341,7 +359,7 @@ fn Insights(positions: Vec<Position>, total_value: Decimal) -> Element {
                 }
             }
             InsightTile {
-                label: "In profit",
+                label: tr("In profit"),
                 ticker: format!("{winners} / {}", priced.len()),
                 value: String::new(),
                 note: top_return
@@ -431,8 +449,8 @@ pub(crate) fn HoldingsTable(
 
     rsx! {
         Card {
-            title: "Holdings",
-            subtitle: "Click a column to sort".to_string(),
+            title: tr("Holdings"),
+            subtitle: tr("Click a column to sort").to_string(),
             flush: true,
             actions: rsx! {
                 ExportButtons { filename: "akhsakov-holdings.csv", csv: holdings_csv(&positions) }
@@ -442,35 +460,35 @@ pub(crate) fn HoldingsTable(
                     thead {
                         tr { class: "text-xs text-ctp-overlay1",
                             SortHeader {
-                                label: "Asset",
+                                label: tr("Asset"),
                                 align_left: true,
                                 active: key == SortKey::Ticker,
                                 desc,
                                 onclick: move |_| toggle(SortKey::Ticker),
                             }
                             SortHeader {
-                                label: "Price",
+                                label: tr("Price"),
                                 active: key == SortKey::Price,
                                 desc,
                                 onclick: move |_| toggle(SortKey::Price),
                             }
                             SortHeader {
-                                label: "Today",
+                                label: tr("Today"),
                                 active: key == SortKey::Day,
                                 desc,
                                 onclick: move |_| toggle(SortKey::Day),
                             }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Shares" }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Avg cost" }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Shares")} }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Avg cost")} }
                             SortHeader {
-                                label: "Value",
+                                label: tr("Value"),
                                 active: key == SortKey::Value,
                                 desc,
                                 onclick: move |_| toggle(SortKey::Value),
                             }
-                            th { class: "px-4 py-2.5 text-right font-medium", "Weight" }
+                            th { class: "px-4 py-2.5 text-right font-medium", {tr("Weight")} }
                             SortHeader {
-                                label: "Return",
+                                label: tr("Return"),
                                 active: key == SortKey::Return,
                                 desc,
                                 onclick: move |_| toggle(SortKey::Return),
@@ -603,31 +621,31 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
             .map(|p| p.name.clone())
             .unwrap_or_default()
     });
-    let total: Decimal = shown.iter().map(|tx| tx.shares * tx.price).sum();
+    let total: Decimal = shown.iter().map(|tx| tx.shares * tx.usd_price()).sum();
 
     rsx! {
         Card {
-            title: "Transactions",
+            title: tr("Transactions"),
             subtitle: format!("{} shown · {} total", shown.len(), fmt_usd(total, 2)),
             flush: true,
             actions: rsx! {
                 div { class: "flex flex-wrap items-center gap-2",
-                GhostButton { label: "＋ Add", onclick: move |_| dialogs.open(Dialog::AddTransaction(portfolio)) }
-                GhostButton { label: "Import CSV", onclick: move |_| dialogs.open(Dialog::Import(portfolio)) }
+                GhostButton { label: tr("＋ Add"), onclick: move |_| dialogs.open(Dialog::AddTransaction(portfolio)) }
+                GhostButton { label: tr("Import CSV"), onclick: move |_| dialogs.open(Dialog::Import(portfolio)) }
                 ExportButtons { filename: "akhsakov-transactions.csv", csv: csv_text.clone() }
                 Segmented {
                     ToggleButton {
-                        label: "All",
+                        label: tr("All"),
                         active: filter() == TxFilter::All,
                         onclick: move |_| filter.set(TxFilter::All),
                     }
                     ToggleButton {
-                        label: "Buy",
+                        label: tr("Buy"),
                         active: filter() == TxFilter::Buy,
                         onclick: move |_| filter.set(TxFilter::Buy),
                     }
                     ToggleButton {
-                        label: "Sell",
+                        label: tr("Sell"),
                         active: filter() == TxFilter::Sell,
                         onclick: move |_| filter.set(TxFilter::Sell),
                     }
@@ -635,7 +653,7 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
                 }
             },
             if shown.is_empty() {
-                div { class: "px-6 pb-8 pt-2 text-sm text-ctp-overlay0", "Nothing here yet." }
+                div { class: "px-6 pb-8 pt-2 text-sm text-ctp-overlay0", {tr("Nothing here yet.")} }
             }
             for tx in shown {
                 TransactionRow { key: "{tx.id}", tx }
@@ -665,7 +683,7 @@ fn TransactionRow(tx: Transaction) -> Element {
             span { class: "flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
                 button {
                     class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
-                    title: "Edit",
+                    title: tr("Edit"),
                     onclick: move |_| dialogs.open(Dialog::EditTransaction(editing.clone())),
                     "✎"
                 }
@@ -675,11 +693,20 @@ fn TransactionRow(tx: Transaction) -> Element {
     }
 }
 
-/// Badge style, title, detail line and signed cash effect for a row.
+/// Badge style, title, detail line and signed cash effect for a row. The
+/// detail shows the trade's own currency; the cash effect is converted.
 fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
-    let gross = tx.shares * tx.price;
+    // Amounts in the trade's currency, as the broker showed them.
+    let native = |v: Decimal| {
+        if tx.is_usd() {
+            fmt_usd(v, 2)
+        } else {
+            format!("{:.2} {}", v, tx.currency)
+        }
+    };
+    let (gross, fee_usd) = (tx.shares * tx.usd_price(), tx.usd_fee());
     let fee = if tx.fee > Decimal::ZERO {
-        format!(" · fee {}", fmt_usd(tx.fee, 2))
+        format!(" · fee {}", native(tx.fee))
     } else {
         String::new()
     };
@@ -691,9 +718,9 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
             format!(
                 "{} shares @ {}{fee}",
                 tx.shares.normalize(),
-                fmt_usd(tx.price, 2)
+                native(tx.price)
             ),
-            money("−", gross + tx.fee),
+            money("−", gross + fee_usd),
         ),
         TransactionType::Sell => (
             "bg-ctp-red/15 text-ctp-red",
@@ -701,15 +728,15 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
             format!(
                 "{} shares @ {}{fee}",
                 tx.shares.normalize(),
-                fmt_usd(tx.price, 2)
+                native(tx.price)
             ),
-            money("+", gross - tx.fee),
+            money("+", gross - fee_usd),
         ),
         TransactionType::Dividend => (
             "bg-ctp-teal/15 text-ctp-teal",
             tx.ticker.to_string(),
             format!("Dividend received{}", fee.replace("fee", "tax")),
-            money("+", tx.price - tx.fee),
+            money("+", tx.usd_price() - fee_usd),
         ),
         TransactionType::Split => (
             "bg-ctp-lavender/15 text-ctp-lavender",
@@ -721,13 +748,13 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
             "bg-ctp-blue/15 text-ctp-blue",
             "Cash".into(),
             format!("Deposit{fee}"),
-            money("+", gross - tx.fee),
+            money("+", gross - fee_usd),
         ),
         TransactionType::Withdrawal => (
             "bg-ctp-peach/15 text-ctp-peach",
             "Cash".into(),
             format!("Withdrawal{fee}"),
-            money("−", gross + tx.fee),
+            money("−", gross + fee_usd),
         ),
         TransactionType::Transfer => (
             "bg-ctp-surface1 text-ctp-subtext1",
@@ -742,9 +769,9 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
 fn EmptyState() -> Element {
     rsx! {
         div { class: "mt-10 rounded-3xl border border-dashed border-ctp-surface1 px-6 py-16 text-center",
-            div { class: "text-lg font-semibold text-ctp-text", "Nothing here yet" }
+            div { class: "text-lg font-semibold text-ctp-text", {tr("Nothing here yet")} }
             p { class: "mt-1 text-sm text-ctp-overlay1",
-                "Add your first transaction to start tracking."
+                {tr("Add your first transaction to start tracking.")}
             }
         }
     }

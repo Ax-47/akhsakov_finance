@@ -1,6 +1,7 @@
 //! A stock's own page: header with price and key facts, then tabs for a
 //! price summary, statistics, financial statements and analyst views.
 
+use crate::i18n::tr;
 use crate::{
     app::DataRefresh,
     components::{
@@ -8,7 +9,7 @@ use crate::{
             compare::{CompareMeasures, MeasureVsMeasure},
             stock::StockReport,
         },
-        card::{Card, MetricTile, Segmented, ToggleButton},
+        card::{ActionButton, Card, MenuItem, MetricTile, Segmented, ToggleButton, INPUT},
         charts::bars::{BarChart, BarSeries, Sparkline, Unit},
     },
     editors::{Dialog, Dialogs},
@@ -117,13 +118,13 @@ fn StockView(ticker: TickerSymbol) -> Element {
                     div { class: "flex flex-wrap gap-2",
                         WatchButton { ticker: ticker.clone() }
                         GhostButton {
-                            label: "🔔 Alert",
+                            label: tr("🔔 Alert"),
                             onclick: {
                                 let t = ticker.clone();
                                 move |_| dialogs.open(Dialog::NewAlert(Some(t.clone())))
                             },
                         }
-                        GhostButton { label: "← Back", onclick: move |_| navigator().go_back() }
+                        GhostButton { label: tr("← Back"), onclick: move |_| navigator().go_back() }
                     }
                 }
                 h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 \
@@ -147,15 +148,15 @@ fn StockView(ticker: TickerSymbol) -> Element {
                 }
                 if let Some(f) = &f {
                     div { class: "mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm",
-                        HeroStat { label: "Market cap", value: or_dash(f.stats.market_cap, fmt_compact) }
-                        HeroStat { label: "P/E", value: or_dash(f.stats.pe_ttm, |v| format!("{v:.1}")) }
-                        HeroStat { label: "Dividend", value: or_dash(f.stats.dividend_yield, |v| format!("{:.2}%", v * 100.0)) }
-                        HeroStat { label: "Next earnings", value: f.stats.next_earnings.clone().unwrap_or_else(|| "—".into()) }
+                        HeroStat { label: tr("Market cap"), value: or_dash(f.stats.market_cap, fmt_compact) }
+                        HeroStat { label: tr("P/E"), value: or_dash(f.stats.pe_ttm, |v| format!("{v:.1}")) }
+                        HeroStat { label: tr("Dividend"), value: or_dash(f.stats.dividend_yield, |v| format!("{:.2}%", v * 100.0)) }
+                        HeroStat { label: tr("Next earnings"), value: f.stats.next_earnings.clone().unwrap_or_else(|| "—".into()) }
                     }
                 }
                 if let Some(p) = &position {
                     div { class: "mt-4 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-2 text-sm",
-                        span { class: "text-ctp-overlay1", "You own" }
+                        span { class: "text-ctp-overlay1", {tr("You own")} }
                         span { class: "font-medium tabular-nums text-ctp-text", "{p.shares.normalize()} shares · {fmt_usd(p.market_value(), 2)}" }
                         span { class: "font-medium tabular-nums {signed_color(p.unrealized_pnl())}",
                             "{fmt_signed(p.unrealized_pnl(), 2)} ({p.unrealized_pnl_pct():+.2}%)"
@@ -166,24 +167,27 @@ fn StockView(ticker: TickerSymbol) -> Element {
 
             nav { class: "mt-10 mb-5 overflow-x-auto",
                 Segmented {
-                    ToggleButton { label: "Summary", active: tab() == Tab::Summary, onclick: move |_| tab.set(Tab::Summary) }
-                    ToggleButton { label: "Statistics", active: tab() == Tab::Statistics, onclick: move |_| tab.set(Tab::Statistics) }
-                    ToggleButton { label: "Financials", active: tab() == Tab::Financials, onclick: move |_| tab.set(Tab::Financials) }
-                    ToggleButton { label: "Analysis", active: tab() == Tab::Analysis, onclick: move |_| tab.set(Tab::Analysis) }
-                    ToggleButton { label: "News", active: tab() == Tab::News, onclick: move |_| tab.set(Tab::News) }
-                    ToggleButton { label: "Ownership", active: tab() == Tab::Ownership, onclick: move |_| tab.set(Tab::Ownership) }
-                    ToggleButton { label: "Options", active: tab() == Tab::Options, onclick: move |_| tab.set(Tab::Options) }
-                    ToggleButton { label: "Compare", active: tab() == Tab::Compare, onclick: move |_| tab.set(Tab::Compare) }
+                    ToggleButton { label: tr("Summary"), active: tab() == Tab::Summary, onclick: move |_| tab.set(Tab::Summary) }
+                    ToggleButton { label: tr("Statistics"), active: tab() == Tab::Statistics, onclick: move |_| tab.set(Tab::Statistics) }
+                    ToggleButton { label: tr("Financials"), active: tab() == Tab::Financials, onclick: move |_| tab.set(Tab::Financials) }
+                    ToggleButton { label: tr("Analysis"), active: tab() == Tab::Analysis, onclick: move |_| tab.set(Tab::Analysis) }
+                    ToggleButton { label: tr("News"), active: tab() == Tab::News, onclick: move |_| tab.set(Tab::News) }
+                    ToggleButton { label: tr("Ownership"), active: tab() == Tab::Ownership, onclick: move |_| tab.set(Tab::Ownership) }
+                    ToggleButton { label: tr("Options"), active: tab() == Tab::Options, onclick: move |_| tab.set(Tab::Options) }
+                    ToggleButton { label: tr("Compare"), active: tab() == Tab::Compare, onclick: move |_| tab.set(Tab::Compare) }
                 }
             }
 
             match (tab(), &f) {
                 (Tab::Summary, _) => rsx! {
                     div { class: "grid gap-5 motion-safe:animate-rise",
+                        crate::components::charts::TechnicalChart { ticker: ticker.clone() }
                         if let Some(f) = &f {
                             About { fundamentals: f.clone() }
                         }
                         StockReport { ticker: ticker.clone(), position: position.clone(), total_value }
+                        Peers { ticker: ticker.clone() }
+                        NotesCard { ticker: ticker.clone() }
                     }
                 },
                 (Tab::News, _) => rsx! { NewsTab { ticker: ticker.clone() } },
@@ -192,8 +196,8 @@ fn StockView(ticker: TickerSymbol) -> Element {
                 (Tab::Compare, _) => rsx! {
                     nav { class: "mb-5 -mt-1",
                         Segmented {
-                            ToggleButton { label: "Other stocks", active: !compare_over_time(), onclick: move |_| compare_over_time.set(false) }
-                            ToggleButton { label: "Measure vs measure", active: compare_over_time(), onclick: move |_| compare_over_time.set(true) }
+                            ToggleButton { label: tr("Other stocks"), active: !compare_over_time(), onclick: move |_| compare_over_time.set(false) }
+                            ToggleButton { label: tr("Measure vs measure"), active: compare_over_time(), onclick: move |_| compare_over_time.set(true) }
                         }
                     }
                     if !compare_over_time() {
@@ -231,34 +235,129 @@ fn StockView(ticker: TickerSymbol) -> Element {
     }
 }
 
-/// ☆ Watch / ★ Watching toggle.
+/// ☆ Watch menu: tick the lists this stock is on.
 #[component]
 fn WatchButton(ticker: TickerSymbol) -> Element {
     let refresh = use_context::<DataRefresh>();
-    let symbol = ticker.clone();
-    let watching = use_resource(move || {
-        let t = symbol.clone();
+    let mut open = use_signal(|| false);
+    let lists = use_resource(move || async move {
+        let _reload = refresh.0();
+        api::get_watchlists().await.unwrap_or_default()
+    });
+    let lists = lists.read().clone().unwrap_or_default();
+    let on_lists = lists.iter().filter(|l| l.items.iter().any(|i| i.ticker == ticker)).count();
+    let label = match on_lists {
+        0 => tr("☆ Watch").to_string(),
+        1 => tr("★ Watching").to_string(),
+        n => format!("★ On {n} lists"),
+    };
+    rsx! {
+        div { class: "relative",
+            GhostButton { label, onclick: move |_| open.toggle() }
+            if open() {
+                div { class: "fixed inset-0 z-20", onclick: move |_| open.set(false) }
+                div { class: "absolute right-0 top-full z-30 mt-2 w-56 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60",
+                    div { class: "px-2.5 pt-1.5 pb-1 text-xs text-ctp-overlay0", {tr("Watchlists")} }
+                    for l in lists {
+                        {
+                            let has = l.items.iter().any(|i| i.ticker == ticker);
+                            let t = ticker.clone();
+                            rsx! {
+                                MenuItem {
+                                    key: "{l.id}",
+                                    label: l.name.clone(),
+                                    selected: has,
+                                    taken: false,
+                                    onclick: move |_| {
+                                        let t = t.clone();
+                                        spawn(async move {
+                                            let done = if has { api::unwatch_from(l.id, t).await } else { api::watch_in(l.id, t).await };
+                                            if done.is_ok() {
+                                                refresh.reload();
+                                            }
+                                        });
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Your notes and tags on this stock.
+#[component]
+fn NotesCard(ticker: TickerSymbol) -> Element {
+    let refresh = use_context::<DataRefresh>();
+    let t = ticker.clone();
+    let saved = use_resource(move || {
+        let t = t.clone();
         async move {
             let _reload = refresh.0();
-            api::get_watchlist()
+            api::get_notes()
                 .await
                 .ok()
-                .map(|list| list.iter().any(|w| w.ticker == t))
+                .and_then(|n| n.into_iter().find(|n| n.ticker == t.as_str()))
         }
     });
-    let on = watching.read().clone().flatten().unwrap_or(false);
+    let mut text = use_signal(String::new);
+    let mut tags = use_signal(String::new);
+    let mut loaded = use_signal(|| false);
+    let mut status = use_signal(|| None::<Result<(), String>>);
+    // Fill the fields once the saved note arrives.
+    use_effect(move || {
+        if let Some(note) = &*saved.read() {
+            if !loaded() {
+                let note = note.clone().unwrap_or_default();
+                text.set(note.text);
+                tags.set(note.tags.join(", "));
+                loaded.set(true);
+            }
+        }
+    });
+    let updated = saved.read().clone().flatten().map(|n| n.updated_at).filter(|u| !u.is_empty());
+    let save = move |_| {
+        let t = ticker.clone();
+        async move {
+            let tag_list: Vec<String> = tags().split(',').map(str::to_string).collect();
+            match api::save_note(t, text(), tag_list).await {
+                Ok(()) => {
+                    status.set(Some(Ok(())));
+                    loaded.set(false);
+                    refresh.reload();
+                }
+                Err(e) => status.set(Some(Err(e.to_string()))),
+            }
+        }
+    };
     rsx! {
-        GhostButton {
-            label: if on { "★ Watching" } else { "☆ Watch" },
-            onclick: move |_| {
-                let t = ticker.clone();
-                spawn(async move {
-                    let done = if on { api::unwatch_ticker(t).await } else { api::watch_ticker(t).await };
-                    if done.is_ok() {
-                        refresh.reload();
+        Card {
+            title: tr("Your notes"),
+            subtitle: updated.map_or("Why you own it, what to watch for".to_string(), |u| format!("Last saved {u}")),
+            div { class: "grid gap-3",
+                textarea {
+                    class: "{INPUT} min-h-28 resize-y",
+                    placeholder: "e.g. Buy more below $150. Watch margins in the next report.",
+                    value: "{text}",
+                    oninput: move |e| { text.set(e.value()); status.set(None); },
+                }
+                div { class: "flex flex-wrap items-center gap-3",
+                    input {
+                        class: "{INPUT} flex-1",
+                        placeholder: tr("Tags, comma separated: dividend, long term"),
+                        value: "{tags}",
+                        oninput: move |e| { tags.set(e.value()); status.set(None); },
                     }
-                });
-            },
+                    ActionButton { label: tr("Save"), onclick: save }
+                    match status() {
+                        Some(Ok(())) => rsx! { span { class: "text-sm text-ctp-green", {tr("Saved")} } },
+                        Some(Err(e)) => rsx! { span { class: "text-sm text-ctp-red", "{e}" } },
+                        None => rsx! {},
+                    }
+                }
+            }
         }
     }
 }
@@ -266,11 +365,34 @@ fn WatchButton(ticker: TickerSymbol) -> Element {
 #[component]
 fn Unavailable(text: String) -> Element {
     rsx! {
-        Card { title: "Fundamentals", p { class: "py-12 text-center text-sm text-ctp-overlay1", "{text}" } }
+        Card { title: tr("Fundamentals"), p { class: "py-12 text-center text-sm text-ctp-overlay1", "{text}" } }
     }
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
+
+/// The largest companies in the same sector of the first index listing
+/// this stock; nothing if no index does.
+#[component]
+fn Peers(ticker: TickerSymbol) -> Element {
+    let t = ticker.clone();
+    let group = use_resource(move || {
+        let t = t.clone();
+        async move { api::get_peers(t).await.ok().flatten() }
+    });
+    let Some(Some(group)) = group.read().clone() else {
+        return rsx! {};
+    };
+    rsx! {
+        Card {
+            title: tr("Peers"),
+            subtitle: format!("Largest {} companies in the {}", group.sector, tr(group.index.label())),
+            flush: true,
+            crate::stock_table::StockTable { rows: group.rows.clone(), highlight: Some(ticker.to_string()) }
+            div { class: "h-3" }
+        }
+    }
+}
 
 #[component]
 fn About(fundamentals: StockFundamentals) -> Element {
@@ -279,14 +401,14 @@ fn About(fundamentals: StockFundamentals) -> Element {
         return rsx! {};
     };
     rsx! {
-        Card { title: "About",
+        Card { title: tr("About"),
             p {
                 class: if expanded() { "text-sm leading-relaxed text-ctp-subtext0" } else { "text-sm leading-relaxed text-ctp-subtext0 line-clamp-3" },
                 "{summary}"
             }
             div { class: "mt-2 flex items-center gap-4 text-xs",
                 button { class: "text-ctp-mauve cursor-pointer hover:underline", onclick: move |_| expanded.toggle(),
-                    if expanded() { "Show less" } else { "Read more" }
+                    if expanded() { {tr("Show less")} } else { {tr("Read more")} }
                 }
                 if let Some(site) = &fundamentals.profile.website {
                     span { class: "text-ctp-overlay1", "{site}" }
@@ -320,8 +442,8 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
     rsx! {
         div { class: "grid gap-5 motion-safe:animate-rise",
             Card {
-                title: "Valuation measures",
-                subtitle: "Current, and at each quarter end from reported statements".to_string(),
+                title: tr("Valuation measures"),
+                subtitle: tr("Current, and at each quarter end from reported statements").to_string(),
                 flush: true,
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-sm whitespace-nowrap",
@@ -331,7 +453,7 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
                                 for c in columns.iter() {
                                     th { class: "px-4 py-2.5 text-right font-medium", "{short_date(&c.date)}" }
                                 }
-                                th { class: "pl-4 pr-6 py-2.5 text-right font-medium", "Trend" }
+                                th { class: "pl-4 pr-6 py-2.5 text-right font-medium", {tr("Trend")} }
                             }
                         }
                         tbody {
@@ -350,12 +472,12 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
                                 }
                             }
                             tr { class: "border-t border-ctp-surface0/60",
-                                td { class: "pl-6 pr-4 py-3 text-ctp-subtext1", "Forward P/E" }
+                                td { class: "pl-6 pr-4 py-3 text-ctp-subtext1", {tr("Forward P/E")} }
                                 td { class: "px-4 py-3 text-right tabular-nums font-semibold text-ctp-text",
                                     {or_dash(f.stats.forward_pe, |v| format!("{v:.2}"))}
                                 }
                                 td { class: "px-4 py-3 text-xs text-ctp-overlay0", colspan: "{columns.len()}",
-                                    "Price ÷ analysts' next-year EPS"
+                                    {tr("Price ÷ analysts' next-year EPS")}
                                 }
                             }
                         }
@@ -553,8 +675,8 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
 
     let toggle = rsx! {
         Segmented {
-            ToggleButton { label: "Quarterly", active: quarterly(), onclick: move |_| quarterly.set(true) }
-            ToggleButton { label: "Annual", active: !quarterly(), onclick: move |_| quarterly.set(false) }
+            ToggleButton { label: tr("Quarterly"), active: quarterly(), onclick: move |_| quarterly.set(true) }
+            ToggleButton { label: tr("Annual"), active: !quarterly(), onclick: move |_| quarterly.set(false) }
         }
     };
 
@@ -576,47 +698,47 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
     rsx! {
         div { class: "grid gap-5 motion-safe:animate-rise",
             div { class: "grid gap-5 md:grid-cols-2",
-                Card { title: "Revenue & net income", actions: toggle,
+                Card { title: tr("Revenue & net income"), actions: toggle,
                     BarChart {
                         labels: labels.clone(),
-                        series: vec![series("Revenue", "#89b4fa", |p| p.revenue), series("Net income", "#cba6f7", |p| p.net_income)],
+                        series: vec![series("Revenue", "var(--catppuccin-color-blue)", |p| p.revenue), series("Net income", "var(--catppuccin-color-mauve)", |p| p.net_income)],
                         unit: Unit::Money,
                     }
                 }
-                Card { title: "Margins",
+                Card { title: tr("Margins"),
                     BarChart {
                         labels: labels.clone(),
                         series: vec![
-                            series("Gross", "#a6e3a1", |p| p.gross_margin()),
-                            series("Operating", "#f9e2af", |p| p.operating_margin()),
-                            series("Net", "#cba6f7", |p| p.net_margin()),
+                            series("Gross", "var(--catppuccin-color-green)", |p| p.gross_margin()),
+                            series("Operating", "var(--catppuccin-color-yellow)", |p| p.operating_margin()),
+                            series("Net", "var(--catppuccin-color-mauve)", |p| p.net_margin()),
                         ],
                         unit: Unit::Percent,
                     }
                 }
-                Card { title: "Cash flow",
+                Card { title: tr("Cash flow"),
                     BarChart {
                         labels: labels.clone(),
                         series: vec![
-                            series("Operating cash flow", "#89dceb", |p| p.operating_cashflow),
-                            series("Free cash flow", "#94e2d5", |p| p.free_cash_flow),
+                            series("Operating cash flow", "var(--catppuccin-color-sky)", |p| p.operating_cashflow),
+                            series("Free cash flow", "var(--catppuccin-color-teal)", |p| p.free_cash_flow),
                         ],
                         unit: Unit::Money,
                     }
                 }
-                Card { title: "Balance sheet",
+                Card { title: tr("Balance sheet"),
                     BarChart {
                         labels: labels.clone(),
                         series: vec![
-                            series("Cash", "#a6e3a1", |p| p.cash),
-                            series("Long-term debt", "#f38ba8", |p| p.long_term_debt),
-                            series("Equity", "#b4befe", |p| p.total_equity),
+                            series("Cash", "var(--catppuccin-color-green)", |p| p.cash),
+                            series("Long-term debt", "var(--catppuccin-color-red)", |p| p.long_term_debt),
+                            series("Equity", "var(--catppuccin-color-lavender)", |p| p.total_equity),
                         ],
                         unit: Unit::Money,
                     }
                 }
             }
-            Card { title: "Statements", subtitle: "Newest first".to_string(), flush: true,
+            Card { title: tr("Statements"), subtitle: tr("Newest first").to_string(), flush: true,
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-sm whitespace-nowrap",
                         thead {
@@ -657,7 +779,7 @@ fn AnalysisTab(fundamentals: StockFundamentals, price: Option<f64>) -> Element {
                     Ratings { analysts: a.clone() }
                     PriceTarget { analysts: a, price }
                 } else {
-                    Card { title: "Analysts", p { class: "py-8 text-center text-sm text-ctp-overlay1", "No analyst coverage." } }
+                    Card { title: tr("Analysts"), p { class: "py-8 text-center text-sm text-ctp-overlay1", {tr("No analyst coverage.")} } }
                 }
             }
             EpsChart { surprises: fundamentals.eps_surprises.clone() }
@@ -666,11 +788,11 @@ fn AnalysisTab(fundamentals: StockFundamentals, price: Option<f64>) -> Element {
 }
 
 const RATING_COLORS: [(&str, &str); 5] = [
-    ("Strong buy", "#a6e3a1"),
-    ("Buy", "#94e2d5"),
-    ("Hold", "#f9e2af"),
-    ("Sell", "#fab387"),
-    ("Strong sell", "#f38ba8"),
+    ("Strong buy", "var(--catppuccin-color-green)"),
+    ("Buy", "var(--catppuccin-color-teal)"),
+    ("Hold", "var(--catppuccin-color-yellow)"),
+    ("Sell", "var(--catppuccin-color-peach)"),
+    ("Strong sell", "var(--catppuccin-color-red)"),
 ];
 
 #[component]
@@ -683,7 +805,7 @@ fn Ratings(analysts: Analysts) -> Element {
     let marker = a.mean.map(|m| ((m - 1.0) / 4.0 * 100.0).clamp(0.0, 100.0));
 
     rsx! {
-        Card { title: "Analyst ratings", subtitle: format!("{total} analysts"),
+        Card { title: tr("Analyst ratings"), subtitle: format!("{total} analysts"),
             div { class: "flex items-baseline gap-3",
                 span { class: "text-3xl font-semibold capitalize text-ctp-text", "{rating}" }
                 if let Some(m) = a.mean {
@@ -695,9 +817,9 @@ fn Ratings(analysts: Analysts) -> Element {
                     span { class: "absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ctp-base bg-ctp-text", style: "left:{pos:.1}%;" }
                 }
                 div { class: "mt-1.5 flex justify-between text-[0.7rem] text-ctp-overlay0",
-                    span { "Strong buy" }
-                    span { "Hold" }
-                    span { "Strong sell" }
+                    span { {tr("Strong buy")} }
+                    span { {tr("Hold")} }
+                    span { {tr("Strong sell")} }
                 }
             }
             if total > 0 {
@@ -730,7 +852,7 @@ fn PriceTarget(analysts: Analysts, price: Option<f64>) -> Element {
     let a = &analysts;
     let (Some(low), Some(high)) = (a.target_low, a.target_high) else {
         return rsx! {
-            Card { title: "Price target", p { class: "py-8 text-center text-sm text-ctp-overlay1", "No price targets." } }
+            Card { title: tr("Price target"), p { class: "py-8 text-center text-sm text-ctp-overlay1", {tr("No price targets.")} } }
         };
     };
     let lo = low.min(price.unwrap_or(low));
@@ -745,11 +867,11 @@ fn PriceTarget(analysts: Analysts, price: Option<f64>) -> Element {
     };
 
     rsx! {
-        Card { title: "Price target", subtitle: a.count.map(|n| format!("{n} analysts")).unwrap_or_default(),
+        Card { title: tr("Price target"), subtitle: a.count.map(|n| format!("{n} analysts")).unwrap_or_default(),
             div { class: "grid grid-cols-2 gap-3",
-                MetricTile { label: "Average target", value: or_dash(a.target_mean, |v| format!("${v:.2}")) }
+                MetricTile { label: tr("Average target"), value: or_dash(a.target_mean, |v| format!("${v:.2}")) }
                 MetricTile {
-                    label: "Upside",
+                    label: tr("Upside"),
                     value: or_dash(upside, |v| format!("{v:+.1}%")),
                     tone: upside_tone,
                 }
@@ -787,7 +909,7 @@ fn EpsChart(surprises: Vec<EpsSurprise>) -> Element {
         .collect();
     if points.is_empty() {
         return rsx! {
-            Card { title: "Earnings per share", p { class: "py-8 text-center text-sm text-ctp-overlay1", "No earnings history." } }
+            Card { title: tr("Earnings per share"), p { class: "py-8 text-center text-sm text-ctp-overlay1", {tr("No earnings history.")} } }
         };
     }
     let values: Vec<f64> = points
@@ -803,7 +925,7 @@ fn EpsChart(surprises: Vec<EpsSurprise>) -> Element {
     let y = |v: f64| 20.0 + (hi - v) / (hi - lo) * (H - 60.0);
 
     rsx! {
-        Card { title: "Earnings per share", subtitle: "Reported vs analyst estimate".to_string(),
+        Card { title: tr("Earnings per share"), subtitle: tr("Reported vs analyst estimate").to_string(),
             div { class: "mb-2 flex gap-4 text-xs text-ctp-subtext0",
                 span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full border-2 border-ctp-overlay1" } "Estimate" }
                 span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full bg-ctp-green" } "Beat" }
@@ -813,21 +935,21 @@ fn EpsChart(surprises: Vec<EpsSurprise>) -> Element {
                 for (i, s) in points.iter().enumerate() {
                     {
                         let beat = s.actual.zip(s.estimate).map(|(a, e)| a >= e);
-                        let color = match beat { Some(false) => "#f38ba8", _ => "#a6e3a1" };
+                        let color = match beat { Some(false) => "var(--catppuccin-color-red)", _ => "var(--catppuccin-color-green)" };
                         let surprise = s.actual.zip(s.estimate).filter(|(_, e)| *e != 0.0).map(|(a, e)| (a / e.abs() - e.signum()) * 100.0);
                         rsx! {
                             g { key: "{s.period}",
                                 if let Some(e) = s.estimate {
-                                    circle { cx: "{x(i):.1}", cy: "{y(e):.1}", r: "9", fill: "none", stroke: "#7f849c", stroke_width: "2", stroke_dasharray: "3 2" }
+                                    circle { cx: "{x(i):.1}", cy: "{y(e):.1}", r: "9", fill: "none", stroke: "var(--catppuccin-color-overlay1)", stroke_width: "2", stroke_dasharray: "3 2" }
                                 }
                                 if let Some(a) = s.actual {
                                     circle { cx: "{x(i):.1}", cy: "{y(a):.1}", r: "7", fill: color }
-                                    text { x: "{x(i):.1}", y: "{y(a) - 14.0:.1}", text_anchor: "middle", font_size: "11", font_weight: "600", fill: "#cdd6f4", "${a:.2}" }
+                                    text { x: "{x(i):.1}", y: "{y(a) - 14.0:.1}", text_anchor: "middle", font_size: "11", font_weight: "600", fill: "var(--catppuccin-color-text)", "${a:.2}" }
                                 }
                                 if let Some(pct) = surprise {
                                     text { x: "{x(i):.1}", y: "{H - 26.0}", text_anchor: "middle", font_size: "11", font_weight: "600", fill: color, "{pct:+.1}%" }
                                 }
-                                text { x: "{x(i):.1}", y: "{H - 8.0}", text_anchor: "middle", font_size: "10", fill: "#7f849c", "{s.period}" }
+                                text { x: "{x(i):.1}", y: "{H - 8.0}", text_anchor: "middle", font_size: "10", fill: "var(--catppuccin-color-overlay1)", "{s.period}" }
                             }
                         }
                     }

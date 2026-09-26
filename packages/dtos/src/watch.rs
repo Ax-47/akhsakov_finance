@@ -21,6 +21,42 @@ pub struct WatchItem {
     pub added_at: String,
 }
 
+/// A named list of watched stocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Watchlist {
+    pub id: Uuid,
+    pub name: String,
+    /// Oldest first.
+    pub items: Vec<WatchItem>,
+}
+
+/// Your notes and tags on a stock.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Note {
+    pub ticker: String,
+    pub text: String,
+    /// Lowercase, e.g. `["dividend", "long term"]`.
+    pub tags: Vec<String>,
+    pub updated_at: String,
+}
+
+pub const MAX_TAGS: usize = 10;
+pub const MAX_TAG_LEN: usize = 24;
+pub const MAX_NOTE_LEN: usize = 5000;
+
+/// Tags as stored: trimmed, lowercase, without `#`, unique, in order.
+pub fn normalize_tags(tags: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in tags {
+        let t = t.trim().trim_start_matches('#').trim().to_lowercase();
+        if !t.is_empty() && !out.contains(&t) {
+            out.push(t.chars().take(MAX_TAG_LEN).collect());
+        }
+    }
+    out.truncate(MAX_TAGS);
+    out
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AlertKind {
     /// Price rises to or above `value`.
@@ -156,5 +192,13 @@ mod tests {
         for k in AlertKind::ALL {
             assert_eq!(k.to_string().parse::<AlertKind>().unwrap(), k);
         }
+    }
+
+    #[test]
+    fn tags_are_normalized() {
+        let raw = ["  Dividend ", "#growth", "dividend", "", "AI"].map(String::from);
+        assert_eq!(normalize_tags(&raw), vec!["dividend", "growth", "ai"]);
+        let many: Vec<String> = (0..20).map(|i| format!("t{i}")).collect();
+        assert_eq!(normalize_tags(&many).len(), MAX_TAGS);
     }
 }

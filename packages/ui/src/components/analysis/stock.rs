@@ -1,6 +1,7 @@
 //! Per-stock analysis: returns, risk vs the S&P 500, 52-week range, trend
 //! and momentum, a 1-year chart against the market, and your position.
 
+use crate::i18n::tr;
 use super::stats::{daily_returns, RiskReport};
 use crate::{
     components::{
@@ -19,8 +20,8 @@ use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
-const STOCK_HEX: &str = "#cba6f7"; // mauve
-const MARKET_HEX: &str = "#89b4fa"; // blue
+const STOCK_HEX: &str = "var(--catppuccin-color-mauve)"; // mauve
+const MARKET_HEX: &str = "var(--catppuccin-color-blue)"; // blue
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ pub(crate) fn StockReport(
     let result = data.read().clone();
     match result {
         None => rsx! {
-            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-overlay1", "Loading a year of prices…" } }
+            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-overlay1", {tr("Loading a year of prices…")} } }
         },
         Some(None) => rsx! {
             Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-overlay1", "No price history for {ticker}." } }
@@ -206,7 +207,7 @@ pub(crate) fn StockReport(
             rsx! {
                 div { class: "grid gap-5 min-w-0",
                     ReportHeader { stats: stats.clone() }
-                    Card { title: "Past year vs S&P 500", subtitle: "Both start at 0%".to_string(),
+                    Card { title: tr("Past year vs S&P 500"), subtitle: tr("Both start at 0%").to_string(),
                         document::Script { src: asset!("/assets/js/growth_chart.js") }
                         GrowthChart { chart_dates: cmp.labels.clone(), series, height: dec!(220) }
                     }
@@ -278,7 +279,7 @@ fn ReportHeader(stats: StockStats) -> Element {
     }
 
     rsx! {
-        Card { title: "Signals & returns", subtitle: "From daily prices over the past year".to_string(),
+        Card { title: tr("Signals & returns"), subtitle: tr("From daily prices over the past year").to_string(),
             if !chips.is_empty() {
                 div { class: "mt-3 flex flex-wrap gap-2",
                     for (label, style) in chips {
@@ -327,24 +328,24 @@ fn RiskTiles(stats: StockStats) -> Element {
     rsx! {
         div { class: "grid grid-cols-2 lg:grid-cols-4 gap-3",
             MetricTile {
-                label: "Volatility",
+                label: tr("Volatility"),
                 value: format!("{:.1}%", pct(r.volatility)),
                 hint: format!("Yearly swing · S&P {:.1}%", pct(r.market_volatility)),
                 tone: vol_tone,
             }
             MetricTile {
-                label: "Beta",
+                label: tr("Beta"),
                 value: format!("{:.2}", r.beta),
                 hint: format!("Correlation {:.2} with the S&P", r.market_correlation),
             }
             MetricTile {
-                label: "Max drawdown",
+                label: tr("Max drawdown"),
                 value: format!("−{:.1}%", pct(r.max_drawdown)),
                 hint: format!("Worst fall · S&P −{:.1}%", pct(r.market_max_drawdown)),
                 tone: dd_tone,
             }
             MetricTile {
-                label: "Sharpe ratio",
+                label: tr("Sharpe ratio"),
                 value: format!("{:.2}", r.sharpe),
                 hint: format!("Return per risk · alpha {:+.1}%", pct(r.alpha)),
                 tone: sharpe_tone,
@@ -369,7 +370,7 @@ fn RangeAndTrend(stats: StockStats) -> Element {
         })
     };
     rsx! {
-        Card { title: "Range & trend",
+        Card { title: tr("Range & trend"),
             div { class: "flex justify-between text-xs text-ctp-overlay1",
                 span { "52-week low" }
                 span { "52-week high" }
@@ -401,7 +402,7 @@ fn RangeAndTrend(stats: StockStats) -> Element {
                 }
                 if let Some(rsi) = s.rsi14 {
                     div { class: "flex items-center justify-between",
-                        span { class: "text-ctp-overlay1", "RSI (14)" }
+                        span { class: "text-ctp-overlay1", {tr("RSI (14)")} }
                         span { class: "tabular-nums text-ctp-subtext1", "{rsi:.0}" }
                     }
                 }
@@ -415,14 +416,14 @@ fn PositionCard(position: Position, total_value: Decimal) -> Element {
     let p = &position;
     let weight = p.market_value() / total_value.max(dec!(1)) * dec!(100);
     rsx! {
-        Card { title: "Your position",
+        Card { title: tr("Your position"),
             div { class: "grid gap-2 text-sm",
-                Row { label: "Shares", value: p.shares.normalize().to_string() }
-                Row { label: "Average cost", value: fmt_usd(p.avg_cost, 2) }
-                Row { label: "Market value", value: fmt_usd(p.market_value(), 2) }
-                Row { label: "Weight", value: format!("{weight:.1}%") }
+                Row { label: tr("Shares"), value: p.shares.normalize().to_string() }
+                Row { label: tr("Average cost"), value: fmt_usd(p.avg_cost, 2) }
+                Row { label: tr("Market value"), value: fmt_usd(p.market_value(), 2) }
+                Row { label: tr("Weight"), value: format!("{weight:.1}%") }
                 Row {
-                    label: "Return",
+                    label: tr("Return"),
                     value: format!("{} ({:+.2}%)", fmt_signed(p.unrealized_pnl(), 2), p.unrealized_pnl_pct()),
                     color: signed_color(p.unrealized_pnl()),
                 }

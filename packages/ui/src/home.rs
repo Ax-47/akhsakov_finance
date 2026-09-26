@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::{
     components::{
         card::{Segmented, ToggleButton},
@@ -62,27 +63,27 @@ pub fn Home() -> Element {
     rsx! {
         Page {
             PageHero {
-                title: "Dashboard",
+                title: tr("Dashboard"),
                 loaded,
                 total_value: total_value + cash.unwrap_or_default(),
                 day_change,
                 day_pct,
                 actions: rsx! {
                     div { class: "flex flex-wrap gap-2",
-                        GhostButton { label: "＋ Transaction", onclick: move |_| dialogs.open(Dialog::AddTransaction(None)) }
-                        GhostButton { label: "Import CSV", onclick: move |_| dialogs.open(Dialog::Import(None)) }
-                        GhostButton { label: "＋ Portfolio", onclick: move |_| dialogs.open(Dialog::NewPortfolio) }
+                        GhostButton { label: tr("＋ Transaction"), onclick: move |_| dialogs.open(Dialog::AddTransaction(None)) }
+                        GhostButton { label: tr("Import CSV"), onclick: move |_| dialogs.open(Dialog::Import(None)) }
+                        GhostButton { label: tr("＋ Portfolio"), onclick: move |_| dialogs.open(Dialog::NewPortfolio) }
                     }
                 },
                 HeroStat {
-                    label: "Return",
+                    label: tr("Return"),
                     value: format!("{} ({pnl_pct:+.2}%)", fmt_signed(total_pnl, 2)),
                     color: signed_color(total_pnl),
                 }
-                HeroStat { label: "Invested", value: fmt_usd(total_cost, 2) }
-                HeroStat { label: "Realized", value: fmt_signed(realized, 2), color: signed_color(realized) }
+                HeroStat { label: tr("Invested"), value: fmt_usd(total_cost, 2) }
+                HeroStat { label: tr("Realized"), value: fmt_signed(realized, 2), color: signed_color(realized) }
                 if let Some(cash) = cash {
-                    HeroStat { label: "Cash", value: fmt_usd(cash, 2) }
+                    HeroStat { label: tr("Cash"), value: fmt_usd(cash, 2) }
                 }
             }
 
@@ -98,10 +99,14 @@ pub fn Home() -> Element {
                 }
             }
 
+            div { class: "mt-5 motion-safe:animate-rise",
+                crate::calendar_page::UpcomingEvents { limit: 5 }
+            }
+
             nav { class: "flex items-center justify-between gap-4 mt-10 mb-5",
                 Segmented {
-                    ToggleButton { label: "Portfolios", active: view() == View::Portfolios, onclick: move |_| view.set(View::Portfolios) }
-                    ToggleButton { label: "Holdings", active: view() == View::Holdings, onclick: move |_| view.set(View::Holdings) }
+                    ToggleButton { label: tr("Portfolios"), active: view() == View::Portfolios, onclick: move |_| view.set(View::Portfolios) }
+                    ToggleButton { label: tr("Holdings"), active: view() == View::Holdings, onclick: move |_| view.set(View::Holdings) }
                 }
                 span { class: "hidden sm:block text-xs text-ctp-overlay0",
                     "{portfolio_count} portfolios · {positions.len()} holdings"

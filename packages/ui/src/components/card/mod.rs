@@ -1,5 +1,6 @@
 //! Card surface and small controls shared by the portfolio page.
 
+use crate::i18n::tr;
 use dioxus::prelude::*;
 
 /// Rounded, hairline-bordered, slightly translucent surface.
@@ -155,7 +156,7 @@ fn StepButton(up: bool, onclick: EventHandler<MouseEvent>) -> Element {
         button {
             r#type: "button",
             tabindex: "-1",
-            "aria-label": if up { "Increase" } else { "Decrease" },
+            "aria-label": if up { tr("Increase") } else { tr("Decrease") },
             class: "flex h-3 w-5 items-center justify-center rounded-full cursor-pointer \
                     text-ctp-overlay1 transition-colors hover:bg-ctp-surface0 hover:text-ctp-mauve \
                     active:text-ctp-pink",
@@ -215,6 +216,62 @@ pub fn Chevron(open: bool) -> Element {
             stroke_linecap: "round",
             stroke_linejoin: "round",
             path { d: "M1 1.5l5 5 5-5" }
+        }
+    }
+}
+
+/// Themed dropdown for one choice among `(value, label)` options; native
+/// selects can't be styled consistently. `prefix` is shown dimmed before
+/// the current label, e.g. "Sort".
+#[component]
+pub fn Select(
+    options: Vec<(String, String)>,
+    value: String,
+    onchange: EventHandler<String>,
+    #[props(default)] prefix: String,
+) -> Element {
+    let mut open = use_signal(|| false);
+    let current = options
+        .iter()
+        .find(|(v, _)| *v == value)
+        .map_or(value.clone(), |(_, label)| label.clone());
+    rsx! {
+        div { class: "relative",
+            button {
+                r#type: "button",
+                class: if open() {
+                    "inline-flex w-full items-center justify-between gap-2 rounded-xl border border-ctp-mauve bg-ctp-crust/40 px-3 py-2 text-sm cursor-pointer"
+                } else {
+                    "inline-flex w-full items-center justify-between gap-2 rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-2 text-sm cursor-pointer transition-colors hover:border-ctp-surface1"
+                },
+                aria_expanded: open(),
+                onclick: move |_| open.toggle(),
+                span { class: "truncate",
+                    if !prefix.is_empty() {
+                        span { class: "text-ctp-overlay1", "{prefix} " }
+                    }
+                    span { class: "font-medium text-ctp-text", "{current}" }
+                }
+                Chevron { open: open() }
+            }
+            if open() {
+                div { class: "fixed inset-0 z-20", onclick: move |_| open.set(false) }
+                div { class: "absolute left-0 top-full z-30 mt-2 max-h-72 min-w-full w-max overflow-y-auto rounded-2xl border border-ctp-surface0 \
+                              bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
+                    for (v, label) in options.iter().cloned() {
+                        MenuItem {
+                            key: "{v}",
+                            label,
+                            selected: v == value,
+                            taken: false,
+                            onclick: move |_| {
+                                onchange.call(v.clone());
+                                open.set(false);
+                            },
+                        }
+                    }
+                }
+            }
         }
     }
 }
