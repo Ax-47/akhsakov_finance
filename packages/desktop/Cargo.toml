@@ -11,9 +11,15 @@ dtos = { workspace = true }
 types = { workspace = true }
 tokio = { version = "1", features = ["time"] }
 
+# wry's own background setter passes 0-255 values to GTK, which wants 0-1,
+# so on Linux the colour is set on the WebKitGTK view directly.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0.1", optional = true }
+gdk = { version = "0.18", optional = true }
+
 [features]
 default = []
 # Desktop is fullstack-in-process: needs both the webview renderer AND the
 # server-function executor compiled into the same binary.
-desktop = ["dioxus/desktop" ]
+desktop = ["dioxus/desktop", "dep:webkit2gtk", "dep:gdk"]
 server  = ["dioxus/server", "ui/server", "api/server"]

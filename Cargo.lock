@@ -1197,9 +1197,11 @@ dependencies = [
  "api",
  "dioxus",
  "dtos",
+ "gdk",
  "tokio",
  "types",
  "ui",
+ "webkit2gtk",
 ]
 
 [[package]]

@@ -53,6 +53,17 @@ pub fn theme_class() -> &'static str {
     }
 }
 
+/// The active flavour's base colour as RGB, for painting outside the page
+/// (the desktop webview's own background). Reactive, like [`theme_class`].
+pub fn base_color() -> (u8, u8, u8) {
+    match theme_class() {
+        "latte" => (0xef, 0xf1, 0xf5),
+        "frappe" => (0x30, 0x34, 0x46),
+        "macchiato" => (0x24, 0x27, 0x3a),
+        _ => (0x1e, 0x1e, 0x2e),
+    }
+}
+
 pub fn current() -> Theme {
     THEME()
 }
