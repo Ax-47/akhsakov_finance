@@ -200,6 +200,10 @@ impl AlertStore for WatchlistAlerts {
             Err(e) => Err(message(e)),
         }
     }
+
+    fn save_peak(&self, id: Uuid, peak: rust_decimal::Decimal) -> Result<(), String> {
+        self.0.set_alert_peak(id, peak).map_err(message)
+    }
 }
 
 /// Holdings from the portfolio context.

@@ -78,7 +78,7 @@ jobs:
           cache: npm
           cache-dependency-path: packages/ui/package-lock.json
       - run: npm ci
-      # The same command that builds the committed file (with --optimize).
+      # Same command as `npm run build:css`, which produced the committed file.
       - name: Rebuild tailwind.css
         run: npm run build:css
       - name: Fail if it changed

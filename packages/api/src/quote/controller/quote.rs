@@ -73,6 +73,39 @@ pub async fn get_chart(
         })
 }
 
+/// Candles in the instrument's own currency (not converted to USD), and
+/// that currency: the chart a broker shows.
+#[get("/api/quotes/chart/native", quote_service: Extension<QuoteService>)]
+pub async fn get_native_chart(
+    ticker: TickerSymbol,
+    range: Range,
+    interval: Interval,
+) -> Result<(Vec<Candle>, String), ServerFnError> {
+    quote_service
+        .native_chart(ticker, range, interval)
+        .await
+        .map_err(|e| ServerFnError::ServerError {
+            message: e.to_string(),
+            code: 400,
+            details: None,
+        })
+}
+
+/// The currency each ticker trades in (`USD`, `THB`, …); tickers whose
+/// currency can't be found are left out.
+#[post("/api/quotes/currencies", quote_service: Extension<QuoteService>)]
+pub async fn get_currencies(tickers: Vec<TickerSymbol>) -> Result<HashMap<TickerSymbol, String>, ServerFnError> {
+    let found = futures::future::join_all(tickers.into_iter().map(|ticker| {
+        let qs = quote_service.clone();
+        async move { (ticker.clone(), qs.currency_of(&ticker).await) }
+    }))
+    .await;
+    Ok(found
+        .into_iter()
+        .filter_map(|(ticker, result)| result.ok().map(|c| (ticker, c)))
+        .collect())
+}
+
 /// Latest quotes (USD for stocks) for many tickers in one call; tickers
 /// that can't be priced are left out.
 #[post("/api/quotes/many", quote_service: Extension<QuoteService>)]

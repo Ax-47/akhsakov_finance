@@ -7,10 +7,13 @@ use crate::{
 };
 use dtos::{
     fundamentals::{valuation_history, StockFundamentals},
-    research::{CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
+    research::{AssetProfile, CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
 };
 use rust_decimal::prelude::ToPrimitive;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use types::ticker_symbol::TickerSymbol;
 
 const MAX_NEWS: usize = 20;
@@ -20,11 +23,41 @@ const MAX_RATING_CHANGES: usize = 30;
 pub struct ResearchService {
     gateway: Arc<dyn ResearchGateway>,
     fx: Arc<dyn FxRates>,
+    /// Profiles barely change; kept for the life of the server.
+    profiles: Arc<Mutex<HashMap<TickerSymbol, AssetProfile>>>,
 }
 
 impl ResearchService {
     pub fn new(gateway: Arc<dyn ResearchGateway>, fx: Arc<dyn FxRates>) -> Self {
-        Self { gateway, fx }
+        Self {
+            gateway,
+            fx,
+            profiles: Default::default(),
+        }
+    }
+
+    /// Sector and country of each ticker; ones Yahoo can't describe are
+    /// left out.
+    pub async fn profiles(&self, tickers: &[TickerSymbol]) -> HashMap<TickerSymbol, AssetProfile> {
+        let known = self.profiles.lock().map(|m| m.clone()).unwrap_or_default();
+        let missing: Vec<&TickerSymbol> = tickers.iter().filter(|t| !known.contains_key(*t)).collect();
+        let fetched = futures::future::join_all(
+            missing.iter().map(|t| async move { ((*t).clone(), self.gateway.profile(t).await) }),
+        )
+        .await;
+        let mut out: HashMap<TickerSymbol, AssetProfile> = tickers
+            .iter()
+            .filter_map(|t| Some((t.clone(), known.get(t)?.clone())))
+            .collect();
+        if let Ok(mut cache) = self.profiles.lock() {
+            for (t, result) in fetched {
+                if let Ok(p) = result {
+                    cache.insert(t.clone(), p.clone());
+                    out.insert(t, p);
+                }
+            }
+        }
+        out
     }
 
     /// USD per unit of `currency` now, as a float.
@@ -161,6 +194,16 @@ mod tests {
                 closes: vec![("2026-03-31".into(), 30.0)],
             })
         }
+        async fn profile(&self, t: &TickerSymbol) -> Result<AssetProfile, String> {
+            match t.as_str() {
+                "PTT.BK" => Ok(AssetProfile {
+                    sector: Some("Energy".into()),
+                    country: Some("Thailand".into()),
+                    fund: false,
+                }),
+                _ => Err("not found".into()),
+            }
+        }
         async fn news(&self, _: &TickerSymbol) -> Result<Vec<NewsItem>, String> {
             Ok((0..30)
                 .map(|i| NewsItem {
@@ -236,6 +279,16 @@ mod tests {
             _ => None,
         });
         assert!((dividend.unwrap() - 0.003).abs() < 1e-12);
+    }
+
+    #[tokio::test]
+    async fn profiles_skip_unknown_tickers_and_are_kept() {
+        let s = ResearchService::new(Arc::new(FakeGateway), Arc::new(FakeFx));
+        let (ptt, nope) = (TickerSymbol::new("PTT.BK").unwrap(), TickerSymbol::new("NOPE").unwrap());
+        let found = s.profiles(&[ptt.clone(), nope]).await;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[&ptt].sector.as_deref(), Some("Energy"));
+        assert!(s.profiles.lock().unwrap().contains_key(&ptt), "cached");
     }
 
     #[tokio::test]

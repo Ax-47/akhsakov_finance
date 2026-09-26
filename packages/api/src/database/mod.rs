@@ -330,7 +330,9 @@ const MIGRATIONS: &[&str] = &[
         created_at  TEXT NOT NULL DEFAULT (datetime('now')),
         expires_at  TEXT NOT NULL
     );",
-    // 8: a thesis per holding of each portfolio, its journal, and the key
+    // 8: highest value seen by portfolio drawdown alerts
+    "ALTER TABLE alerts ADD COLUMN peak TEXT;",
+    // 9: a thesis per holding of each portfolio, its journal, and the key
     // that lets an AI assistant in through the MCP connector
     "CREATE TABLE theses (
         portfolio_id  TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,

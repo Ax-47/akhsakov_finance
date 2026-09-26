@@ -205,6 +205,8 @@ pub fn Dashboard() -> Element {
                                 positions: positions.clone(),
                                 total_value,
                                 mpt,
+                                transactions: transactions.clone(),
+                                cash,
                             }
                         }
                     },

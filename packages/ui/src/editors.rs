@@ -455,8 +455,14 @@ pub fn AlertDialog(
     let mut busy = use_signal(|| false);
 
     let submit = move |_| async move {
-        let Ok(t) = TickerSymbol::new(&symbol()) else {
-            return error.set(Some("Enter a ticker, e.g. NVDA".into()));
+        // Alerts on all holdings don't need a ticker.
+        let raw = if kind().is_portfolio() {
+            dtos::watch::PORTFOLIO_TICKER.to_string()
+        } else {
+            symbol()
+        };
+        let Ok(t) = TickerSymbol::new(&raw) else {
+            return error.set(Some(tr("Enter a ticker, e.g. NVDA").into()));
         };
         let Some(v) = num(&value()) else {
             return error.set(Some("Enter a number".into()));
@@ -481,8 +487,10 @@ pub fn AlertDialog(
     rsx! {
         Modal { title: tr("New alert"), on_close,
             form { class: "grid gap-4", onsubmit: move |e| e.prevent_default(),
-                Field { label: tr("Ticker"),
-                    input { class: "{INPUT} uppercase", placeholder: "e.g. NVDA", value: "{symbol}", oninput: move |e| symbol.set(e.value()) }
+                if !kind().is_portfolio() {
+                    Field { label: tr("Ticker"),
+                        input { class: "{INPUT} uppercase", placeholder: "e.g. NVDA", value: "{symbol}", oninput: move |e| symbol.set(e.value()) }
+                    }
                 }
                 Field { label: tr("When"),
                     div { class: "grid gap-1.5",
@@ -496,7 +504,7 @@ pub fn AlertDialog(
                                     "rounded-xl border border-ctp-surface0 px-3 py-2 text-left text-sm text-ctp-subtext0 cursor-pointer hover:border-ctp-surface1"
                                 },
                                 onclick: move |_| kind.set(k),
-                                "{k.label()}"
+                                {tr(k.label())}
                             }
                         }
                     }

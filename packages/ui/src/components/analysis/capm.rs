@@ -1,11 +1,13 @@
 //! CAPM card: is each holding earning enough for the market risk (beta) it
 //! takes? Plots holdings against the Security Market Line; anything above
-//! the line beat what its beta implied.
+//! the line beat what its beta implied. Returns are per year for holdings
+//! held a year or more; shorter ones are compared over their own period.
 
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use crate::components::card::{Card, MetricTile, Stepper};
 use crate::format::signed_color;
 use crate::hooks::capm::{compute_capm, CAPMInputs, PortfolioCAPM, PositionCAPM};
+use crate::components::analysis::held_label;
 use dioxus::prelude::*;
 use dtos::Position;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
@@ -13,26 +15,30 @@ use rust_decimal_macros::dec;
 use std::collections::HashMap;
 use types::ticker_symbol::TickerSymbol;
 
-const DEFAULT_RM: &str = "10.00";
-
 /// `beta_map` holds historical betas; missing tickers default to 1.0 and
-/// the user can override any beta inline.
+/// the user can override any beta inline. `held_years` is how long each
+/// holding's shares have been held (cost-weighted), to put its return on
+/// a yearly footing.
 #[component]
 pub fn CAPMCard(
     positions: Vec<Position>,
     total_value: Decimal,
     #[props(default)] beta_map: HashMap<TickerSymbol, Decimal>,
+    #[props(default)] held_years: HashMap<TickerSymbol, f64>,
 ) -> Element {
     let app_settings = use_context::<crate::app::AppSettings>();
+    let defaults = CAPMInputs::default();
     let default_rf = app_settings.0.read().risk_free.normalize().to_string();
+    // The expected market return is the one assumed for goals in Settings.
+    let default_rm = app_settings.0.read().assumed_return.normalize().to_string();
     let mut rf_str = use_signal(move || default_rf);
-    let mut rm_str = use_signal(|| DEFAULT_RM.to_string());
+    let mut rm_str = use_signal(move || default_rm);
     let mut overrides: Signal<HashMap<TickerSymbol, String>> = use_signal(HashMap::new);
 
     let parse = |s: &str, fallback: Decimal| s.trim().parse::<Decimal>().unwrap_or(fallback);
     let inputs = CAPMInputs {
-        rf: parse(&rf_str.read(), dec!(4)),
-        rm: parse(&rm_str.read(), dec!(10)),
+        rf: parse(&rf_str.read(), defaults.rf),
+        rm: parse(&rm_str.read(), defaults.rm),
     };
 
     // History betas, then user overrides on top.
@@ -42,11 +48,11 @@ pub fn CAPMCard(
             betas.insert(ticker.clone(), b);
         }
     }
-    let capm = compute_capm(&positions, total_value, &betas, &inputs);
+    let capm = compute_capm(&positions, total_value, &betas, &inputs, &held_years);
     let beta_note = if beta_map.is_empty() {
-        tr("Betas default to 1.00 until price history loads · edit any to override")
+        tr("Betas default to 1.00 until price history loads · edit any to override").to_string()
     } else {
-        tr("Betas from price history vs the S&P 500 · edit any to override")
+        trf("Betas from price history vs the {} · edit any to override", &[&app_settings.benchmark_name()])
     };
 
     rsx! {
@@ -86,7 +92,10 @@ pub fn CAPMCard(
                         },
                     }
                 }
-                p { class: "mt-3 text-xs text-ctp-overlay1", "{beta_note}. Actual return is since purchase." }
+                p { class: "mt-3 px-6 text-xs text-ctp-overlay1",
+                    "{beta_note}. "
+                    {tr("Actual return is since purchase: per year for holdings held a year or more; shorter holdings aren't annualised and are compared with what the line expects over the same time (and left out of the chart and portfolio figures).")}
+                }
             } else {
                 p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Waiting for live prices…")} }
             }
@@ -104,10 +113,12 @@ fn Summary(result: PortfolioCAPM) -> Element {
         .map(|t| format!("Treynor {t:.2}"))
         .unwrap_or_default();
     let alpha_hint = if treynor.is_empty() {
-        "Actual − expected".to_string()
+        tr("Actual − expected, per year").to_string()
     } else {
-        format!("Actual − expected · {treynor}")
+        format!("{} · {treynor}", tr("Actual − expected, per year"))
     };
+    let share = (r.annual_share * dec!(100)).round_dp(0);
+    let dash = || "—".to_string();
     rsx! {
         div { class: "grid grid-cols-2 lg:grid-cols-4 gap-3",
             MetricTile {
@@ -118,19 +129,23 @@ fn Summary(result: PortfolioCAPM) -> Element {
             MetricTile {
                 label: tr("Expected return"),
                 value: format!("{:+.2}%", r.portfolio_expected_return),
-                hint: format!("Rf + β × {:.2}% premium", r.inputs.market_premium()),
+                hint: trf("Per year · Rf + β × {}% premium", &[&format!("{:.2}", r.inputs.market_premium())]),
             }
             MetricTile {
                 label: tr("Actual return"),
-                value: format!("{:+.2}%", r.portfolio_actual_return),
-                hint: tr("Value-weighted, since purchase").to_string(),
-                tone: signed_color(r.portfolio_actual_return),
+                value: r.portfolio_actual_return.map_or_else(dash, |a| format!("{a:+.2}%")),
+                hint: if r.portfolio_actual_return.is_some() {
+                    trf("Per year · holdings held 1y+ ({}% of value)", &[&share])
+                } else {
+                    tr("No holding held a year yet").to_string()
+                },
+                tone: r.portfolio_actual_return.map_or("text-ctp-text", signed_color),
             }
             MetricTile {
                 label: tr("Alpha"),
-                value: format!("{:+.2}%", r.portfolio_alpha),
+                value: r.portfolio_alpha.map_or_else(dash, |a| format!("{a:+.2}%")),
                 hint: alpha_hint,
-                tone: signed_color(r.portfolio_alpha),
+                tone: r.portfolio_alpha.map_or("text-ctp-text", signed_color),
             }
         }
     }
@@ -158,19 +173,26 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
     let premium = f(result.inputs.market_premium());
     let sml = |beta: f64| rf + beta * premium;
 
-    let betas: Vec<f64> = result.positions.iter().map(|p| f(p.beta)).collect();
+    // Only yearly returns belong on a yearly line.
+    let plotted: Vec<&PositionCAPM> = result.positions.iter().filter(|p| p.annualised).collect();
+    let portfolio = result
+        .portfolio_actual_return
+        .zip(result.annual_beta)
+        .map(|(r, b)| (f(b), f(r)));
+    let betas: Vec<f64> = plotted.iter().map(|p| f(p.beta)).collect();
     let x_max = betas
         .iter()
         .cloned()
+        .chain(portfolio.map(|p| p.0))
         .chain([f(result.portfolio_beta), 1.5])
         .fold(0.0_f64, f64::max)
         * 1.15;
 
-    let ys: Vec<f64> = result
-        .positions
+    let ys: Vec<f64> = plotted
         .iter()
         .map(|p| f(p.actual_return))
-        .chain([f(result.portfolio_actual_return), rf, sml(x_max), 0.0])
+        .chain(portfolio.map(|p| p.1))
+        .chain([rf, sml(x_max), 0.0])
         .collect();
     let (lo, hi) = ys
         .iter()
@@ -195,8 +217,7 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
         .take_while(|b| *b <= x_max)
         .collect();
 
-    let dots: Vec<(String, f64, f64, f64, f64, f64)> = result
-        .positions
+    let dots: Vec<(String, f64, f64, f64, f64, f64)> = plotted
         .iter()
         .map(|p| {
             let beta = f(p.beta);
@@ -210,16 +231,13 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
             )
         })
         .collect();
-    let (port_x, port_y) = (
-        px(f(result.portfolio_beta)),
-        py(f(result.portfolio_actual_return)),
-    );
+    let port = portfolio.map(|(b, r)| (px(b), py(r)));
     let (mkt_x, mkt_y) = (px(1.0), py(sml(1.0)));
 
     rsx! {
         div { class: "mt-6",
             div { class: "flex flex-wrap items-center justify-between gap-2 mb-2 text-xs",
-                span { class: "text-ctp-subtext0", {tr("Return vs beta")} }
+                span { class: "text-ctp-subtext0", {tr("Yearly return vs beta (holdings held 1y+)")} }
                 span { class: "flex gap-4 text-ctp-overlay1",
                     span { class: "flex items-center gap-1.5",
                         span { class: "h-2 w-2 rounded-full", style: "background:{GAIN_HEX};" }
@@ -272,10 +290,12 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
                     }
                 }
 
-                // Whole portfolio.
-                circle { cx: "{port_x:.1}", cy: "{port_y:.1}", r: "9", fill: "none", stroke: LINE_HEX, stroke_width: "2.5" }
-                circle { cx: "{port_x:.1}", cy: "{port_y:.1}", r: "3", fill: LINE_HEX }
-                text { x: "{port_x - 14.0:.1}", y: "{port_y + 4.0:.1}", text_anchor: "end", font_size: "11", font_weight: "700", fill: LINE_HEX, {tr("Portfolio")} }
+                // Whole portfolio (the holdings plotted).
+                if let Some((port_x, port_y)) = port {
+                    circle { cx: "{port_x:.1}", cy: "{port_y:.1}", r: "9", fill: "none", stroke: LINE_HEX, stroke_width: "2.5" }
+                    circle { cx: "{port_x:.1}", cy: "{port_y:.1}", r: "3", fill: LINE_HEX }
+                    text { x: "{port_x - 14.0:.1}", y: "{port_y + 4.0:.1}", text_anchor: "end", font_size: "11", font_weight: "700", fill: LINE_HEX, {tr("Portfolio")} }
+                }
             }
         }
     }
@@ -297,6 +317,7 @@ fn PositionTable(
                     tr { class: "text-xs text-ctp-subtext0",
                         th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Asset")} }
                         th { class: "px-4 py-2.5 text-right font-medium", {tr("Weight")} }
+                        th { class: "px-4 py-2.5 text-right font-medium", {tr("Held")} }
                         th { class: "px-4 py-2.5 text-right font-medium", {tr("Beta")} }
                         th { class: "px-4 py-2.5 text-right font-medium", {tr("Expected")} }
                         th { class: "px-4 py-2.5 text-right font-medium", {tr("Actual")} }
@@ -305,37 +326,71 @@ fn PositionTable(
                 }
                 tbody {
                     for p in positions {
-                        tr {
+                        PositionRow {
                             key: "{p.ticker}",
-                            class: "border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors",
-                            td { class: "pl-6 pr-4 py-3 font-semibold text-ctp-text", "{p.ticker}" }
-                            td { class: "px-4 py-3 text-right tabular-nums text-ctp-subtext0", "{p.weight * dec!(100):.1}%" }
-                            td { class: "px-4 py-2 text-right",
-                                Stepper {
-                                    aria_label: "Beta for {p.ticker}",
-                                    placeholder: format!("{:.2}", history_betas.get(&p.ticker).copied().unwrap_or(Decimal::ONE)),
-                                    value: overrides.get(&p.ticker).cloned().unwrap_or_default(),
-                                    step: 0.05,
-                                    on_change: {
-                                        let ticker = p.ticker.clone();
-                                        move |v: String| on_override.call((ticker.clone(), v))
-                                    },
-                                }
-                            }
-                            td { class: "px-4 py-3 text-right tabular-nums text-ctp-subtext0", "{p.expected_return:+.2}%" }
-                            td { class: "px-4 py-3 text-right tabular-nums {signed_color(p.actual_return)}", "{p.actual_return:+.2}%" }
-                            td { class: "pl-4 pr-6 py-3 text-right",
-                                span {
-                                    class: if p.alpha >= Decimal::ZERO {
-                                        "rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums bg-ctp-green/15 text-ctp-green"
-                                    } else {
-                                        "rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums bg-ctp-red/15 text-ctp-red"
-                                    },
-                                    "{p.alpha:+.2}%"
-                                }
-                            }
+                            placeholder: format!("{:.2}", history_betas.get(&p.ticker).copied().unwrap_or(Decimal::ONE)),
+                            value: overrides.get(&p.ticker).cloned().unwrap_or_default(),
+                            position: p,
+                            on_override,
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn PositionRow(
+    position: PositionCAPM,
+    placeholder: String,
+    value: String,
+    on_override: EventHandler<(TickerSymbol, String)>,
+) -> Element {
+    let p = &position;
+    // Returns under a year are over the holding period, not per year.
+    let unit = if p.annualised {
+        tr("/yr").to_string()
+    } else {
+        p.years.map(|y| trf("in {}", &[&held_label(y)])).unwrap_or_default()
+    };
+    let cell = "px-4 py-3 text-right tabular-nums";
+    let ticker = p.ticker.clone();
+    rsx! {
+        tr {
+            class: "border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors",
+            td { class: "pl-6 pr-4 py-3 font-semibold text-ctp-text", "{p.ticker}" }
+            td { class: "{cell} text-ctp-subtext0", "{p.weight * dec!(100):.1}%" }
+            td { class: "{cell} text-ctp-subtext0", {p.years.map(held_label).unwrap_or_else(|| "—".into())} }
+            td { class: "px-4 py-2 text-right",
+                Stepper {
+                    aria_label: "Beta for {p.ticker}",
+                    placeholder,
+                    value,
+                    step: 0.05,
+                    on_change: move |v: String| on_override.call((ticker.clone(), v)),
+                }
+            }
+            td { class: "{cell} text-ctp-subtext0",
+                "{p.expected_return:+.2}%"
+                span { class: "ml-1 text-xs text-ctp-overlay1", "{unit}" }
+            }
+            td { class: "{cell} {signed_color(p.actual_return)}",
+                "{p.actual_return:+.2}%"
+                span { class: "ml-1 text-xs text-ctp-overlay1", "{unit}" }
+            }
+            td { class: "pl-4 pr-6 py-3 text-right",
+                if let Some(alpha) = p.alpha {
+                    span {
+                        class: if alpha >= Decimal::ZERO {
+                            "rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums bg-ctp-green/15 text-ctp-green"
+                        } else {
+                            "rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums bg-ctp-red/15 text-ctp-red"
+                        },
+                        "{alpha:+.2}%"
+                    }
+                } else {
+                    span { class: "text-ctp-overlay1", "—" }
                 }
             }
         }

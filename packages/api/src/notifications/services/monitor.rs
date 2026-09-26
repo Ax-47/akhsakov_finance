@@ -2,7 +2,10 @@
 
 use super::NotificationService;
 use crate::notifications::repositories::{AlertStore, HoldingsSource, PriceSource};
-use dtos::position::{compute_positions, portfolio_summary};
+use dtos::{
+    position::{compute_positions, portfolio_summary},
+    watch::AlertKind,
+};
 use rust_decimal::Decimal;
 use std::{
     collections::{HashMap, HashSet},
@@ -57,9 +60,15 @@ impl AlertMonitor {
             return Ok(0);
         }
         let dashboard = self.holdings.dashboard()?;
-        let needs_weights = active.iter().any(|a| a.kind == dtos::watch::AlertKind::WeightAbove);
-        let mut tickers: HashSet<TickerSymbol> = active.iter().map(|a| a.ticker.clone()).collect();
-        if needs_weights {
+        let needs_holdings = active
+            .iter()
+            .any(|a| a.kind == AlertKind::WeightAbove || a.kind.is_portfolio());
+        let mut tickers: HashSet<TickerSymbol> = active
+            .iter()
+            .filter(|a| !a.kind.is_portfolio())
+            .map(|a| a.ticker.clone())
+            .collect();
+        if needs_holdings {
             tickers.extend(dashboard.transactions.iter().filter(|t| !t.is_cash()).map(|t| t.ticker.clone()));
         }
         // (price, day change %) per ticker; unreachable prices are skipped.
@@ -75,14 +84,47 @@ impl AlertMonitor {
             }
         }
         let positions = compute_positions(&dashboard, &prices);
-        let (total, ..) = portfolio_summary(&positions);
+        let (total, _, _, day_change) = portfolio_summary(&positions);
         let weight = |t: &TickerSymbol| {
             let p = positions.iter().find(|p| &p.ticker == t)?;
             (total > Decimal::ZERO).then(|| p.market_value() / total * Decimal::ONE_HUNDRED)
         };
+        // Whole-portfolio figures only when every holding is priced; a
+        // missing price would look like a crash.
+        let all_priced = !positions.is_empty() && positions.iter().all(|p| p.current_price > Decimal::ZERO);
+        let portfolio_value = (all_priced && total > Decimal::ZERO).then_some(total);
+        let portfolio_day = portfolio_value.and_then(|v| {
+            let before = v - day_change;
+            (before > Decimal::ZERO).then(|| day_change / before * Decimal::ONE_HUNDRED)
+        });
 
         let mut fired = 0;
-        for alert in active {
+        for mut alert in active {
+            if alert.kind.is_portfolio() {
+                if alert.kind == AlertKind::PortfolioDrawdown {
+                    if let Some(v) = portfolio_value {
+                        if alert.peak.is_none_or(|p| v > p) {
+                            alert.peak = Some(v);
+                            self.alerts.save_peak(alert.id, v)?;
+                        }
+                    }
+                }
+                if !alert.is_met_by_portfolio(portfolio_day, portfolio_value) {
+                    continue;
+                }
+                if !self.alerts.mark_fired(alert.id)? {
+                    continue;
+                }
+                fired += 1;
+                let body = match (portfolio_value, portfolio_day) {
+                    (Some(v), Some(d)) => format!("All holdings now ${:.2} ({d:+.2}% today)", v.round_dp(2)),
+                    _ => String::new(),
+                };
+                if let Err(e) = self.notifications.notify(&format!("🔔 {}", alert.describe()), &body).await {
+                    tracing::warn!("couldn't record notification: {e}");
+                }
+                continue;
+            }
             let (price, day) = prices
                 .get(&alert.ticker)
                 .map(|(p, d)| (Some(*p), Some(*d)))
@@ -133,6 +175,13 @@ mod tests {
             let mut alerts = self.alerts.lock().unwrap();
             let a = alerts.iter_mut().find(|a| a.id == id && a.is_active());
             Ok(a.map(|a| a.triggered_at = Some("now".into())).is_some())
+        }
+        fn save_peak(&self, id: Uuid, peak: Decimal) -> Result<(), String> {
+            let mut alerts = self.alerts.lock().unwrap();
+            if let Some(a) = alerts.iter_mut().find(|a| a.id == id) {
+                a.peak = Some(peak);
+            }
+            Ok(())
         }
     }
 
@@ -200,6 +249,7 @@ mod tests {
             value,
             created_at: String::new(),
             triggered_at: None,
+            peak: None,
         }
     }
 
@@ -225,5 +275,61 @@ mod tests {
         assert_eq!(repo.items.lock().unwrap().len(), 2);
         assert_eq!(pusher.sent.lock().unwrap().len(), 2);
         assert!(repo.items.lock().unwrap()[0].body.contains("+20.00% today"));
+    }
+
+    /// 10 NVDA bought at $100.
+    struct TenNvda;
+    impl HoldingsSource for TenNvda {
+        fn dashboard(&self) -> Result<GetDashBoardResponse, String> {
+            Ok(GetDashBoardResponse {
+                portfolios: vec![],
+                transactions: vec![dtos::Transaction {
+                    id: Uuid::nil(),
+                    portfolio_id: Uuid::nil(),
+                    ticker: TickerSymbol::new("NVDA").unwrap(),
+                    transaction_type: types::transaction_type::TransactionType::Buy,
+                    shares: dec!(10),
+                    price: dec!(100),
+                    date: "2026-01-02".into(),
+                    fee: dec!(0),
+                    currency: "USD".into(),
+                    fx_to_usd: dec!(1),
+                }],
+            })
+        }
+    }
+
+    /// NVDA at a price that can be changed, with its previous close.
+    struct Moving(Mutex<(Decimal, Decimal)>);
+    #[async_trait]
+    impl PriceSource for Moving {
+        async fn price(&self, _: &TickerSymbol) -> Result<(Decimal, Decimal), String> {
+            Ok(*self.0.lock().unwrap())
+        }
+    }
+
+    #[tokio::test]
+    async fn portfolio_alerts_follow_the_whole_portfolio() {
+        let store = Arc::new(Store::default());
+        *store.alerts.lock().unwrap() = vec![
+            alert(AlertKind::PortfolioDayDrop, dec!(5)),
+            alert(AlertKind::PortfolioDrawdown, dec!(10)),
+        ];
+        let prices = Arc::new(Moving(Mutex::new((dec!(120), dec!(100)))));
+        let repo = Arc::new(Memory::default());
+        let monitor = AlertMonitor::new(
+            store.clone(),
+            Arc::new(TenNvda),
+            prices.clone(),
+            NotificationService::new(repo.clone(), Arc::new(CountingPusher::default())),
+        );
+        // Up 20% today, at its peak: nothing fires, the peak is remembered.
+        assert_eq!(monitor.check_once().await.unwrap(), 0);
+        assert_eq!(store.alerts.lock().unwrap()[1].peak, Some(dec!(1200)));
+
+        // Next day: 120 → 100 is −16.7% on the day and from the peak.
+        *prices.0.lock().unwrap() = (dec!(100), dec!(120));
+        assert_eq!(monitor.check_once().await.unwrap(), 2);
+        assert!(repo.items.lock().unwrap()[0].title.contains("All holdings"));
     }
 }

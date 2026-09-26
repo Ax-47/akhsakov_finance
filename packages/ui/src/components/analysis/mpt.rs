@@ -1,7 +1,9 @@
-//! Diversification card: how spread out the money is (Modern Portfolio
-//! Theory concentration metrics), with a score ring and weight bar.
+//! Diversification card: how spread out the money is (concentration
+//! metrics), with a score ring and weight bar. Spreading money evenly isn't
+//! the whole story: holdings that move together are closer to one bet, so
+//! the correlation-aware count of independent bets is shown alongside.
 
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use crate::components::{
     card::{Card, MetricTile},
     color_schema::CHART_COLOR_CLASSES,
@@ -14,17 +16,19 @@ use rust_decimal_macros::dec;
 use types::ticker_symbol::TickerSymbol;
 
 /// `allocation` is only used so segment colours match the allocation card.
+/// `independent_bets` comes from the risk report (diversification ratio²).
 #[component]
 pub fn MptAnalysisCard(
     mpt: Option<MptAnalysis>,
     allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>,
+    #[props(default)] independent_bets: Option<f64>,
 ) -> Element {
     rsx! {
         Card {
             title: tr("Diversification"),
             subtitle: tr("How evenly your money is spread").to_string(),
             if let Some(analysis) = mpt {
-                MptBody { analysis, allocation }
+                MptBody { analysis, allocation, independent_bets }
             } else {
                 p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Waiting for live prices…")} }
             }
@@ -33,7 +37,11 @@ pub fn MptAnalysisCard(
 }
 
 #[component]
-fn MptBody(analysis: MptAnalysis, allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) -> Element {
+fn MptBody(
+    analysis: MptAnalysis,
+    allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>,
+    independent_bets: Option<f64>,
+) -> Element {
     let a = &analysis;
     let (top, top_pct) = &a.top_holding;
     let concentration_tone = a.concentration_risk.color();
@@ -48,20 +56,28 @@ fn MptBody(analysis: MptAnalysis, allocation: ReadSignal<Vec<(TickerSymbol, Deci
             ScoreRing { score: a.diversification_score }
             div {
                 p { class: "text-sm leading-relaxed text-ctp-subtext0 mb-4",
-                    "Your {a.live_positions} holdings behave like "
-                    span { class: "font-semibold text-ctp-text", "{a.effective_n:.1} equally-sized positions" }
-                    ". "
+                    {trf("By weight, your {} holdings are like {} equally-sized positions.", &[&a.live_positions, &format!("{:.1}", a.effective_n)])}
+                    " "
+                    if let Some(bets) = independent_bets {
+                        span { class: "font-semibold text-ctp-text",
+                            {trf("Counting how they move together, they're about {} independent bets.", &[&format!("{bets:.1}")])}
+                        }
+                        " "
+                    }
                     if a.concentration_risk == ConcentrationRisk::High {
-                        "{top} alone is {top_pct:.0}% of the portfolio."
+                        {trf("{} alone is {}% of the portfolio.", &[top, &format!("{top_pct:.0}")])}
                     } else {
-                        "The largest, {top}, is {top_pct:.0}%."
+                        {trf("The largest, {}, is {}%.", &[top, &format!("{top_pct:.0}")])}
                     }
                 }
                 div { class: "grid grid-cols-2 gap-3",
                     MetricTile {
                         label: tr("Effective holdings"),
                         value: format!("{:.1}", a.effective_n),
-                        hint: crate::i18n::trf("out of {}", &[&a.live_positions]),
+                        hint: match independent_bets {
+                            Some(bets) => trf("out of {} · ≈ {} independent bets", &[&a.live_positions, &format!("{bets:.1}")]),
+                            None => trf("out of {}", &[&a.live_positions]),
+                        },
                     }
                     MetricTile {
                         label: tr("Concentration"),
@@ -96,9 +112,10 @@ fn ScoreRing(score: Decimal) -> Element {
     let circumference = 2.0 * std::f64::consts::PI * R;
     let dash = circumference * score / 100.0;
     let (color, verdict) = match score {
-        s if s >= 70.0 => ("var(--catppuccin-color-green)", "Well diversified"),
-        s if s >= 40.0 => ("var(--catppuccin-color-yellow)", "Somewhat concentrated"),
-        _ => ("var(--catppuccin-color-red)", "Concentrated"),
+        // About how evenly the money is spread, not how the holdings move.
+        s if s >= 70.0 => ("var(--catppuccin-color-green)", tr("Evenly spread")),
+        s if s >= 40.0 => ("var(--catppuccin-color-yellow)", tr("Somewhat concentrated")),
+        _ => ("var(--catppuccin-color-red)", tr("Concentrated")),
     };
 
     rsx! {
@@ -118,7 +135,7 @@ fn ScoreRing(score: Decimal) -> Element {
                 }
                 div { class: "absolute inset-0 flex flex-col items-center justify-center",
                     span { class: "text-4xl font-semibold tabular-nums text-ctp-text", "{score:.0}" }
-                    span { class: "text-xs text-ctp-subtext0", "/ 100" }
+                    span { class: "text-xs text-ctp-subtext0", {tr("weight balance")} }
                 }
             }
             span { class: "mt-2 text-sm font-medium", style: "color:{color};", "{verdict}" }
@@ -152,7 +169,7 @@ fn WeightBar(
         div { class: "mt-6",
             div { class: "flex items-center justify-between mb-2 text-xs",
                 span { class: "text-ctp-subtext0", {tr("Weights")} }
-                span { class: "text-ctp-overlay1", "Equal weight would be {equal:.1}% each" }
+                span { class: "text-ctp-overlay1", {trf("Equal weight would be {}% each", &[&format!("{equal:.1}")])} }
             }
             div { class: "flex h-3 gap-0.5 overflow-hidden rounded-full",
                 for (ticker, pct) in weights.iter() {
