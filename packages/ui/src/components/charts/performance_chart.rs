@@ -10,7 +10,7 @@ use crate::{
     components::card::{Card, Chevron, MenuItem, Segmented, ToggleButton},
     format::fmt_signed,
 };
-use api::quote::quote::get_charts;
+use crate::offline::charts as get_charts;
 use dioxus::prelude::*;
 use dtos::Transaction;
 use rust_decimal::Decimal;
@@ -69,7 +69,7 @@ pub fn ChartSection(
     });
     let open_menu = use_signal(|| None::<usize>);
 
-    let history = crate::cache::use_cached(
+    let history = crate::cache::use_cached_mem(
         move || {
             let txs = transactions.read();
             let fingerprint = txs.iter().fold(0u128, |a, t| a.wrapping_mul(31).wrapping_add(t.id.as_u128()));

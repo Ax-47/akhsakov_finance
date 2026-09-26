@@ -17,7 +17,8 @@ use crate::{
     },
     format::{display_currency, fmt_usd},
 };
-use api::quote::quote::{get_charts, get_currencies};
+use api::quote::quote::get_currencies;
+use crate::offline::charts as get_charts;
 use dioxus::prelude::*;
 use dtos::{planning::fifo_lots, watch::AlertKind, Position, Transaction};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
@@ -257,7 +258,7 @@ pub fn RiskTab(
     });
 
     let app_settings = use_context::<AppSettings>();
-    let history = crate::cache::use_cached(
+    let history = crate::cache::use_cached_mem(
         move || {
             format!(
                 "risk/{:?}/{:?}/{}/{}",
@@ -957,7 +958,7 @@ fn ScenarioCard(
 ) -> Element {
     let app_settings = use_context::<AppSettings>();
     let tickers = use_memo(move || allocation.read().iter().map(|(t, _)| t.clone()).collect::<Vec<_>>());
-    let history = crate::cache::use_cached(
+    let history = crate::cache::use_cached_mem(
         move || format!("crises/{:?}/{}/{}", tickers(), app_settings.benchmark(), app_settings.currency()),
         move || {
             let tickers = tickers();

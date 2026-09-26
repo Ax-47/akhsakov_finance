@@ -46,3 +46,16 @@ pub trait HoldingsSource: Send + Sync {
 pub trait PriceSource: Send + Sync {
     async fn price(&self, ticker: &TickerSymbol) -> Result<(Decimal, Decimal), String>;
 }
+
+/// Daily closes, for technical alerts.
+#[async_trait]
+pub trait HistorySource: Send + Sync {
+    /// `(YYYY-MM-DD, close)` for about the last year, oldest first.
+    async fn daily_closes(&self, ticker: &TickerSymbol) -> Result<Vec<(String, f64)>, String>;
+}
+
+/// Upcoming earnings and dividend dates, for calendar alerts.
+#[async_trait]
+pub trait EventSource: Send + Sync {
+    async fn events(&self, tickers: Vec<TickerSymbol>) -> Result<Vec<dtos::market::CalendarEvent>, String>;
+}

@@ -8,7 +8,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::{
-    csv_import::ImportResult, planning::Goal, portfolio::GetDashBoardResponse,
+    csv_import::{Broker, ImportResult}, planning::Goal, portfolio::GetDashBoardResponse,
     transaction::CASH_TICKER, watch::AlertKind, Transaction,
 };
 use rust_decimal::Decimal;
@@ -190,7 +190,7 @@ pub fn TransactionDialog(
 
     let f = form.read().clone();
     let (qty_label, price_label) = match f.kind {
-        TransactionType::Dividend => ("", "Amount received"),
+        TransactionType::Dividend => ("", "Dividend before tax"),
         TransactionType::Split => ("Split ratio (e.g. 4 for 4-for-1)", ""),
         TransactionType::Deposit | TransactionType::Withdrawal => ("Amount", ""),
         _ => ("Shares", "Price per share"),
@@ -267,6 +267,18 @@ pub fn TransactionDialog(
                     if f.kind != TransactionType::Split {
                         Field { label: if f.kind == TransactionType::Dividend { tr("Tax withheld") } else { tr("Fee") },
                             input { class: INPUT, inputmode: "decimal", placeholder: "0", value: "{f.fee}", oninput: move |e| form.write().fee = e.value() }
+                        }
+                    }
+                }
+                if f.kind == TransactionType::Dividend {
+                    if let (Some(rate), Some(gross)) = (dtos::thai_tax::withholding_rate(&f.ticker.trim().to_uppercase()), num(&f.price)) {
+                        if rate > Decimal::ZERO {
+                            button {
+                                r#type: "button",
+                                class: "justify-self-start rounded-full bg-ctp-surface0 px-3 py-1 text-xs text-ctp-subtext1 cursor-pointer hover:text-ctp-text",
+                                onclick: move |_| form.write().fee = (gross * rate / Decimal::ONE_HUNDRED).round_dp(2).normalize().to_string(),
+                                {crate::i18n::trf("Tax withheld at {}% (usual rate for a Thai resident)", &[&rate.normalize()])}
+                            }
                         }
                     }
                 }
@@ -467,6 +479,9 @@ pub fn AlertDialog(
         let Some(v) = num(&value()) else {
             return error.set(Some("Enter a number".into()));
         };
+        if let Err(e) = kind().validate(v) {
+            return error.set(Some(tr(e).into()));
+        }
         busy.set(true);
         match api::create_alert(t, kind(), v).await {
             Ok(_) => {
@@ -479,10 +494,7 @@ pub fn AlertDialog(
             }
         }
     };
-    let value_label = match kind() {
-        AlertKind::PriceAbove | AlertKind::PriceBelow => tr("Price ($)"),
-        _ => tr("Percent (%)"),
-    };
+    let value_label = tr(kind().unit());
 
     rsx! {
         Modal { title: tr("New alert"), on_close,
@@ -493,7 +505,7 @@ pub fn AlertDialog(
                     }
                 }
                 Field { label: tr("When"),
-                    div { class: "grid gap-1.5",
+                    div { class: "grid max-h-72 gap-1.5 overflow-y-auto pr-1",
                         for k in AlertKind::ALL {
                             button {
                                 key: "{k}",
@@ -644,6 +656,7 @@ pub fn ImportDialog(
     let choices = portfolios();
     let mut target = use_signal(move || portfolio.or_else(|| choices.first().map(|p| p.0)));
     let mut csv = use_signal(String::new);
+    let mut broker = use_signal(Broker::default);
     let mut result = use_signal(|| None::<ImportResult>);
     let mut error = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
@@ -654,7 +667,7 @@ pub fn ImportDialog(
             return error.set(Some("Choose a portfolio".into()));
         };
         busy.set(true);
-        match api::import_transactions(portfolio_id, csv()).await {
+        match api::import_transactions(portfolio_id, csv(), broker()).await {
             Ok(r) => {
                 refresh.reload();
                 error.set(None);
@@ -691,9 +704,21 @@ pub fn ImportDialog(
                             }
                         }
                     }
+                    Field { label: tr("From"), hint: tr(broker().hint()),
+                        select {
+                            class: "{INPUT} cursor-pointer [&_option]:bg-ctp-mantle",
+                            onchange: move |e| {
+                                if let Some(b) = Broker::ALL.into_iter().find(|b| format!("{b:?}") == e.value()) {
+                                    broker.set(b);
+                                }
+                            },
+                            for b in Broker::ALL {
+                                option { key: "{b:?}", value: "{b:?}", selected: broker() == b, {tr(b.label())} }
+                            }
+                        }
+                    }
                     Field {
                         label: tr("CSV file"),
-                        hint: tr("Needs columns for date, ticker/symbol, quantity and price; type/action and fee are optional."),
                         input {
                             class: "block w-full text-sm text-ctp-subtext0 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-ctp-surface0 file:px-4 file:py-2 file:text-sm file:text-ctp-text",
                             r#type: "file",

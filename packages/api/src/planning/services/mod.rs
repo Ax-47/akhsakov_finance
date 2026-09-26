@@ -1,4 +1,8 @@
-//! Planning use cases: validating and storing targets and goals.
+//! Planning use cases: validating and storing targets and goals, and
+//! monthly investment plans.
+
+mod dca;
+pub use dca::DcaService;
 
 use crate::{planning::repositories::PlanningRepository, shared::ServiceError};
 use dtos::planning::{Goal, TargetWeight};

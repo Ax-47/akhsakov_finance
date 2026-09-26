@@ -4,7 +4,7 @@ use crate::components::{
     analysis::stats::{correlation_matrix, PriceSeries, MIN_SAMPLES},
     card::{Card, Segmented, ToggleButton},
 };
-use api::quote::quote::get_charts;
+use crate::offline::charts as get_charts;
 use dioxus::prelude::*;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::HashMap;

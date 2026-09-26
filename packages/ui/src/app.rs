@@ -190,7 +190,13 @@ fn AppInner(children: Element) -> Element {
     let mut ready = use_signal(|| false);
     let loaded = use_resource(move || async move {
         let _reload = refresh.0();
-        api::get_settings().await.unwrap_or_default()
+        match api::get_settings().await {
+            Ok(s) => {
+                crate::offline::save("settings", &s);
+                s
+            }
+            Err(_) => crate::offline::load("settings").await.unwrap_or_default(),
+        }
     });
     // Amounts are shown in the display currency. The app opens as soon as
     // the settings are in, at the last rate this device saw; today's rate
@@ -231,8 +237,16 @@ fn AppInner(children: Element) -> Element {
     let _ = use_resource(move || async move {
         let _reload = refresh.0();
         match api::get_dashboard().await {
-            Ok(data) => *app_data.write() = data,
-            Err(e) => tracing_error(&format!("Failed to load portfolios: {e}")),
+            Ok(data) => {
+                crate::offline::save("dashboard", &data);
+                *app_data.write() = data;
+            }
+            Err(e) => {
+                tracing_error(&format!("Failed to load portfolios: {e}"));
+                if let Some(saved) = crate::offline::load::<GetDashBoardResponse>("dashboard").await {
+                    *app_data.write() = saved;
+                }
+            }
         }
     });
 
@@ -242,6 +256,7 @@ fn AppInner(children: Element) -> Element {
         } else {
             div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-subtext0", {tr("Loading…")} }
         }
+        crate::offline::OfflineBanner {}
         crate::editors::EditorHost {}
         crate::alerts::AlertWatcher {}
         crate::notify::ToastHost {}

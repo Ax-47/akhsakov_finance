@@ -287,6 +287,7 @@ fn NotificationSettings() -> Element {
                         }
                     }
                 }
+                div { class: "mt-4", crate::alerts::SystemNotificationsToggle {} }
                 p { class: "mt-3 text-xs text-ctp-overlay1",
                     {tr("Tokens are stored in your database file, on the machine the app runs on.")}
                 }

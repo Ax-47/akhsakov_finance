@@ -7,7 +7,7 @@ use crate::{
 };
 use dtos::{
     asset::get_asset_response::GetAssetResponse,
-    csv_import::{parse_transactions_csv, ImportResult},
+    csv_import::{parse_broker_csv, Broker, ImportResult},
     portfolio::{GetDashBoardResponse, GetPortfolioResponse},
     position::compute_positions,
     Transaction,
@@ -105,9 +105,10 @@ impl PortfolioService {
         &self,
         portfolio_id: Uuid,
         csv: &str,
+        broker: Broker,
     ) -> Result<ImportResult, ServiceError> {
         self.ensure_portfolio(portfolio_id)?;
-        let (parsed, mut errors) = parse_transactions_csv(csv, portfolio_id);
+        let (parsed, mut errors) = parse_broker_csv(csv, portfolio_id, broker);
         let mut valid = Vec::with_capacity(parsed.len());
         for tx in parsed {
             let (date, ticker) = (tx.date.clone(), tx.ticker.clone());
@@ -348,7 +349,7 @@ mod tests {
                    2026-01-05,AAPL,buy,10,150,1\n\
                    2026-02-05,AAPL,sell,0,160,1\n\
                    2026-03-05,MSFT,buy,2,400,0\n";
-        let result = s.import_csv(id, csv).await.unwrap();
+        let result = s.import_csv(id, csv, Broker::Auto).await.unwrap();
         assert_eq!(result.imported, 2);
         assert_eq!(result.errors.len(), 1, "zero-quantity sale is rejected");
         assert_eq!(s.dashboard().unwrap().transactions.len(), 2);
@@ -379,7 +380,7 @@ mod tests {
         ));
 
         let csv = "date,symbol,action,quantity,price,currency\n2026-01-05,PTT.BK,buy,10,34,THB\n";
-        s.import_csv(id, csv).await.unwrap();
+        s.import_csv(id, csv, Broker::Auto).await.unwrap();
         let imported = &s.dashboard().unwrap().transactions[1];
         assert_eq!((imported.currency.as_str(), imported.fx_to_usd), ("THB", dec!(0.03)));
     }

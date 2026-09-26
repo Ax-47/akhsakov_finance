@@ -9,3 +9,6 @@ pub mod yahoo_gateway_mapper;
 
 #[cfg(feature = "server")]
 pub mod sqlite_cache;
+
+#[cfg(feature = "server")]
+pub mod sqlite_manual;

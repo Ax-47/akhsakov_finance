@@ -3,8 +3,9 @@
 
 use crate::{
     database::Database,
+    market::MarketService,
     notifications::repositories::{
-        AlertStore, HoldingsSource, NotificationRepository, PriceSource, Pusher,
+        AlertStore, EventSource, HistorySource, HoldingsSource, NotificationRepository, PriceSource, Pusher,
     },
     portfolio::PortfolioService,
     quote::services::quote::QuoteService,
@@ -230,6 +231,84 @@ impl PriceSource for QuotePrices {
             return Err("offline".into());
         }
         Ok((q.current_price, q.previous_close_price))
+    }
+}
+
+/// Daily closes from the quote context, kept for a while: indicators
+/// barely move within a few minutes, and Yahoo is spared a chart request
+/// per alert per minute.
+pub struct QuoteHistory {
+    quotes: QuoteService,
+    /// Closes per ticker, with when they were fetched.
+    cache: std::sync::Mutex<HashMap<TickerSymbol, Timed<Closes>>>,
+}
+
+type Timed<T> = (std::time::Instant, T);
+type Closes = Vec<(String, f64)>;
+type Events = (Vec<TickerSymbol>, Vec<dtos::market::CalendarEvent>);
+
+impl QuoteHistory {
+    const FRESH: Duration = Duration::from_secs(30 * 60);
+
+    pub fn new(quotes: QuoteService) -> Self {
+        Self { quotes, cache: Default::default() }
+    }
+}
+
+#[async_trait]
+impl HistorySource for QuoteHistory {
+    async fn daily_closes(&self, ticker: &TickerSymbol) -> Result<Vec<(String, f64)>, String> {
+        use rust_decimal::prelude::ToPrimitive;
+        if let Some((at, closes)) = self.cache.lock().map_err(|e| e.to_string())?.get(ticker) {
+            if at.elapsed() < Self::FRESH {
+                return Ok(closes.clone());
+            }
+        }
+        let candles = self
+            .quotes
+            .get_chart(ticker.clone(), types::range::Range::Y1, types::interval::Interval::D1, false)
+            .await
+            .map_err(|e| e.to_string())?;
+        let closes: Vec<(String, f64)> = candles
+            .iter()
+            .filter_map(|c| Some((c.ts.format("%Y-%m-%d").to_string(), c.close.to_f64()?)))
+            .collect();
+        self.cache
+            .lock()
+            .map_err(|e| e.to_string())?
+            .insert(ticker.clone(), (std::time::Instant::now(), closes.clone()));
+        Ok(closes)
+    }
+}
+
+/// Earnings and dividend dates from the market context, refreshed a few
+/// times a day.
+pub struct MarketEvents {
+    market: MarketService,
+    /// The tickers asked for last and their events, with when.
+    cache: std::sync::Mutex<Option<Timed<Events>>>,
+}
+
+impl MarketEvents {
+    const FRESH: Duration = Duration::from_secs(6 * 3600);
+
+    pub fn new(market: MarketService) -> Self {
+        Self { market, cache: Default::default() }
+    }
+}
+
+#[async_trait]
+impl EventSource for MarketEvents {
+    async fn events(&self, mut tickers: Vec<TickerSymbol>) -> Result<Vec<dtos::market::CalendarEvent>, String> {
+        tickers.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        if let Some((at, (for_tickers, events))) = &*self.cache.lock().map_err(|e| e.to_string())? {
+            if at.elapsed() < Self::FRESH && *for_tickers == tickers {
+                return Ok(events.clone());
+            }
+        }
+        let events = self.market.calendar(tickers.clone()).await.map_err(message)?;
+        *self.cache.lock().map_err(|e| e.to_string())? = Some((std::time::Instant::now(), (tickers, events.clone())));
+        Ok(events)
     }
 }
 

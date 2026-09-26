@@ -2,7 +2,7 @@
 //! [`PortfolioService`](super::PortfolioService), injected via `Extension`.
 
 use dioxus::prelude::*;
-use dtos::{csv_import::ImportResult, portfolio::GetDashBoardResponse, Transaction};
+use dtos::{csv_import::{Broker, ImportResult}, portfolio::GetDashBoardResponse, Transaction};
 use uuid::Uuid;
 
 #[cfg(feature = "server")]
@@ -44,11 +44,12 @@ pub async fn delete_transaction(id: Uuid) -> Result<(), ServerFnError> {
     Ok(service.delete_transaction(id)?)
 }
 
-/// Imports a broker CSV export into `portfolio_id`.
+/// Imports a CSV export of `broker` into `portfolio_id`.
 #[post("/api/transactions/import", service: Extension<PortfolioService>)]
 pub async fn import_transactions(
     portfolio_id: Uuid,
     csv: String,
+    broker: Broker,
 ) -> Result<ImportResult, ServerFnError> {
-    Ok(service.import_csv(portfolio_id, &csv).await?)
+    Ok(service.import_csv(portfolio_id, &csv, broker).await?)
 }

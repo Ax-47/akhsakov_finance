@@ -6,6 +6,9 @@
 pub mod database;
 pub mod shared;
 
+pub mod assets;
+pub use assets::controller::*;
+
 pub mod auth;
 pub use auth::controller::*;
 
@@ -33,6 +36,9 @@ pub use portfolio::controller::*;
 pub mod quote;
 pub use quote::*;
 
+pub mod reports;
+pub use reports::controller::*;
+
 pub mod settings;
 pub use settings::controller::*;
 
@@ -54,34 +60,45 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
     let fx: std::sync::Arc<dyn shared::FxRates> = std::sync::Arc::new(QuoteFxRates(quotes.clone()));
     let portfolio = portfolio::portfolio_services_setup(db.clone(), fx.clone());
     let watchlist = watchlist::watchlist_services_setup(db.clone());
+    let market = market::market_services_setup(db.clone(), fx.clone());
     let notifications = notifications::notification_services_setup(
         db.clone(),
         watchlist.clone(),
         portfolio.clone(),
         quotes.clone(),
+        market.clone(),
     );
-    let market = market::market_services_setup(db.clone(), fx.clone());
     let economy = economy::economy_services_setup();
     warm_up(market.clone(), economy.clone());
     let auth = auth::auth_services_setup(db.clone());
+    let settings = settings::settings_services_setup(db.clone());
     let theses = thesis::thesis_services_setup(db.clone());
     let connector = mcp::mcp_services_setup(db.clone(), theses.clone(), portfolio.clone(), watchlist.clone());
     // Layers wrap what's added before them: the sign-in check runs first,
     // then the services are attached.
     let router = mcp::routes(router, connector.clone())
         .layer(Extension(auth.clone()))
-        .layer(Extension(quotes))
+        .layer(Extension(assets::asset_services_setup(db.clone())))
+        .layer(Extension(quotes.clone()))
         .layer(Extension(research::research_services_setup(fx.clone())))
         .layer(Extension(economy.clone()))
         .layer(Extension(backup::backup_services_setup(db.clone())))
         .layer(Extension(market.clone()))
-        .layer(Extension(portfolio))
+        .layer(Extension(portfolio.clone()))
         .layer(Extension(watchlist))
         .layer(Extension(theses))
         .layer(Extension(connector))
-        .layer(Extension(notifications))
+        .layer(Extension(notifications.clone()))
         .layer(Extension(planning::planning_services_setup(db.clone())))
-        .layer(Extension(settings::settings_services_setup(db)));
+        .layer(Extension(planning::dca_services_setup(db.clone(), portfolio.clone(), notifications.clone())))
+        .layer(Extension(reports::report_services_setup(
+            db.clone(),
+            portfolio.clone(),
+            quotes,
+            notifications.clone(),
+            settings.clone(),
+        )))
+        .layer(Extension(settings));
     auth::protect(router, auth)
 }
 
