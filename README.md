@@ -1,75 +1,94 @@
-# Development
+# Akhsakov Finance
 
-Your new workspace contains a member crate for each of the web, desktop and mobile platforms, a `ui` crate for shared components and a `api` crate for shared backend logic:
+แอปติดตามพอร์ตการลงทุนส่วนตัว เขียนด้วย Rust + [Dioxus 0.7](https://dioxuslabs.com/learn/0.7) ใช้ได้ทั้งเว็บ เดสก์ท็อป และมือถือ ข้อมูลเก็บใน SQLite บนเครื่องที่รันเซิร์ฟเวอร์ ราคาดึงจาก Yahoo Finance หน้าจอมีภาษาไทยและอังกฤษ
 
-```
-your_project/
-├─ README.md
-├─ Cargo.toml
-└─ packages/
-   ├─ web/
-   │  └─ ... # Web specific UI/logic
-   ├─ desktop/
-   │  └─ ... # Desktop specific UI/logic
-   ├─ mobile/
-   │  └─ ... # Mobile specific UI/logic
-   ├─ api/
-   │  └─ ... # All shared server logic
-   └─  ui/
-      └─ ... # Component shared between multiple platforms
-```
+รายการฟีเจอร์ทั้งหมดอยู่ใน [docs/FEATURES.md](docs/FEATURES.md) วิธีต่อกับ Claude อยู่ใน [docs/CLAUDE_CONNECTOR.md](docs/CLAUDE_CONNECTOR.md)
 
-## Platform crates
+## ฟีเจอร์หลัก
 
-Each platform crate contains the entry point for the platform, and any assets, components and dependencies that are specific to that platform. For example, the desktop crate in the workspace looks something like this:
+- **พอร์ตโฟลิโอ**: หลายพอร์ต ธุรกรรมซื้อ/ขาย/ปันผล/แตกหุ้น/ฝาก/ถอน พร้อมค่าธรรมเนียมและสกุลเงิน แท็บ Overview, Thesis, Income, Risk, Plan และ Activity
+- **สินทรัพย์ประเภทอื่น**: กองทุนรวม ทองคำ เงินฝาก พันธบัตร คริปโต กรอกราคาเองได้สำหรับของที่ไม่มีราคาตลาด และระบุกองทุนเป็น SSF / RMF / Thai ESG
+- **ภาษีไทย**: สรุปรายปีเป็นเงินบาท ได้แก่ ปันผลและภาษีหัก ณ ที่จ่าย, เครดิตภาษีเงินปันผล, เงินได้จากต่างประเทศ และวงเงินลดหย่อน SSF / RMF / Thai ESG ที่ยังเหลือ
+- **แผนลงทุนรายเดือน (DCA)**: เตือนเมื่อถึงวัน และบันทึกการซื้อได้ในคลิกเดียว
+- **ความเสี่ยงและการวางแผน**: VaR / expected shortfall, stress test, correlation, CAPM, rebalance, FIFO tax lots, เป้าหมายการเงิน
+- **หุ้นรายตัว ตลาด Screener ปฏิทิน เศรษฐกิจ Backtest** และบทเรียนใน **Learn**
+- **Watchlist และแจ้งเตือน**: alert ราคาและพอร์ต, alert ทางเทคนิคัล (RSI, ราคาตัดเส้น SMA, 52-week high/low, วันประกาศงบ, วัน XD) เซิร์ฟเวอร์เช็กทุกนาทีและส่งเข้า ntfy / Telegram / webhook
+- **รายงานประจำเดือน**: ดูย้อนหลังได้ 12 เดือน ดาวน์โหลดหรือพิมพ์เป็น PDF ได้ และตั้งให้ส่งเองทุกวันที่ 1
+- **ข้อมูลเข้า-ออก**: Import CSV พร้อม preset สำหรับ Streaming, Dime!, Webull, Interactive Brokers, Export CSV, Backup / Restore
+- **โหมดออฟไลน์**: เก็บพอร์ต ราคา และข้อมูลหน้าไว้ในเครื่อง ถ้าต่อเซิร์ฟเวอร์ไม่ได้ก็ยังเปิดดูได้
+- **มือถือ**: บนจอเล็กมีแถบเมนูด้านล่างแบบแอป และแสดงการแจ้งเตือนผ่านระบบของเครื่องได้
+- **เชื่อมต่อ Claude (MCP)**: ให้ Claude อ่านพอร์ตและช่วยจด thesis ได้
+- ล็อกอินหลายผู้ใช้, 13 สกุลเงินแสดงผล, ธีม Catppuccin, โหมด Lite, คีย์ลัดแบบ Vim
 
-```
-desktop/ # The desktop crate contains all platform specific UI, logic and dependencies for the desktop app
-├─ assets/ # Assets used by the desktop app - Any platform specific assets should go in this folder
-├─ src/
-│  ├─ main.rs # The entrypoint for the desktop app. It also defines the routes for the desktop platform
-│  ├─ views/ # The views each route will render in the desktop version of the app
-│  │  ├─ mod.rs # Defines the module for the views route and re-exports the components for each route
-│  │  ├─ blog.rs # The component that will render at the /blog/:id route
-│  │  ├─ home.rs # The component that will render at the / route
-├─ Cargo.toml # The desktop crate's Cargo.toml - This should include all desktop specific dependencies
+## เริ่มใช้งาน
+
+ต้องมี Rust (stable) และ [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/)
+
+```sh
+curl -sSL http://dioxus.dev/install.sh | sh
 ```
 
-When you start developing with the workspace setup each of the platform crates will look almost identical. The UI starts out exactly the same on all platforms. However, as you continue developing your application, this setup makes it easy to let the views for each platform change independently.
+### เว็บ
 
-## Shared UI crate
-
-The workspace contains a `ui` crate with components that are shared between multiple platforms. You should put any UI elements you want to use in multiple platforms in this crate. You can also put some shared client side logic in this crate, but be careful to not pull in platform specific dependencies. The `ui` crate starts out something like this:
-
-```
-ui/
-├─ src/
-│  ├─ lib.rs # The entrypoint for the ui crate
-│  ├─ hero.rs # The Hero component that will be used in every platform
-│  ├─ echo.rs # The shared echo component that communicates with the server
-│  ├─ navbar.rs # The Navbar component that will be used in the layout of every platform's router
-```
-
-## Shared backend logic
-
-The workspace contains a `api` crate with shared backend logic. This crate defines all of the shared server functions for all platforms. Server functions are async functions that expose a public API on the server. They can be called like a normal async function from the client. When you run `dx serve`, all of the server functions will be collected in the server build and hosted on a public API for the client to call. The `api` crate starts out something like this:
-
-```
-api/
-├─ src/
-│  ├─ lib.rs # Exports a server function that echos the input string
-```
-
-### Serving Your App
-
-Navigate to the platform crate of your choice:
-```bash
-cd web
-```
-
-and serve:
-
-```bash
+```sh
+cd packages/web
 dx serve
 ```
 
+เปิดที่อยู่ที่ `dx` แสดง (ปกติคือ `http://127.0.0.1:8080`) ครั้งแรกแอปจะสร้างพอร์ตตัวอย่างให้ ถ้าจะเปิดให้เครื่องอื่นเข้าได้ ให้สร้างบัญชีใน Settings ก่อน
+
+### เดสก์ท็อป
+
+```sh
+cd packages/desktop
+dx serve --platform desktop
+```
+
+บน Linux ต้องมี WebKitGTK (`libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev`)
+
+### มือถือ
+
+แอปมือถือต่อกับเซิร์ฟเวอร์ที่รันอยู่บนเครื่องอื่น ต้องบอกที่อยู่เซิร์ฟเวอร์ตอน build (มือถือมองไม่เห็น `127.0.0.1` ของคอมพิวเตอร์ ส่วน Android emulator ใช้ `http://10.0.2.2:8080`)
+
+```sh
+cd packages/mobile
+AKHSAKOV_SERVER_URL=http://192.168.1.20:8080 dx serve --platform android
+```
+
+### ตัวแปรสภาพแวดล้อม
+
+| ตัวแปร | ความหมาย |
+|---|---|
+| `AKHSAKOV_DB` | ไฟล์ฐานข้อมูล (ค่าเริ่มต้น `akhsakov_finance.db` ในโฟลเดอร์ที่รัน) |
+| `AKHSAKOV_REQUIRE_LOGIN` | `1` = บังคับล็อกอินตั้งแต่แรก แม้ยังไม่มีบัญชี |
+| `AKHSAKOV_SERVER_URL` | ที่อยู่เซิร์ฟเวอร์ของแอปมือถือ (ใช้ตอน build) |
+| `AKHSAKOV_FAST_RENDERING` | `1` = ให้เดสก์ท็อปบน Wayland ใช้ GPU เต็มที่ (เร็วกว่า แต่บางเครื่องจอกระพริบ) |
+
+## โครงสร้างโปรเจกต์
+
+```
+packages/
+├─ web/       จุดเริ่มของเว็บ (route และเมนู)
+├─ desktop/   จุดเริ่มของเดสก์ท็อป (เซิร์ฟเวอร์รันในแอปเดียวกัน)
+├─ mobile/    จุดเริ่มของมือถือ
+├─ ui/        หน้าจอและคอมโพเนนต์ที่ทุกแพลตฟอร์มใช้ร่วมกัน, คำแปลภาษาไทย (src/i18n/thai.rs)
+├─ api/       server functions แยกเป็น bounded context (portfolio, quote, assets,
+│             planning, reports, notifications, thesis, mcp …) แต่ละ context มี
+│             repositories / infrastructures / services / controller
+├─ dtos/      ข้อมูลที่ส่งระหว่าง client กับ server และการคำนวณที่ไม่พึ่งเครือข่าย
+│             (ตำแหน่งถือครอง, ภาษีไทย, DCA, รายงานประจำเดือน, นำเข้า CSV …)
+└─ types/     type พื้นฐาน เช่น TickerSymbol, AssetClass, Candle
+```
+
+## ตรวจสอบก่อนส่งโค้ด
+
+ชุดเดียวกับที่ CI รัน:
+
+```sh
+cargo clippy --workspace --all-targets --features api/server,ui/server
+cargo test --workspace --features api/server,ui/server
+cargo check -p web --features web --target wasm32-unknown-unknown
+
+# ถ้าแก้ class ของ Tailwind ต้อง build CSS ใหม่แล้ว commit ไฟล์ที่ได้
+cd packages/ui && npm ci && npm run build:css
+```
