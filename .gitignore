@@ -9,3 +9,9 @@
 .zed
 .agents
 .env
+
+# Local SQLite database (and its journal files)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[cfg(feature = "server")]
-use crate::infrastructures::yahoo_gateway_error::YahooGateWayError;
+use crate::quote::infrastructures::yahoo_gateway_error::YahooGateWayError;
 
 // ─────────────────────────────────────────────
 //  Generic Gateway Error (domain-level)
@@ -30,7 +30,6 @@ impl From<YahooGateWayError> for QuoteGateWayError {
             YahooGateWayError::GateWay(msg) => QuoteGateWayError::GateWayError(msg.to_string()),
             YahooGateWayError::Json(msg) => QuoteGateWayError::RepositoryError(msg.to_string()),
             YahooGateWayError::Ticker(msg) => QuoteGateWayError::InvalidTicker(msg.to_string()),
-            _ => QuoteGateWayError::Unknown("idk".to_string()),
         }
     }
 }

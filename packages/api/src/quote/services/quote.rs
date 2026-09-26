@@ -40,6 +40,20 @@ impl QuoteService {
         self.gateway.lock().await.remove_ticker(ticker).await
     }
 
+    /// Up to 8 matches for a free-text query; empty queries return nothing.
+    pub async fn search(
+        &self,
+        query: &str,
+    ) -> Result<Vec<dtos::watch::SearchHit>, QuoteGateWayError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut hits = self.gateway.lock().await.search(query).await?;
+        hits.truncate(8);
+        Ok(hits)
+    }
+
     pub async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
         self.gateway.lock().await.get_quote(ticker).await
     }

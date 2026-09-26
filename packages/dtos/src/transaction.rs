@@ -12,6 +12,18 @@ pub struct Transaction {
     pub shares: Decimal,
     pub price: Decimal,
     pub date: String, // ISO 8601: YYYY-MM-DD
+    /// Commission / fees paid on this transaction.
+    #[serde(default)]
+    pub fee: Decimal,
+}
+
+/// Ticker used for cash deposits and withdrawals.
+pub const CASH_TICKER: &str = "$CASH";
+
+impl Transaction {
+    pub fn is_cash(&self) -> bool {
+        self.ticker.as_str() == CASH_TICKER
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

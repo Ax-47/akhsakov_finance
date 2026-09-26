@@ -56,7 +56,11 @@ pub fn LiveNumber(
             let old: Vec<char> = old.chars().collect();
             let shift = old.len() as isize - chars.len() as isize;
             let aligned: Vec<Option<char>> = (0..chars.len() as isize)
-                .map(|i| usize::try_from(i + shift).ok().and_then(|j| old.get(j).copied()))
+                .map(|i| {
+                    usize::try_from(i + shift)
+                        .ok()
+                        .and_then(|j| old.get(j).copied())
+                })
                 .collect();
             (aligned, Some(dir))
         }

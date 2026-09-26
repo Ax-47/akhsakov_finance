@@ -2,3 +2,29 @@
 @import "@catppuccin/tailwindcss/mocha.css";
 @source "./src/**/*.{rs,html,css}";
 @source "../desktop/src/**/*.{rs,html,css}";
+
+@theme {
+  --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+}
+
+/* Printing / Save as PDF: hide controls and chrome, keep cards whole. */
+@media print {
+  button,
+  input,
+  select,
+  textarea,
+  nav,
+  [role="dialog"],
+  [role="status"],
+  [aria-hidden="true"] {
+    display: none !important;
+  }
+  section {
+    break-inside: avoid;
+  }
+}

@@ -1,98 +1,211 @@
+use crate::{
+    app::PortfolioScope,
+    components::card::Card,
+    editors::{Dialog, Dialogs},
+    format::{fmt_signed, fmt_usd, signed_color},
+    LiveNumber,
+};
 use dioxus::prelude::*;
-use dtos::{asset::get_asset_response::GetAssetResponse, portfolio::GetDashBoardResponse};
+use dtos::{
+    asset::get_asset_response::GetAssetResponse, portfolio::GetDashBoardResponse,
+    position::realized_pnl,
+};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
-use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
+use types::ticker_symbol::TickerSymbol;
+use uuid::Uuid;
 
-use crate::LiveNumber;
+/// One row per portfolio: value, today, return, realized and its share of
+/// everything you own.
 #[component]
-pub fn PortfoliosTable(
+pub fn PortfoliosCard(
     data: Signal<GetDashBoardResponse>,
     price_map: HashMap<TickerSymbol, Decimal>,
     change_map: HashMap<TickerSymbol, Decimal>,
     loaded: bool,
 ) -> Element {
-    rsx! {
-        table { class: "w-full text-xs mt-4",
-            thead {
-                tr { class: "text-ctp-overlay0 border-b border-ctp-surface1",
-                    th { class: "py-2 w-6" }
-                    th { class: "py-2 pr-6 text-left  font-semibold uppercase tracking-wider", "Portfolio Name" }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Symbols" }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
-                        div { "Cost Basis" }
-                        div { class: "font-normal normal-case tracking-normal text-ctp-overlay0", "Includes cash" }
-                    }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
-                        div { "Market Value" }
-                        div { class: "font-normal normal-case tracking-normal text-ctp-overlay0", "Includes cash" }
-                    }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider", "Day Change" }
-                    th { class: "py-2 pr-6 text-right font-semibold uppercase tracking-wider",
-                        div { "Unrealized" }
-                        div { "Gain/Loss" }
-                    }
-                    th { class: "py-2 text-right font-semibold uppercase tracking-wider",
-                        div { "Realized" }
-                        div { "Gain/Loss" }
-                    }
-                }
+    let rows: Vec<PortfolioRow> = data
+        .read()
+        .portfolios
+        .iter()
+        .map(|port| {
+            let (count, cost, value, day, pnl) =
+                portfolio_stats(&port.assets, &price_map, &change_map);
+            PortfolioRow {
+                id: port.id.to_string(),
+                name: port.name.clone(),
+                count,
+                value,
+                day,
+                day_pct: if value > Decimal::ZERO {
+                    day / value * dec!(100)
+                } else {
+                    Decimal::ZERO
+                },
+                pnl,
+                pnl_pct: if cost > Decimal::ZERO {
+                    pnl / cost * dec!(100)
+                } else {
+                    Decimal::ZERO
+                },
+                realized: realized_pnl(
+                    &data
+                        .read()
+                        .transactions
+                        .iter()
+                        .filter(|tx| tx.portfolio_id == port.id)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                ),
             }
-            tbody {
-                for port in &data().portfolios {
-                    {
-                        let (p_count, p_cost, p_value, p_day, p_pnl) =
-                            portfolio_stats(&port.assets, &price_map, &change_map);
+        })
+        .collect();
+    let grand_total: Decimal = rows.iter().map(|r| r.value).sum();
 
-                        let p_pnl_pct  = if p_cost  > Decimal::ZERO { p_pnl / p_cost  * dec!(100) } else { Decimal::ZERO };
-                        let p_day_pct  = if p_value > Decimal::ZERO { p_day / p_value * dec!(100) } else { Decimal::ZERO };
-                        let p_realized = compute_realized_pnl_for_tickers(
-                            &data(),
-                            &port.assets.iter().map(|a| a.ticker_symbol.clone()).collect::<Vec<_>>(), //FIX: useless clone
-                        );
-
-                        rsx! {
-                            tr {
-                                key: "{port.id}",
-                                class: "border-b border-ctp-surface1 hover:bg-ctp-surface0 transition-colors",
-                                td { class: "py-4 pr-2 text-ctp-overlay0 select-none", "⠿" }
-                                td { class: "py-4 pr-6",
-                                    div { class: "flex items-center gap-2",
-                                        span { class: "font-medium", "{port.name}" }
-                                    }
-                                }
-                                td { class: "py-4 pr-6 text-right tabular-nums text-ctp-subtext1",
-                                    "{p_count}"
-                                }
-                                td { class: "py-4 pr-6 text-right tabular-nums",
-                                    "{fmt_usd(p_cost, 2)}"
-                                }
-                                td { class: "py-4 pr-6 text-right tabular-nums font-medium",
-                                    if loaded && p_value > Decimal::ZERO {
-                                        LiveNumber { value: p_value, text: fmt_usd(p_value, 2) }
-                                    } else { "--" }
-                                }
-                                td {
-                                    class: if p_day >= Decimal::ZERO { " py-4 pr-6 text-right tabular-nums text-ctp-green" } else { "  py-4 pr-6 text-right tabular-nums text-ctp-red" },
-                                    if loaded {
-                                        div { LiveNumber { value: p_day, text: fmt_signed(p_day, 2) } }
-                                        div { class: "text-xs", LiveNumber { value: p_day_pct, text: format!("{p_day_pct:+.2}%") } }
-                                    } else { "--" }
-                                }
-                                td {
-                                    class: if p_pnl >= Decimal::ZERO { " py-4 pr-6 text-right tabular-nums text-ctp-green" } else { " py-4 pr-6 text-right tabular-nums text-ctp-red" },
-                                    div { LiveNumber { value: p_pnl, text: fmt_signed(p_pnl, 2) } }
-                                    div { class: "text-xs", LiveNumber { value: p_pnl_pct, text: format!("{p_pnl_pct:+.2}%") } }
-                                }
-                                td {
-                                    class: "py-4 text-right tabular-nums",
-                                    style: if p_realized >= Decimal::ZERO { "color:var(--green)" } else { "color:var(--red)" },
-                                    if p_realized.abs() > dec!(0.01) { "{fmt_signed(p_realized, 2)}" } else { "--" }
-                                }
+    rsx! {
+        Card {
+            title: "Portfolios",
+            subtitle: format!("{} portfolios", rows.len()),
+            flush: true,
+            div { class: "overflow-x-auto",
+                table { class: "w-full text-sm whitespace-nowrap",
+                    thead {
+                        tr { class: "text-xs text-ctp-overlay1",
+                            th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "Portfolio" }
+                            th { class: "px-4 py-2.5 text-right font-medium", "Value" }
+                            th { class: "px-4 py-2.5 text-right font-medium", "Today" }
+                            th { class: "px-4 py-2.5 text-right font-medium", "Return" }
+                            th { class: "px-4 py-2.5 text-right font-medium", "Realized" }
+                            th { class: "pl-4 pr-6 py-2.5 text-right font-medium", "Share" }
+                        }
+                    }
+                    tbody {
+                        for row in rows {
+                            PortfolioRowView {
+                                key: "{row.id}",
+                                share: if grand_total > Decimal::ZERO { row.value / grand_total * dec!(100) } else { Decimal::ZERO },
+                                row,
+                                loaded,
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Rename / delete, shown when the row is hovered.
+#[component]
+fn RowActions(id: String, name: String) -> Element {
+    let dialogs = use_context::<Dialogs>();
+    let Ok(uuid) = Uuid::parse_str(&id) else {
+        return rsx! {};
+    };
+    let rename_name = name.clone();
+    rsx! {
+        span { class: "ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100",
+            button {
+                class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
+                title: "Rename",
+                onclick: move |e| {
+                    e.stop_propagation();
+                    dialogs.open(Dialog::RenamePortfolio(uuid, rename_name.clone()));
+                },
+                "✎"
+            }
+            button {
+                class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
+                title: "Delete",
+                onclick: move |e| {
+                    e.stop_propagation();
+                    dialogs.open(Dialog::DeletePortfolio(uuid, name.clone()));
+                },
+                "🗑"
+            }
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct PortfolioRow {
+    id: String,
+    name: String,
+    count: usize,
+    value: Decimal,
+    day: Decimal,
+    day_pct: Decimal,
+    pnl: Decimal,
+    pnl_pct: Decimal,
+    realized: Decimal,
+}
+
+#[component]
+fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element {
+    let PortfolioScope(mut scope) = use_context::<PortfolioScope>();
+    let id = row.id.clone();
+    let open = move |_| {
+        scope.set(Some(id.clone()));
+        navigator().push("/portfolio");
+    };
+    let initial = row
+        .name
+        .chars()
+        .next()
+        .unwrap_or('?')
+        .to_uppercase()
+        .to_string();
+    let priced = loaded && row.value > Decimal::ZERO;
+    let cell = "px-4 py-3.5 text-right tabular-nums";
+
+    rsx! {
+        tr {
+            class: "group border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors cursor-pointer",
+            title: "Open {row.name}",
+            onclick: open,
+            td { class: "pl-6 pr-4 py-3.5",
+                div { class: "flex items-center gap-3",
+                    span { class: "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl \
+                                   bg-gradient-to-br from-ctp-mauve/30 to-ctp-sky/30 font-semibold text-ctp-text",
+                        "{initial}"
+                    }
+                    div {
+                        div { class: "flex items-center gap-1.5 font-semibold text-ctp-text",
+                            "{row.name}"
+                            span { class: "text-ctp-overlay0 opacity-0 transition-opacity group-hover:opacity-100", "→" }
+                        }
+                        div { class: "text-xs text-ctp-overlay1", "{row.count} holdings" }
+                    }
+                    RowActions { id: row.id.clone(), name: row.name.clone() }
+                }
+            }
+            if priced {
+                td { class: "{cell} font-medium text-ctp-text",
+                    LiveNumber { value: row.value, text: fmt_usd(row.value, 2) }
+                }
+                td { class: "{cell} {signed_color(row.day)}",
+                    div { LiveNumber { value: row.day, text: fmt_signed(row.day, 2) } }
+                    div { class: "text-xs opacity-75", "{row.day_pct:+.2}%" }
+                }
+                td { class: "{cell} {signed_color(row.pnl)}",
+                    div { class: "font-medium", LiveNumber { value: row.pnl, text: fmt_signed(row.pnl, 2) } }
+                    div { class: "text-xs opacity-75", "{row.pnl_pct:+.2}%" }
+                }
+            } else {
+                for _ in 0..3 {
+                    td { class: "{cell} text-ctp-overlay0", "—" }
+                }
+            }
+            td { class: "{cell} {signed_color(row.realized)}",
+                if row.realized.abs() > dec!(0.01) { "{fmt_signed(row.realized, 2)}" } else { span { class: "text-ctp-overlay0", "—" } }
+            }
+            td { class: "pl-4 pr-6 py-3.5 text-right",
+                span { class: "inline-flex items-center justify-end gap-2",
+                    span { class: "h-1 w-16 rounded-full bg-ctp-surface0 overflow-hidden",
+                        span { class: "block h-full rounded-full bg-gradient-to-r from-ctp-mauve to-ctp-sky", style: "width:{share.min(dec!(100)):.0}%;" }
+                    }
+                    span { class: "w-11 tabular-nums text-ctp-subtext0", "{share:.1}%" }
                 }
             }
         }
@@ -141,87 +254,4 @@ fn portfolio_stats(
 
     let total_pnl = total_value - total_cost;
     (pos_count, total_cost, total_value, day_change, total_pnl)
-}
-
-fn compute_realized_pnl(data: &GetDashBoardResponse) -> Decimal {
-    let mut book: HashMap<TickerSymbol, (Decimal, Decimal)> = HashMap::new(); // (cost_basis, shares)
-    let mut realized = Decimal::ZERO;
-
-    for tx in &data.transactions {
-        match tx.transaction_type {
-            TransactionType::Buy => {
-                let e = book.entry(tx.ticker.clone()).or_default();
-                e.0 += tx.shares * tx.price;
-                e.1 += tx.shares;
-            }
-            TransactionType::Sell => {
-                if let Some((cost, shares)) = book.get_mut(&tx.ticker) {
-                    if *shares > Decimal::ZERO {
-                        let avg = *cost / *shares;
-                        realized += tx.shares * (tx.price - avg);
-                        *cost -= tx.shares * avg;
-                        *shares -= tx.shares;
-                    }
-                }
-            }
-            TransactionType::Dividend => {
-                realized += tx.price;
-            }
-            _ => {}
-        }
-    }
-    realized
-}
-
-fn compute_realized_pnl_for_tickers(
-    data: &GetDashBoardResponse,
-    tickers: &[TickerSymbol],
-) -> Decimal {
-    let set: std::collections::HashSet<_> = tickers.iter().collect();
-    let filtered = GetDashBoardResponse {
-        transactions: data
-            .transactions
-            .iter()
-            .filter(|tx| set.contains(&tx.ticker))
-            .cloned()
-            .collect(),
-        portfolios: vec![],
-    };
-    compute_realized_pnl(&filtered)
-}
-
-/// "$1,234.56"  (ไม่มี sign)
-fn fmt_usd(value: Decimal, decimals: u32) -> String {
-    let neg = value.is_sign_negative();
-    let abs = value.abs().round_dp(decimals);
-    let whole = abs.trunc();
-    let frac = ((abs - whole) * Decimal::from(10u64.pow(decimals)))
-        .round()
-        .to_string();
-
-    let whole_str = whole.to_string();
-    let mut out = String::new();
-    for (i, c) in whole_str.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    let whole_fmt: String = out.chars().rev().collect();
-
-    let sign = if neg { "-" } else { "" };
-    if decimals == 0 {
-        format!("{sign}${whole_fmt}")
-    } else {
-        format!(
-            "{sign}${whole_fmt}.{frac:0>width$}",
-            width = decimals as usize
-        )
-    }
-}
-
-/// "+$1,234.56" / "-$1,234.56"
-fn fmt_signed(value: Decimal, decimals: u32) -> String {
-    let sign = if value >= Decimal::ZERO { "+" } else { "" };
-    format!("{sign}{}", fmt_usd(value, decimals))
 }

@@ -1,5 +1,5 @@
 #[cfg(feature = "server")]
-use crate::infrastructures::yahoo_gateway_mapper::to_quote;
+use crate::quote::infrastructures::yahoo_gateway_mapper::to_quote;
 use crate::{
     events::quote_update_event::QuoteUpdateEvent,
     infrastructures::{
@@ -20,10 +20,7 @@ use types::{
     candle::Candle, interval::Interval, quote::Quote, range::Range, ticker_symbol::TickerSymbol,
 };
 #[cfg(feature = "server")]
-use yfinance_rs::{
-    Interval as YInterval, Range as YRange, StreamBuilder, StreamHandle, StreamMethod, Ticker,
-    YfClient,
-};
+use yfinance_rs::{StreamBuilder, StreamHandle, StreamMethod, Ticker, YfClient};
 #[cfg(feature = "server")]
 pub struct YahooGateWay {
     client: YfClient,
@@ -36,7 +33,7 @@ impl YahooGateWay {
     pub fn new() -> Self {
         let (tx, _) = channel(256);
         Self {
-            client: YfClient::default(),
+            client: crate::shared::yahoo_client(),
             handle: None,
             sender: tx,
             tickers: Arc::new(Mutex::new(HashSet::new())),
@@ -107,6 +104,23 @@ impl YahooGateWay {
             .await?
             .into_iter()
             .map(to_candle)
+            .collect())
+    }
+
+    pub async fn search(
+        &self,
+        query: &str,
+    ) -> Result<Vec<dtos::watch::SearchHit>, YahooGateWayError> {
+        let response = yfinance_rs::search(&self.client, query).await?;
+        Ok(response
+            .results
+            .into_iter()
+            .map(|r| dtos::watch::SearchHit {
+                symbol: r.instrument.symbol.to_string(),
+                name: r.name,
+                exchange: r.instrument.exchange.map(|e| e.to_string()),
+                kind: format!("{:?}", r.instrument.kind),
+            })
             .collect())
     }
 

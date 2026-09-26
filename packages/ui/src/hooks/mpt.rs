@@ -27,13 +27,6 @@ impl ConcentrationRisk {
             Self::High => "text-ctp-red",
         }
     }
-    pub fn bar_color(&self) -> &'static str {
-        match self {
-            Self::Low => "bg-ctp-green",
-            Self::Moderate => "bg-ctp-yellow",
-            Self::High => "bg-ctp-red",
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

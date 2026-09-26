@@ -1,43 +1,37 @@
 use crate::Route;
 use dioxus::prelude::*;
+use ui::{
+    DashboardIcon, MarketIcon, PortfolioIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+};
 
-/// Full-window shell: slim sidebar on the left, scrollable content on the right.
+/// Full-window shell: sidebar on the left, scrollable page on the right.
 #[component]
 pub fn Navbar() -> Element {
     rsx! {
-        div { class: "mocha flex h-screen overflow-hidden bg-ctp-base",
-
-            nav { class: "w-52 flex-shrink-0 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col py-5",
-                div { class: "px-5 mb-6",
-                    div { class: "text-base font-bold text-ctp-text", "◈ Akhsakov" }
-                    div { class: "text-xs text-ctp-subtext0 mt-0.5", "Finance" }
+        Sidebar {
+            links: rsx! {
+                Link { to: Route::Home {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    DashboardIcon {}
+                    "Dashboard"
                 }
-                NavLink {
-                    to: Route::Home {},
-                    icon: "⬡".to_string(),
-                    label: "Dashboard".to_string(),
+                Link { to: Route::Portfolio {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    PortfolioIcon {}
+                    "Portfolio"
                 }
-                NavLink {
-                    to: Route::Portfolio {},
-                    icon: "◈".to_string(),
-                    label: "Portfolio".to_string(),
+                Link { to: Route::Market {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    MarketIcon {}
+                    "Markets"
                 }
-            }
-
-            div { class: "flex-1 overflow-auto", Outlet::<Route> {} }
-        }
-    }
-}
-
-#[component]
-fn NavLink(to: Route, icon: String, label: String) -> Element {
-    rsx! {
-        Link {
-            to,
-            class: "flex items-center gap-2.5 px-3 py-2.5 mx-3 rounded-lg text-sm text-ctp-subtext1 hover:bg-ctp-surface0 hover:text-ctp-text transition-colors",
-            active_class: "bg-ctp-surface0 text-ctp-text",
-            span { class: "text-sm opacity-70", "{icon}" }
-            "{label}"
+                Link { to: Route::Watchlist {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    WatchlistIcon {}
+                    "Watchlist"
+                }
+                Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    SettingsIcon {}
+                    "Settings"
+                }
+            },
+            Outlet::<Route> {}
         }
     }
 }

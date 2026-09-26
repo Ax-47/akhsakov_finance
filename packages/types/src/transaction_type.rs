@@ -7,6 +7,10 @@ pub enum TransactionType {
     Dividend,
     Split,
     Transfer,
+    /// Cash paid into the account (use the `$CASH` ticker).
+    Deposit,
+    /// Cash taken out of the account (use the `$CASH` ticker).
+    Withdrawal,
 }
 
 impl fmt::Display for TransactionType {
@@ -17,6 +21,8 @@ impl fmt::Display for TransactionType {
             TransactionType::Dividend => write!(f, "Dividend"),
             TransactionType::Split => write!(f, "Split"),
             TransactionType::Transfer => write!(f, "Transfer"),
+            TransactionType::Deposit => write!(f, "Deposit"),
+            TransactionType::Withdrawal => write!(f, "Withdrawal"),
         }
     }
 }
@@ -30,6 +36,8 @@ impl std::str::FromStr for TransactionType {
             "dividend" => Ok(TransactionType::Dividend),
             "split" => Ok(TransactionType::Split),
             "transfer" => Ok(TransactionType::Transfer),
+            "deposit" => Ok(TransactionType::Deposit),
+            "withdrawal" | "withdraw" => Ok(TransactionType::Withdrawal),
             _ => Err(TransactionTypeError::UnknownTransactionType(s.to_string())),
         }
     }

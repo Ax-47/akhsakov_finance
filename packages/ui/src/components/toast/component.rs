@@ -81,8 +81,10 @@ pub fn ToastProvider(
     children: Element,
 ) -> Element {
     let render_toast = render_toast.unwrap_or_else(|| {
-        Callback::new(|p: toast::ToastPropsWithOwner| rsx! {
-            StyledToast { ..p }
+        Callback::new(|p: toast::ToastPropsWithOwner| {
+            rsx! {
+                StyledToast { ..p }
+            }
         })
     });
 

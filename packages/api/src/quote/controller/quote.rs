@@ -1,8 +1,8 @@
-use crate::events::quote_update_event::QuoteUpdateEvent;
+use crate::quote::events::quote_update_event::QuoteUpdateEvent;
 use std::collections::HashMap;
 
 #[cfg(feature = "server")]
-use crate::services::quote::QuoteService;
+use crate::quote::services::quote::QuoteService;
 use dioxus::fullstack::*;
 use dioxus::prelude::*;
 
@@ -84,6 +84,19 @@ pub async fn get_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
             details: None,
         })
 }
+/// Instruments matching a symbol or company name, e.g. "nvidia".
+#[get("/api/quotes/search", quote_service: Extension<QuoteService>)]
+pub async fn search_tickers(query: String) -> Result<Vec<dtos::watch::SearchHit>, ServerFnError> {
+    quote_service
+        .search(&query)
+        .await
+        .map_err(|e| ServerFnError::ServerError {
+            message: e.to_string(),
+            code: 502,
+            details: None,
+        })
+}
+
 #[cfg(feature = "server")]
 async fn handle_socket(
     mut socket: TypedWebsocket<ClientEvent, QuoteUpdateEvent, JsonEncoding>,

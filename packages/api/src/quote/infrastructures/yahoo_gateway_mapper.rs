@@ -3,10 +3,9 @@ use types::{
 };
 use yfinance_rs::{
     Candle as YCandle, Decimal, Interval as YInterval, Quote as YQuote, Range as YRange,
-    StreamHandle, StreamMethod, Ticker,
 };
 
-use crate::infrastructures::yahoo_gateway_error::YahooGateWayError;
+use crate::quote::infrastructures::yahoo_gateway_error::YahooGateWayError;
 
 pub fn to_yinterval(value: Interval) -> YInterval {
     match value {

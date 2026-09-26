@@ -12,10 +12,9 @@ pub const CHART_COLOR_CLASSES: &[&str] = &[
     "bg-ctp-sapphire",
     "bg-ctp-rosewater",
 ];
-/// Hard-coded Catppuccin Mocha hex values for ECharts `itemStyle.color`.
-/// ECharts cannot resolve CSS variables at paint time, so we provide the
-/// actual hex colours that correspond 1-to-1 with `CHART_COLORS`.
-const CHART_COLORS_HEX: &[&str] = &[
+/// Catppuccin Mocha hex values, index-aligned with `CHART_COLOR_CLASSES`.
+/// ECharts cannot resolve CSS variables at paint time, so charts use these.
+pub const CHART_COLORS_HEX: &[&str] = &[
     "#cba6f7", // mauve
     "#89b4fa", // blue
     "#a6e3a1", // green

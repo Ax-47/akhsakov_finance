@@ -32,6 +32,9 @@ pub trait QuoteGateway: Send + Sync {
     ) -> Result<Vec<Candle>, QuoteGateWayError>;
 
     async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError>;
+
+    /// Instruments whose symbol or name matches `query`.
+    async fn search(&self, query: &str) -> Result<Vec<dtos::watch::SearchHit>, QuoteGateWayError>;
 }
 
 #[cfg(feature = "server")]
@@ -63,5 +66,9 @@ impl QuoteGateway for YahooGateWay {
 
     async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
         self.get_quote(ticker).await.map_err(Into::into)
+    }
+
+    async fn search(&self, query: &str) -> Result<Vec<dtos::watch::SearchHit>, QuoteGateWayError> {
+        self.search(query).await.map_err(Into::into)
     }
 }

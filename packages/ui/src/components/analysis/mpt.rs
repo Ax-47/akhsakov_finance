@@ -1,262 +1,177 @@
+//! Diversification card: how spread out the money is (Modern Portfolio
+//! Theory concentration metrics), with a score ring and weight bar.
+
+use crate::components::{
+    card::{Card, MetricTile},
+    color_schema::CHART_COLOR_CLASSES,
+};
+use crate::format::signed_color;
 use crate::hooks::mpt::{ConcentrationRisk, MptAnalysis};
 use dioxus::prelude::*;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use types::ticker_symbol::TickerSymbol;
 
-// ─── Palette for the weight bar chart ─────────────────────────────────────────
-
-const BAR_COLORS: &[&str] = &[
-    "bg-ctp-blue",
-    "bg-ctp-mauve",
-    "bg-ctp-green",
-    "bg-ctp-peach",
-    "bg-ctp-teal",
-    "bg-ctp-sapphire",
-    "bg-ctp-yellow",
-    "bg-ctp-lavender",
-    "bg-ctp-pink",
-    "bg-ctp-red",
-];
-
-// ─── Public component ─────────────────────────────────────────────────────────
-
-/// Renders a full-width MPT analysis card.
-/// Pass the `Option<MptAnalysis>` from `PortfolioState`; the card renders
-/// a loading / unavailable state automatically when it is `None`.
+/// `allocation` is only used so segment colours match the allocation card.
 #[component]
-pub fn MptAnalysisCard(mpt: Option<MptAnalysis>) -> Element {
+pub fn MptAnalysisCard(
+    mpt: Option<MptAnalysis>,
+    allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>,
+) -> Element {
     rsx! {
-        div { class: "rounded-xl bg-ctp-base border border-ctp-surface0 overflow-hidden",
-
-            // ── Header ────────────────────────────────────────────────────────
-            div {
-                class: "flex items-center gap-2 px-4 py-3 border-b border-ctp-surface1",
-                span { class: "inline-block w-[3px] h-[14px] rounded-[2px] bg-ctp-mauve shrink-0" }
-                span { class: "text-xs font-bold uppercase tracking-wide", "Portfolio Analysis" }
-                span { class: "ml-1 text-[10px] text-ctp-overlay0 font-normal normal-case tracking-normal",
-                    "Modern Portfolio Theory"
-                }
-                span { class: "ml-auto text-[10px] text-ctp-overlay0",
-                    if let Some(ref a) = mpt {
-                        "{a.live_positions} positions analysed"
-                    } else {
-                        "awaiting live prices…"
-                    }
-                }
-            }
-
+        Card {
+            title: "Diversification",
+            subtitle: "How evenly your money is spread".to_string(),
             if let Some(analysis) = mpt {
-                MptBody { analysis }
+                MptBody { analysis, allocation }
             } else {
-                // Skeleton / placeholder while prices load
-                div {
-                    class: "p-6 flex items-center justify-center text-ctp-overlay0 text-xs gap-2",
-                    span { class: "animate-pulse", "⏳" }
-                    span { "Waiting for live prices to compute MPT metrics…" }
-                }
+                p { class: "py-10 text-center text-sm text-ctp-overlay1", "Waiting for live prices…" }
             }
         }
     }
 }
 
-// ─── Body (only shown when analysis is ready) ─────────────────────────────────
-
 #[component]
-fn MptBody(analysis: MptAnalysis) -> Element {
-    let score = analysis.diversification_score;
-    let score_color = score_to_color(score);
+fn MptBody(analysis: MptAnalysis, allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) -> Element {
+    let a = &analysis;
+    let (top, top_pct) = &a.top_holding;
+    let concentration_tone = a.concentration_risk.color();
+    let win_tone = if a.win_rate >= dec!(50) {
+        "text-ctp-green"
+    } else {
+        "text-ctp-peach"
+    };
 
     rsx! {
-        // ── Metric grid ───────────────────────────────────────────────────────
-        div { class: "grid grid-cols-2 sm:grid-cols-4 gap-px bg-ctp-surface0",
-
-            MptMetric {
-                label: "Diversification Score",
-                value: format!("{score:.0} / 100"),
-                sub: "vs equal-weight ideal",
-                color: score_color,
-                icon: "⬡",
-            }
-            MptMetric {
-                label: "Effective Positions",
-                value: "{analysis.effective_n:.1}",
-                sub: "HHI {analysis.hhi:.4}",
-                color: "text-ctp-sapphire",
-                icon: "◈",
-            }
-            MptMetric {
-                label: "Concentration Risk",
-                value: analysis.concentration_risk.label(),
-                sub: "top: {analysis.top_holding.0} @ {analysis.top_holding.1:.1}%",
-                color: analysis.concentration_risk.color(),
-                icon: "⚡",
-            }
-            MptMetric {
-                label: "Win Rate",
-                value: "{analysis.win_rate:.1}%",
-                sub: "positions in profit",
-                color: win_rate_color(analysis.win_rate),
-                icon: "✦",
-            }
-        }
-
-        div { class: "grid grid-cols-2 sm:grid-cols-3 gap-px bg-ctp-surface0",
-            MptMetric {
-                label: "Wtd. Avg. Return",
-                value: "{analysis.weighted_avg_return:+.2}%",
-                sub: "unrealized, mkt-value weighted",
-                color: signed_color(analysis.weighted_avg_return),
-                icon: if analysis.weighted_avg_return >= Decimal::ZERO { "▲" } else { "▼" },
-            }
-            MptMetric {
-                label: "Return Dispersion",
-                value: "{analysis.return_dispersion:.2}%",
-                sub: "cross-sectional σ of returns",
-                color: "text-ctp-lavender",
-                icon: "σ",
-            }
-            div { class: "col-span-2 sm:col-span-1 bg-ctp-base p-4",
-                ConcentrationGauge {
-                    risk: analysis.concentration_risk.clone(),
-                    hhi: analysis.hhi,
-                }
-            }
-        }
-
-        // ── Weight distribution bar chart ─────────────────────────────────────
-        WeightChart { weights: analysis.weights.clone() }
-    }
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-#[component]
-fn MptMetric(label: String, value: String, sub: String, color: String, icon: String) -> Element {
-    rsx! {
-        div { class: "bg-ctp-base p-4",
-            div { class: "flex items-center justify-between mb-2",
-                span { class: "text-[11px] text-ctp-subtext0 font-medium", "{label}" }
-                span { class: "{color} text-base leading-none", "{icon}" }
-            }
-            div { class: "text-xl font-bold text-ctp-text", "{value}" }
-            div { class: "text-[11px] text-ctp-overlay0 mt-0.5 truncate", "{sub}" }
-        }
-    }
-}
-
-/// Visual gauge showing where the portfolio sits on the Low→High concentration
-/// spectrum, using a segmented progress bar.
-#[component]
-fn ConcentrationGauge(risk: ConcentrationRisk, hhi: Decimal) -> Element {
-    // Map HHI (0.05 … 1.0) → 0-100% for the needle position.
-    // Clamp to [0.05, 1.0] so the needle stays within the bar.
-    let hhi_f = hhi.to_f64().unwrap_or(0.0).clamp(0.05, 1.0);
-    let needle_pct = ((hhi_f - 0.05) / 0.95 * 100.0) as u32;
-    let risk_color = risk.color();
-    let risk_label = risk.label();
-
-    rsx! {
-        div {
-            div { class: "flex items-center justify-between mb-1",
-                span { class: "text-[11px] text-ctp-subtext0 font-medium", "Concentration Gauge" }
-                span { class: "{risk_color} text-[11px] font-semibold", "{risk_label}" }
-            }
-            // Segmented bar: green / yellow / red
-            div { class: "relative h-2.5 rounded-full overflow-hidden flex",
-                div { class: "h-full bg-ctp-green", style: "width:33%" }
-                div { class: "h-full bg-ctp-yellow", style: "width:34%" }
-                div { class: "h-full bg-ctp-red",   style: "width:33%" }
-                // Needle
-                div {
-                    class: "absolute top-0 h-full w-0.5 bg-ctp-text rounded",
-                    style: format!("left:{}%", needle_pct),
-                }
-            }
-            div { class: "flex justify-between text-[10px] text-ctp-overlay0 mt-1",
-                span { "Low (<0.15)" }
-                span { "Mod" }
-                span { "High (>0.25)" }
-            }
-        }
-    }
-}
-
-/// Stacked horizontal bar showing each position's share of the portfolio.
-#[component]
-fn WeightChart(weights: Vec<(TickerSymbol, Decimal)>) -> Element {
-    rsx! {
-        div { class: "p-4 border-t border-ctp-surface1",
-            div { class: "flex items-center justify-between mb-2",
-                span { class: "text-[11px] text-ctp-subtext0 font-medium uppercase tracking-wide",
-                    "Weight Distribution"
-                }
-                span { class: "text-[10px] text-ctp-overlay0", "% of portfolio value" }
-            }
-
-            // Stacked bar
-            div { class: "flex h-4 rounded-full overflow-hidden gap-px mb-3",
-                for (i, (ticker, pct)) in weights.iter().enumerate() {
-                    {
-                        let bar_cls = BAR_COLORS.get(i).copied().unwrap_or("bg-ctp-overlay0");
-                        rsx! {
-                            div {
-                                key: "{ticker}",
-                                class: "{bar_cls} h-full transition-all",
-                                style: format!("width:{pct}%"),
-                                title: format!("{ticker}: {pct:.1}%"),
-                            }
-                        }
+        div { class: "grid gap-6 md:grid-cols-[200px_1fr] md:items-center",
+            ScoreRing { score: a.diversification_score }
+            div {
+                p { class: "text-sm leading-relaxed text-ctp-subtext0 mb-4",
+                    "Your {a.live_positions} holdings behave like "
+                    span { class: "font-semibold text-ctp-text", "{a.effective_n:.1} equally-sized positions" }
+                    ". "
+                    if a.concentration_risk == ConcentrationRisk::High {
+                        "{top} alone is {top_pct:.0}% of the portfolio."
+                    } else {
+                        "The largest, {top}, is {top_pct:.0}%."
                     }
                 }
-            }
-
-            // Legend
-            div { class: "flex flex-wrap gap-x-4 gap-y-1",
-                for (i, (ticker, pct)) in weights.iter().enumerate() {
-                    {
-                        let dot_cls = BAR_COLORS.get(i).copied().unwrap_or("bg-ctp-overlay0");
-                        rsx! {
-                            div { class: "flex items-center gap-1.5",
-                                key: "{ticker}",
-                                span { class: "inline-block w-2 h-2 rounded-sm {dot_cls}" }
-                                span { class: "text-[11px] text-ctp-subtext1 font-medium", "{ticker}" }
-                                span { class: "text-[11px] text-ctp-overlay0", "{pct:.1}%" }
-                            }
-                        }
+                div { class: "grid grid-cols-2 gap-3",
+                    MetricTile {
+                        label: "Effective holdings",
+                        value: format!("{:.1}", a.effective_n),
+                        hint: format!("out of {}", a.live_positions),
+                    }
+                    MetricTile {
+                        label: "Concentration",
+                        value: a.concentration_risk.label().to_string(),
+                        hint: format!("HHI {:.3} · lower is better", a.hhi),
+                        tone: concentration_tone,
+                    }
+                    MetricTile {
+                        label: "Win rate",
+                        value: format!("{:.0}%", a.win_rate),
+                        hint: "Holdings in profit".to_string(),
+                        tone: win_tone,
+                    }
+                    MetricTile {
+                        label: "Average return",
+                        value: format!("{:+.2}%", a.weighted_avg_return),
+                        hint: format!("Value-weighted · spread ±{:.1}%", a.return_dispersion),
+                        tone: signed_color(a.weighted_avg_return),
                     }
                 }
             }
         }
+        WeightBar { weights: a.weights.clone(), allocation }
     }
 }
 
-// ─── Colour helpers ───────────────────────────────────────────────────────────
+/// Circular 0–100 gauge.
+#[component]
+fn ScoreRing(score: Decimal) -> Element {
+    const R: f64 = 52.0;
+    let score = score.to_f64().unwrap_or(0.0).clamp(0.0, 100.0);
+    let circumference = 2.0 * std::f64::consts::PI * R;
+    let dash = circumference * score / 100.0;
+    let (color, verdict) = match score {
+        s if s >= 70.0 => ("#a6e3a1", "Well diversified"),
+        s if s >= 40.0 => ("#f9e2af", "Somewhat concentrated"),
+        _ => ("#f38ba8", "Concentrated"),
+    };
 
-fn score_to_color(score: Decimal) -> &'static str {
-    if score >= dec!(70) {
-        "text-ctp-green"
-    } else if score >= dec!(40) {
-        "text-ctp-yellow"
-    } else {
-        "text-ctp-red"
+    rsx! {
+        div { class: "flex flex-col items-center",
+            div { class: "relative h-40 w-40",
+                svg { class: "h-full w-full -rotate-90", view_box: "0 0 128 128",
+                    circle { cx: "64", cy: "64", r: "{R}", fill: "none", stroke: "#313244", stroke_width: "10" }
+                    circle {
+                        cx: "64", cy: "64", r: "{R}",
+                        fill: "none",
+                        stroke: color,
+                        stroke_width: "10",
+                        stroke_linecap: "round",
+                        stroke_dasharray: "{dash:.1} {circumference:.1}",
+                        style: "transition:stroke-dasharray .6s ease;",
+                    }
+                }
+                div { class: "absolute inset-0 flex flex-col items-center justify-center",
+                    span { class: "text-4xl font-semibold tabular-nums text-ctp-text", "{score:.0}" }
+                    span { class: "text-xs text-ctp-overlay1", "/ 100" }
+                }
+            }
+            span { class: "mt-2 text-sm font-medium", style: "color:{color};", "{verdict}" }
+        }
     }
 }
 
-fn win_rate_color(rate: Decimal) -> &'static str {
-    if rate >= dec!(66) {
-        "text-ctp-green"
-    } else if rate >= dec!(40) {
-        "text-ctp-yellow"
+/// Stacked bar of portfolio weights with a legend.
+#[component]
+fn WeightBar(
+    weights: Vec<(TickerSymbol, Decimal)>,
+    allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>,
+) -> Element {
+    let mut weights = weights;
+    weights.sort_by(|a, b| b.1.cmp(&a.1));
+    let color_of = |ticker: &TickerSymbol| {
+        allocation
+            .read()
+            .iter()
+            .position(|(t, _)| t == ticker)
+            .map(|i| CHART_COLOR_CLASSES[i % CHART_COLOR_CLASSES.len()])
+            .unwrap_or("bg-ctp-overlay0")
+    };
+    let equal = if weights.is_empty() {
+        0.0
     } else {
-        "text-ctp-red"
-    }
-}
+        100.0 / weights.len() as f64
+    };
 
-fn signed_color(v: Decimal) -> &'static str {
-    if v >= Decimal::ZERO {
-        "text-ctp-green"
-    } else {
-        "text-ctp-red"
+    rsx! {
+        div { class: "mt-6",
+            div { class: "flex items-center justify-between mb-2 text-xs",
+                span { class: "text-ctp-overlay1", "Weights" }
+                span { class: "text-ctp-overlay0", "Equal weight would be {equal:.1}% each" }
+            }
+            div { class: "flex h-3 gap-0.5 overflow-hidden rounded-full",
+                for (ticker, pct) in weights.iter() {
+                    div {
+                        key: "{ticker}",
+                        class: "h-full first:rounded-l-full last:rounded-r-full transition-all {color_of(ticker)}",
+                        style: "width:{pct}%;",
+                        title: "{ticker}: {pct:.1}%",
+                    }
+                }
+            }
+            div { class: "mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs",
+                for (ticker, pct) in weights.iter() {
+                    span { key: "{ticker}", class: "flex items-center gap-1.5",
+                        span { class: "h-2 w-2 rounded-full {color_of(ticker)}" }
+                        span { class: "font-medium text-ctp-subtext1", "{ticker}" }
+                        span { class: "tabular-nums text-ctp-overlay0", "{pct:.1}%" }
+                    }
+                }
+            }
+        }
     }
 }

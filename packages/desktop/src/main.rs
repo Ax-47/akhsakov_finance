@@ -1,5 +1,3 @@
-#[cfg(feature = "server")]
-use api::quote_services_setup;
 use dioxus::prelude::*;
 
 use crate::views::Navbar;
@@ -14,6 +12,14 @@ enum Route {
     Home {},
     #[route("/portfolio")]
     Portfolio {},
+    #[route("/market")]
+    Market {},
+    #[route("/watchlist")]
+    Watchlist {},
+    #[route("/settings")]
+    Settings {},
+    #[route("/stock/:ticker")]
+    Stock { ticker: String },
 }
 
 fn main() {
@@ -23,8 +29,7 @@ fn main() {
     dioxus::launch(App);
     #[cfg(feature = "server")]
     dioxus::serve(|| async move {
-        use dioxus::server::axum::Extension;
-        let router = dioxus::server::router(App).layer(Extension(quote_services_setup()));
+        let router = api::with_services(dioxus::server::router(App));
         Ok(router)
     });
 }
@@ -47,5 +52,33 @@ fn Home() -> Element {
 fn Portfolio() -> Element {
     rsx! {
         ui::Dashboard {}
+    }
+}
+
+#[component]
+fn Settings() -> Element {
+    rsx! {
+        ui::SettingsPage {}
+    }
+}
+
+#[component]
+fn Market() -> Element {
+    rsx! {
+        ui::MarketPage {}
+    }
+}
+
+#[component]
+fn Watchlist() -> Element {
+    rsx! {
+        ui::WatchlistPage {}
+    }
+}
+
+#[component]
+fn Stock(ticker: String) -> Element {
+    rsx! {
+        ui::StockPage { ticker }
     }
 }

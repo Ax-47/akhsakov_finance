@@ -1,5 +1,29 @@
 window.GrowthChart = window.GrowthChart || {};
+// Newest config per chart id: an older draw that finishes late is skipped.
+window.GrowthChart.latest = window.GrowthChart.latest || {};
+
+// Load ECharts once, however many charts ask for it.
+window.GrowthChart.ready =
+  window.GrowthChart.ready ||
+  function () {
+    if (typeof echarts !== "undefined") return Promise.resolve();
+    if (!window.GrowthChart.loading) {
+      window.GrowthChart.loading = new Promise(function (resolve, reject) {
+        var s = document.createElement("script");
+        s.src = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js";
+        s.onload = resolve;
+        s.onerror = function () {
+          window.GrowthChart.loading = null;
+          reject(new Error("[GrowthChart] failed to load ECharts CDN"));
+        };
+        document.head.appendChild(s);
+      });
+    }
+    return window.GrowthChart.loading;
+  };
+
 window.GrowthChart.init = function (id, cfg) {
+  window.GrowthChart.latest[id] = cfg;
   var style = getComputedStyle(document.documentElement);
   function v(name) {
     return style.getPropertyValue(name).trim();
@@ -34,7 +58,11 @@ window.GrowthChart.init = function (id, cfg) {
       '">' +
       params[0].name +
       "</span>";
-    var rows = params.map(function (p) {
+    var rows = params
+      .filter(function (p) {
+        return p.value != null;
+      })
+      .map(function (p) {
       var val = p.value;
       var sign = val >= 0 ? "+" : "";
       var col = val >= 0 ? colors.green : colors.red;
@@ -61,6 +89,7 @@ window.GrowthChart.init = function (id, cfg) {
   }
 
   function initChart() {
+    if (window.GrowthChart.latest[id] !== cfg) return; // superseded
     var el = document.getElementById(id);
     if (!el) {
       console.error("[GrowthChart] #" + id + " not found");
@@ -75,45 +104,76 @@ window.GrowthChart.init = function (id, cfg) {
     var chart = echarts.init(el, null, { renderer: "canvas" });
     el.__chart = chart;
 
-    var series = cfg.series.map(function (s) {
+    // Broker-style lines: thin, no fill except a faint wash under the first
+    // series, a dot and a colour-filled % pill at the end of each line.
+    var last = cfg.labels.length - 1;
+    var series = cfg.series.map(function (s, idx) {
       return {
         name: s.name,
         type: "line",
         data: s.values,
-        smooth: 0.3,
-        symbol: "none",
+        smooth: 0.2,
+        showSymbol: true,
+        showAllSymbol: true,
+        symbol: "circle",
+        symbolSize: function (_value, p) {
+          return p.dataIndex === last ? 9 : 0;
+        },
+        itemStyle: { color: s.color, borderColor: colors.base, borderWidth: 2 },
         lineStyle: { color: s.color, width: 2 },
-        areaStyle: {
-          color: {
-            type: "linear",
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: hexToRgba(s.color, 0.22) },
-              { offset: 1, color: "rgba(0,0,0,0)" },
-            ],
+        emphasis: { focus: "series" },
+        endLabel: {
+          show: true,
+          distance: 10,
+          formatter: function (p) {
+            var v = Array.isArray(p.value) ? p.value[1] : p.value;
+            return (v >= 0 ? "+" : "") + Number(v).toFixed(2) + "%";
           },
+          color: "#11111b",
+          backgroundColor: s.color,
+          borderRadius: 999,
+          padding: [4, 10],
+          fontSize: 12,
+          fontWeight: 600,
         },
-        markLine: {
-          silent: true,
-          symbol: ["none", "none"],
-          lineStyle: { color: colors.surface1, type: "dashed", width: 1 },
-          label: { show: false },
-          data: [{ yAxis: 0 }], // mark
-        },
+        labelLayout: { moveOverlap: "shiftY" },
+        areaStyle:
+          idx === 0
+            ? {
+                color: {
+                  type: "linear",
+                  x: 0,
+                  y: 0,
+                  x2: 0,
+                  y2: 1,
+                  colorStops: [
+                    { offset: 0, color: hexToRgba(s.color, 0.12) },
+                    { offset: 1, color: "rgba(0,0,0,0)" },
+                  ],
+                },
+              }
+            : undefined,
+        markLine:
+          idx === 0
+            ? {
+                silent: true,
+                symbol: ["none", "none"],
+                lineStyle: { color: colors.surface2, type: "dashed", width: 1 },
+                label: { show: false },
+                data: [{ yAxis: 0 }],
+              }
+            : undefined,
       };
     });
 
     var option = {
       backgroundColor: "transparent",
       legend: {
-        show: cfg.showLegend,
+        show: false,
         data: cfg.series.map(function (s) {
           return s.name;
         }),
-        bottom: 900,
+        bottom: 0,
         textStyle: { color: colors.subtext0, fontSize: 11 },
         icon: "circle",
         itemWidth: 8,
@@ -133,7 +193,7 @@ window.GrowthChart.init = function (id, cfg) {
       },
       grid: {
         left: "10px",
-        right: "60px",
+        right: "84px",
         top: cfg.gridTop,
         bottom: cfg.gridBottom,
         containLabel: true,
@@ -142,21 +202,21 @@ window.GrowthChart.init = function (id, cfg) {
         type: "category",
         boundaryGap: false,
         data: cfg.labels,
-        axisLine: { lineStyle: { color: colors.surface0 } },
+        axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: colors.overlay0, fontSize: 11, interval: "auto" },
+        axisLabel: {
+          color: colors.overlay0,
+          fontSize: 11,
+          interval: "auto",
+          hideOverlap: true,
+        },
       },
       yAxis: {
         type: "value",
         position: "right",
-        axisLabel: {
-          color: colors.overlay0,
-          fontSize: 11,
-          formatter: function (val) {
-            return val.toFixed(1) + "%";
-          },
-        },
-        splitLine: { lineStyle: { color: colors.mantle, type: "dashed" } },
+        scale: true,
+        axisLabel: { show: false },
+        splitLine: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
       },
@@ -185,15 +245,7 @@ window.GrowthChart.init = function (id, cfg) {
     requestAnimationFrame(initChart);
   }
 
-  if (typeof echarts !== "undefined") {
-    bootstrap();
-  } else {
-    var s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js";
-    s.onload = bootstrap;
-    s.onerror = function () {
-      console.error("[GrowthChart] failed to load ECharts CDN");
-    };
-    document.head.appendChild(s);
-  }
+  window.GrowthChart.ready().then(bootstrap, function (e) {
+    console.error(e.message);
+  });
 };

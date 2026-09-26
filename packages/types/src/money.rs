@@ -1,10 +1,9 @@
-use super::primitive_amount::NonNegativeAmount;
 use super::primitive_amount::error;
+use super::primitive_amount::NonNegativeAmount;
 use crate::currency::Currency;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::ops::Add;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Money {
     amount: NonNegativeAmount,

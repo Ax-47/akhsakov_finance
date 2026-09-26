@@ -4,11 +4,14 @@ pub mod events;
 #[cfg(feature = "server")]
 pub(crate) mod infrastructures;
 
+#[cfg(feature = "server")]
 pub(crate) mod repositories;
 
+#[cfg(feature = "server")]
 pub(crate) mod services;
 #[cfg(feature = "server")]
-use crate::services::quote::QuoteService;
+use crate::quote::services::quote::QuoteService;
+#[cfg(feature = "server")]
 use std::sync::Arc;
 
 #[cfg(feature = "server")]

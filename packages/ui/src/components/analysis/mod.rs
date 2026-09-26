@@ -2,3 +2,8 @@ pub mod capm;
 pub use capm::*;
 pub mod mpt;
 pub use mpt::*;
+pub mod risk;
+pub use risk::*;
+pub mod compare;
+pub mod stats;
+pub mod stock;

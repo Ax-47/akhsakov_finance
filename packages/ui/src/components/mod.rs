@@ -2,6 +2,7 @@
 pub mod analysis;
 pub mod badge;
 pub mod calendar;
+pub mod card;
 pub mod charts;
 pub mod color_picker;
 pub mod color_schema;
