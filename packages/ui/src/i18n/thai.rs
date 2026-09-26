@@ -874,6 +874,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Starting cash (USD)", "เงินต้น (USD)"),
     ("Paper money only: nothing is bought at a real broker. Connect Claude above so it can trade.", "เป็นเงินสมมติเท่านั้น ไม่มีการซื้อจริงที่โบรกเกอร์ เชื่อมต่อ Claude ด้านบนก่อนเพื่อให้ Claude ซื้อขายได้"),
     ("Give Claude a portfolio", "สร้างพอร์ตให้ Claude"),
+    ("Claude manages this portfolio with paper money", "Claude บริหารพอร์ตนี้เองด้วยเงินสมมติ"),
+    ("AI-managed · paper money", "AI บริหาร · เงินสมมติ"),
     ("Enter an amount more than zero", "ใส่จำนวนเงินที่มากกว่าศูนย์"),
     ("From", "จากโบรกเกอร์"),
     ("Any broker (detect columns)", "โบรกเกอร์ใดก็ได้ (หาคอลัมน์ให้เอง)"),

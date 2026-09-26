@@ -4,6 +4,7 @@ use crate::{
     components::card::Card,
     editors::{Dialog, Dialogs},
     format::{fmt_signed, fmt_usd, signed_color},
+    page::AiBadge,
     LiveNumber,
 };
 use dioxus::prelude::*;
@@ -49,6 +50,7 @@ pub fn PortfoliosCard(
             PortfolioRow {
                 id: port.id.to_string(),
                 name: port.name.clone(),
+                ai: port.ai,
                 count,
                 value,
                 day,
@@ -138,6 +140,7 @@ fn RowActions(id: String, name: String) -> Element {
 struct PortfolioRow {
     id: String,
     name: String,
+    ai: bool,
     count: usize,
     value: Decimal,
     day: Decimal,
@@ -179,6 +182,9 @@ fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element 
                     div {
                         div { class: "flex items-center gap-1.5 font-semibold text-ctp-text",
                             "{row.name}"
+                            if row.ai {
+                                AiBadge {}
+                            }
                             span { class: "text-ctp-overlay1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100", "→" }
                         }
                         div { class: "text-xs text-ctp-subtext0", "{row.count} holdings" }

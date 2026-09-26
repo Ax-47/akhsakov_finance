@@ -43,7 +43,7 @@ pub fn definitions() -> Value {
         {
             "name": "list_portfolios",
             "title": "List portfolios and holdings",
-            "description": "Every portfolio with its current holdings (shares, average cost, cost basis, weight by cost, first buy date) and the status of each holding's thesis. Amounts are USD.",
+            "description": "Every portfolio with its current holdings (shares, average cost, cost basis, weight by cost, first buy date) and the status of each holding's thesis. `yours` marks the one you manage yourself. Amounts are USD.",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": read_only,
         },
@@ -332,7 +332,7 @@ impl Tools {
                         h
                     })
                     .collect();
-                json!({ "id": p.id, "name": p.name, "holdings": holdings })
+                json!({ "id": p.id, "name": p.name, "yours": p.ai, "holdings": holdings })
             })
             .collect();
         Ok(json!({
@@ -731,6 +731,8 @@ mod tests {
         let list = call(&s, "list_portfolios", json!({})).await.unwrap();
         let main = list["portfolios"].as_array().unwrap().iter().find(|p| p["name"] == "Main").unwrap();
         assert_eq!(main["holdings"][0]["shares"].as_f64(), Some(2.0));
+        assert_eq!(main["yours"], false);
+        assert!(list["portfolios"].as_array().unwrap().iter().any(|p| p["name"] == "Claude" && p["yours"] == true));
 
         let more = s.trading().add_funds(dec!(500)).await.unwrap();
         assert_eq!(more.funded, dec!(1500));

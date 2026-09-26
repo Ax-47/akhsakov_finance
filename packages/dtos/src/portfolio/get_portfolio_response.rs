@@ -7,6 +7,9 @@ pub struct GetPortfolioResponse {
     pub id: Uuid,
     pub name: String,
     pub assets: Vec<GetAssetResponse>,
+    /// Claude manages it itself, with paper money (see `ai_portfolio`).
+    #[serde(default)]
+    pub ai: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default, Deserialize)]

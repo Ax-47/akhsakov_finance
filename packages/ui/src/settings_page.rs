@@ -8,7 +8,7 @@ use crate::{
     files::{print_report, ExportButtons},
     format::fmt_usd,
     hooks::use_portfolio_memo,
-    page::{GhostButton, Page},
+    page::{AiBadge, GhostButton, Page},
 };
 use dioxus::prelude::*;
 use dtos::{
@@ -617,7 +617,7 @@ fn AiPortfolioCard() -> Element {
                 div { class: "grid gap-4 text-sm",
                     div { class: "flex flex-wrap items-center justify-between gap-3",
                         div {
-                            div { class: "font-medium text-ctp-text", "{i.name}" }
+                            div { class: "flex items-center gap-2 font-medium text-ctp-text", "{i.name}" AiBadge {} }
                             div { class: "text-xs text-ctp-subtext0",
                                 {trf("Given {} · cash {} · {} trades", &[&fmt_usd(i.funded, 2), &fmt_usd(i.cash, 2), &i.trades])}
                             }
