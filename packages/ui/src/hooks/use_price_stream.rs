@@ -8,7 +8,11 @@ use dioxus::{
     prelude::*,
 };
 use rust_decimal::Decimal;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 use types::{quote::Quote, ticker_symbol::TickerSymbol};
 
 /// Set when prices come from the saved copy because Yahoo can't be
@@ -54,50 +58,52 @@ pub fn use_price_stream(tickers: Memo<Vec<TickerSymbol>>) -> ReadSignal<HashMap<
     // Latest streamed price per ticker, not yet shown. Not reactive.
     let pending = use_hook(|| Rc::new(RefCell::new(HashMap::<TickerSymbol, Decimal>::new())));
 
-    let incoming = pending.clone();
-    use_future(move || {
-        let incoming = incoming.clone();
-        async move {
-            while let Ok(QuoteUpdateEvent::QuoteUpdate(update)) = socket.recv().await {
-                incoming
-                    .borrow_mut()
-                    .insert(update.ticker_symbol, update.current_price);
-            }
-        }
-    });
-
     use_future(move || {
         let pending = pending.clone();
         async move {
-            loop {
-                crate::notify::poll_delay(FLUSH_MS).await;
-                let updates = std::mem::take(&mut *pending.borrow_mut());
-                if updates.is_empty() {
-                    continue;
-                }
-                // Only write (and so re-render) when a shown price moved.
-                let changed = {
-                    let map = price_map.peek();
-                    updates.iter().any(|(t, p)| {
-                        map.get(t).is_some_and(|q| q.current_price != *p || q.stale)
-                    })
-                };
-                if changed {
-                    price_map.with_mut(|map| {
-                        for (t, p) in updates {
-                            if let Some(old) = map.get_mut(&t) {
-                                old.current_price = p;
-                                old.stale = false;
-                            }
-                        }
+            // A flush is scheduled only while updates wait, so a quiet
+            // market costs nothing (no timer ticking every second).
+            let scheduled = Rc::new(Cell::new(false));
+            while let Ok(QuoteUpdateEvent::QuoteUpdate(update)) = socket.recv().await {
+                pending
+                    .borrow_mut()
+                    .insert(update.ticker_symbol, update.current_price);
+                if !scheduled.replace(true) {
+                    let (pending, scheduled) = (pending.clone(), scheduled.clone());
+                    spawn(async move {
+                        crate::notify::poll_delay(FLUSH_MS).await;
+                        scheduled.set(false);
+                        let updates = std::mem::take(&mut *pending.borrow_mut());
+                        apply(price_map, updates);
                     });
-                }
-                if *OFFLINE.peek() {
-                    *OFFLINE.write() = false;
                 }
             }
         }
     });
 
     price_map.into()
+}
+
+/// Writes streamed prices, only when a shown price moved (every write
+/// re-renders the pages that show prices).
+fn apply(mut price_map: Signal<HashMap<TickerSymbol, Quote>>, updates: HashMap<TickerSymbol, Decimal>) {
+    let changed = {
+        let map = price_map.peek();
+        updates
+            .iter()
+            .any(|(t, p)| map.get(t).is_some_and(|q| q.current_price != *p || q.stale))
+    };
+    if changed {
+        price_map.with_mut(|map| {
+            for (t, p) in updates {
+                if let Some(old) = map.get_mut(&t) {
+                    old.current_price = p;
+                    old.stale = false;
+                }
+            }
+        });
+    }
+    if *OFFLINE.peek() {
+        *OFFLINE.write() = false;
+    }
 }

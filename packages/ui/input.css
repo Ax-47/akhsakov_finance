@@ -19,10 +19,12 @@
 }
 
 /* While the page scrolls, hovering cards and rows under the cursor would
-   repaint and animate on every frame; ignore the pointer until it settles. */
-.is-scrolling,
-.is-scrolling * {
-  pointer-events: none !important;
+   repaint and animate on every frame; ignore the pointer until it settles.
+   Set on <body> only and inherited: a `.is-scrolling *` rule made the
+   webview restyle every element each time scrolling started and stopped,
+   which was itself a big part of the scroll lag on desktop. */
+html.is-scrolling body {
+  pointer-events: none;
 }
 
 /* Printing / Save as PDF: hide controls and chrome, keep cards whole. */

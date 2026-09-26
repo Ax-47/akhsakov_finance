@@ -3290,8 +3290,8 @@
   outline: 2px solid var(--catppuccin-color-mauve);
   outline-offset: 2px;
 }
-.is-scrolling, .is-scrolling * {
-  pointer-events: none !important;
+html.is-scrolling body {
+  pointer-events: none;
 }
 @media print {
   button, input, select, textarea, nav, [role="dialog"], [role="status"], [aria-hidden="true"] {
