@@ -20,6 +20,10 @@ enum Route {
     Calendar {},
     #[route("/economy")]
     Economy {},
+    #[route("/learn")]
+    Learn {},
+    #[route("/learn/:slug")]
+    Lesson { slug: String },
     #[route("/backtest")]
     Backtest {},
     #[route("/watchlist")]
@@ -129,6 +133,20 @@ fn Calendar() -> Element {
 fn Economy() -> Element {
     rsx! {
         ui::EconomyPage {}
+    }
+}
+
+#[component]
+fn Learn() -> Element {
+    rsx! {
+        ui::LearnPage {}
+    }
+}
+
+#[component]
+fn Lesson(slug: String) -> Element {
+    rsx! {
+        ui::LessonPage { slug }
     }
 }
 

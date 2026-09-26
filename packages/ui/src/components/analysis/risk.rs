@@ -588,6 +588,9 @@ fn RiskOverview(
                     }
                 }
             }
+            Link { to: "/learn/volatility", class: "mt-2 inline-block text-xs font-medium text-ctp-mauve hover:underline",
+                {tr("New to these numbers? Learn what they mean →")}
+            }
         }
     }
 }
