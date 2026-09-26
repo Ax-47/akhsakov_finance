@@ -1,7 +1,8 @@
 //! The arithmetic behind the lesson calculators. Rates and returns are
 //! fractions (0.08 = 8%) and volatility is yearly, as in the risk report.
 
-use crate::components::analysis::stats::TRADING_DAYS;
+/// Trading days in a year, the usual rule of thumb for annualising.
+pub const TRADING_DAYS: f64 = 252.0;
 
 /// z-scores of a normal distribution for one-sided 95% and 99%.
 pub const Z_95: f64 = 1.645;
