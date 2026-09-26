@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
 };
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -19,6 +19,10 @@ enum Route {
     Calendar {},
     #[route("/economy")]
     Economy {},
+    #[route("/learn")]
+    Learn {},
+    #[route("/learn/:slug")]
+    Lesson { slug: String },
     #[route("/backtest")]
     Backtest {},
     #[route("/watchlist")]
@@ -90,6 +94,10 @@ fn Shell() -> Element {
                     EconomyIcon {}
                     {ui::i18n::tr("Economy")}
                 }
+                Link { to: Route::Learn {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    LearnIcon {}
+                    {ui::i18n::tr("Learn")}
+                }
                 NavSection { label: ui::i18n::tr("Tools") }
                 Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     BacktestIcon {}
@@ -133,6 +141,20 @@ fn Calendar() -> Element {
 #[component]
 fn Economy() -> Element {
     rsx! { ui::EconomyPage {} }
+}
+
+#[component]
+fn Learn() -> Element {
+    rsx! {
+        ui::LearnPage {}
+    }
+}
+
+#[component]
+fn Lesson(slug: String) -> Element {
+    rsx! {
+        ui::LessonPage { slug }
+    }
 }
 
 #[component]

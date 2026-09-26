@@ -26,13 +26,24 @@ use uuid::Uuid;
 /// A single holding above this share of the portfolio is flagged.
 const CONCENTRATION_WARN_PCT: Decimal = dec!(25);
 
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Tab {
     Overview,
     Income,
     Risk,
     Plan,
     Activity,
+}
+
+thread_local! {
+    /// Tab to show the next time the page opens; see [`open_tab`].
+    static OPEN_TAB: std::cell::Cell<Option<Tab>> = const { std::cell::Cell::new(None) };
+}
+
+/// Opens the portfolio page on `tab`, for links from other pages.
+pub(crate) fn open_tab(tab: Tab) {
+    OPEN_TAB.with(|t| t.set(Some(tab)));
+    navigator().push("/portfolio");
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -59,7 +70,7 @@ pub fn Dashboard() -> Element {
         ticker_price_map,
         ..
     } = use_portfolio(scope());
-    let mut tab = use_signal(|| Tab::Overview);
+    let mut tab = use_signal(|| OPEN_TAB.with(|t| t.take()).unwrap_or(Tab::Overview));
     let dialogs = use_context::<Dialogs>();
     let scope_id = scope().and_then(|id| Uuid::parse_str(&id).ok());
 

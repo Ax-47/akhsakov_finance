@@ -7,6 +7,8 @@ pub use calendar_page::CalendarPage;
 mod economy_page;
 mod income_tab;
 pub use economy_page::EconomyPage;
+mod learn;
+pub use learn::{LearnPage, LessonPage};
 mod market_page;
 pub use market_page::MarketPage;
 mod screener_page;
@@ -19,7 +21,7 @@ mod stock_page;
 mod stock_research;
 mod watchlist_page;
 pub use sidebar::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
 };
 pub use stock_page::StockPage;
 pub use watchlist_page::WatchlistPage;

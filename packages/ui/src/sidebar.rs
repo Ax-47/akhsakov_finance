@@ -248,6 +248,19 @@ pub fn EconomyIcon() -> Element {
     }
 }
 
+/// Open-book "learn" icon.
+#[component]
+pub fn LearnIcon() -> Element {
+    rsx! {
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
+            view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
+            stroke_linecap: "round", stroke_linejoin: "round",
+            path { d: "M10 5.5C8.5 4.2 6.2 3.8 3 4v11c3.2-.2 5.5.2 7 1.5 1.5-1.3 3.8-1.7 7-1.5V4c-3.2-.2-5.5.2-7 1.5z" }
+            path { d: "M10 5.5v11" }
+        }
+    }
+}
+
 /// Star "watchlist" icon.
 #[component]
 pub fn WatchlistIcon() -> Element {

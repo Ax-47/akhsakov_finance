@@ -257,6 +257,9 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
             p { class: "mt-4 text-xs text-ctp-overlay1",
                 "Based on today's weights applied to past daily returns. Risk-free rate {pct(r.risk_free):.1}% (change it in Settings)."
             }
+            Link { to: "/learn/volatility", class: "mt-2 inline-block text-xs font-medium text-ctp-mauve hover:underline",
+                {tr("New to these numbers? Learn what they mean →")}
+            }
         }
     }
 }

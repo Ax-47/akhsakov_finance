@@ -27,8 +27,8 @@ use dtos::fundamentals::{
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use types::ticker_symbol::TickerSymbol;
 
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Tab {
     Summary,
     Statistics,
     Financials,
@@ -37,6 +37,17 @@ enum Tab {
     Ownership,
     Options,
     Compare,
+}
+
+thread_local! {
+    /// Tab to show the next time a stock page opens; see [`open_tab`].
+    static OPEN_TAB: std::cell::Cell<Option<Tab>> = const { std::cell::Cell::new(None) };
+}
+
+/// Opens `ticker`'s page on `tab`, for links from other pages.
+pub(crate) fn open_tab(ticker: &str, tab: Tab) {
+    OPEN_TAB.with(|t| t.set(Some(tab)));
+    navigator().push(format!("/stock/{}", ticker.replace('^', "%5E")));
 }
 
 /// Route target for `/stock/:ticker`.
@@ -63,7 +74,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
             .map(|p| p.ticker.clone())
             .collect::<Vec<_>>()
     });
-    let mut tab = use_signal(|| Tab::Summary);
+    let mut tab = use_signal(|| OPEN_TAB.with(|t| t.take()).unwrap_or(Tab::Summary));
     let dialogs = use_context::<Dialogs>();
     // Compare tab: other stocks, or two measures of this one over time.
     let mut compare_over_time = use_signal(|| false);
@@ -461,6 +472,11 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
             Card {
                 title: tr("Valuation measures"),
                 subtitle: tr("Current, and at each quarter end from reported statements").to_string(),
+                actions: rsx! {
+                    Link { to: "/learn/valuation", class: "text-xs font-medium text-ctp-mauve hover:underline",
+                        {tr("How to read these →")}
+                    }
+                },
                 flush: true,
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-sm whitespace-nowrap",

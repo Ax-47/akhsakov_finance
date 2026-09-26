@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 
 /// Page shortcuts after `g`, as (key, path). Navigation clicks the sidebar
 /// link for the path, so the router handles it like a normal click.
-const PAGES: [(&str, &str, &str); 9] = [
+const PAGES: [(&str, &str, &str); 10] = [
     ("h", "/", "Dashboard"),
     ("p", "/portfolio", "Portfolio"),
     ("w", "/watchlist", "Watchlist"),
@@ -17,6 +17,7 @@ const PAGES: [(&str, &str, &str); 9] = [
     ("s", "/screener", "Screener"),
     ("c", "/calendar", "Calendar"),
     ("e", "/economy", "Economy"),
+    ("l", "/learn", "Learn"),
     ("b", "/backtest", "Backtest"),
     ("o", "/settings", "Settings"),
 ];
