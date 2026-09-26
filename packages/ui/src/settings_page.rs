@@ -13,17 +13,12 @@ use dioxus::prelude::*;
 use dtos::{
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
-    settings::{Settings, CURRENCIES},
+    settings::{Settings, BENCHMARKS, CURRENCIES},
 };
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use types::ticker_symbol::TickerSymbol;
 
-const BENCHMARKS: [(&str, &str); 3] = [
-    ("^GSPC", "S&P 500"),
-    ("^NDX", "Nasdaq 100"),
-    ("^DJI", "Dow Jones"),
-];
 
 #[component]
 pub fn SettingsPage() -> Element {
@@ -144,12 +139,15 @@ pub fn SettingsPage() -> Element {
                                 },
                                 input {
                                     class: "w-full rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm uppercase text-ctp-text placeholder:normal-case placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
-                                    placeholder: if is_preset { "…or any ticker, e.g. VT ↵".to_string() } else { format!("Using {benchmark}") },
+                                    placeholder: if is_preset { tr("…or any ticker, e.g. ^SET50.BK ↵").to_string() } else { crate::i18n::trf("Using {}", &[&benchmark]) },
                                     value: "{custom_benchmark}",
                                     oninput: move |e| custom_benchmark.set(e.value()),
                                 }
                             }
                             p { class: "mt-2 text-xs text-ctp-overlay1", {tr("What your portfolio is compared against in Performance and Risk.")} }
+                            if dtos::settings::is_price_index(benchmark.as_str()) {
+                                p { class: "mt-1 text-xs text-ctp-peach", {tr("An index level leaves out dividends, while your holdings' prices include them, so you'll look better than you are. A fund tracking it (e.g. SPY) is a fairer yardstick.")} }
+                            }
                         }
                         div {
                             div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Assumed yearly return")} }

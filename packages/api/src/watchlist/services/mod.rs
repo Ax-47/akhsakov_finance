@@ -2,7 +2,7 @@
 
 use crate::{shared::ServiceError, watchlist::repositories::WatchlistRepository};
 use dtos::watch::{
-    normalize_tags, Alert, AlertKind, Note, WatchItem, Watchlist, MAX_NOTE_LEN,
+    normalize_tags, Alert, AlertKind, Note, WatchItem, Watchlist, MAX_NOTE_LEN, PORTFOLIO_TICKER,
 };
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -113,7 +113,8 @@ impl WatchlistService {
         Ok(self.repo.alerts()?)
     }
 
-    /// Creates an active alert; its ticker is watched too.
+    /// Creates an active alert; its ticker is watched too. Alerts on all
+    /// holdings ignore `ticker`.
     pub fn create_alert(
         &self,
         ticker: TickerSymbol,
@@ -128,6 +129,16 @@ impl WatchlistService {
                 "A weight can't be over 100%".into(),
             ));
         }
+        if kind.is_portfolio() && value >= Decimal::ONE_HUNDRED {
+            return Err(ServiceError::Validation(
+                "A fall has to be under 100%".into(),
+            ));
+        }
+        let ticker = if kind.is_portfolio() {
+            TickerSymbol::new(PORTFOLIO_TICKER).expect("valid placeholder ticker")
+        } else {
+            ticker
+        };
         let alert = Alert {
             id: Uuid::new_v4(),
             ticker,
@@ -135,8 +146,12 @@ impl WatchlistService {
             value,
             created_at: String::new(),
             triggered_at: None,
+            peak: None,
         };
         self.repo.save_alert(&alert)?;
+        if kind.is_portfolio() {
+            return Ok(alert);
+        }
         if !self.watchlist()?.iter().any(|i| i.ticker == alert.ticker) {
             self.watch(&alert.ticker)?;
         }
@@ -149,6 +164,10 @@ impl WatchlistService {
 
     pub fn mark_triggered(&self, id: Uuid) -> Result<(), ServiceError> {
         Ok(self.repo.mark_triggered(id)?)
+    }
+
+    pub fn set_alert_peak(&self, id: Uuid, peak: Decimal) -> Result<(), ServiceError> {
+        Ok(self.repo.set_alert_peak(id, peak)?)
     }
 
     fn default_list(&self) -> Result<Uuid, ServiceError> {
@@ -296,5 +315,22 @@ mod tests {
 
         s.delete_alert(alert.id).unwrap();
         assert!(s.alerts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn portfolio_alerts_track_their_peak_without_watching_anything() {
+        let s = service();
+        let before = s.watchlist().unwrap().len();
+        let alert = s
+            .create_alert(sym("NVDA"), AlertKind::PortfolioDrawdown, dec!(10))
+            .unwrap();
+        assert_eq!(alert.ticker.as_str(), PORTFOLIO_TICKER);
+        assert_eq!(s.watchlist().unwrap().len(), before, "nothing new is watched");
+        s.set_alert_peak(alert.id, dec!(12345.67)).unwrap();
+        assert_eq!(s.alerts().unwrap()[0].peak, Some(dec!(12345.67)));
+        assert!(matches!(
+            s.create_alert(sym("NVDA"), AlertKind::PortfolioDayDrop, dec!(100)),
+            Err(ServiceError::Validation(_))
+        ));
     }
 }

@@ -23,12 +23,9 @@ const MAX_LINES: usize = 5;
 /// Line colours by position (blue, yellow, mauve, green, peach).
 const LINE_COLORS: [&str; MAX_LINES] = ["var(--catppuccin-color-blue)", "var(--catppuccin-color-yellow)", "var(--catppuccin-color-mauve)", "var(--catppuccin-color-green)", "var(--catppuccin-color-peach)"];
 
-/// Indexes offered in the picker, as (Yahoo symbol, display name).
-const INDEXES: [(&str, &str); 3] = [
-    ("^GSPC", "S&P 500"),
-    ("^NDX", "Nasdaq 100"),
-    ("^DJI", "Dow Jones"),
-];
+// Indexes offered in the picker, as (Yahoo symbol, display name): funds
+// tracking them, so dividends count as they do for your holdings.
+use dtos::settings::BENCHMARKS as INDEXES;
 
 /// What a chart line shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,7 +36,7 @@ pub enum Pick {
     Ticker(TickerSymbol),
 }
 
-/// `portfolios` is `(id, name)`. Compares the S&P 500 with `portfolio`
+/// `portfolios` is `(id, name)`. Compares the benchmark with `portfolio`
 /// (all holdings when `None`); when `portfolio` changes, the holdings line
 /// follows it and any other lines stay.
 #[component]
@@ -396,10 +393,7 @@ fn pick_name(pick: &Pick, portfolios: &[(String, String)]) -> String {
             .iter()
             .find(|(pid, _)| pid == id)
             .map_or_else(|| "Portfolio".into(), |(_, name)| name.clone()),
-        Pick::Ticker(t) => INDEXES
-            .iter()
-            .find(|(sym, _)| *sym == t.as_str())
-            .map_or_else(|| t.to_string(), |(_, name)| name.to_string()),
+        Pick::Ticker(t) => dtos::settings::benchmark_name(t.as_str()),
     }
 }
 

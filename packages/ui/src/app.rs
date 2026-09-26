@@ -27,6 +27,16 @@ impl AppSettings {
         self.0.read().benchmark.clone()
     }
 
+    /// The benchmark's display name, e.g. `S&P 500`.
+    pub fn benchmark_name(&self) -> String {
+        dtos::settings::benchmark_name(self.0.read().benchmark.as_str())
+    }
+
+    /// Display currency code, e.g. `THB`.
+    pub fn currency(&self) -> String {
+        self.0.read().currency.clone()
+    }
+
     /// Switches the display currency and saves it. Every amount on screen
     /// re-renders in the new currency; nothing reloads.
     pub async fn change_currency(mut self, code: &str) -> Result<(), String> {

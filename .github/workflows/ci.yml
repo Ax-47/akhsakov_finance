@@ -78,11 +78,12 @@ jobs:
           cache: npm
           cache-dependency-path: packages/ui/package-lock.json
       - run: npm ci
+      # Same command as `npm run build:css`, which produced the committed file.
       - name: Rebuild tailwind.css
-        run: npx @tailwindcss/cli -i input.css -o assets/tailwind.css
+        run: npm run build:css
       - name: Fail if it changed
         run: |
           git diff --exit-code -- assets/tailwind.css || {
-            echo "::error::packages/ui/assets/tailwind.css is stale. Run 'npx @tailwindcss/cli -i input.css -o assets/tailwind.css' in packages/ui and commit it."
+            echo "::error::packages/ui/assets/tailwind.css is stale. Run 'npm run build:css' in packages/ui and commit it."
             exit 1
           }

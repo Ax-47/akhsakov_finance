@@ -39,7 +39,7 @@ impl Default for Settings {
         Self {
             currency: "USD".into(),
             risk_free: dec!(4),
-            benchmark: TickerSymbol::new("^GSPC").expect("valid benchmark"),
+            benchmark: TickerSymbol::new("SPY").expect("valid benchmark"),
             assumed_return: dec!(7),
         }
     }
@@ -75,9 +75,53 @@ impl Settings {
     }
 }
 
+/// Benchmarks offered in Settings, as (ticker, name). ETFs, so their
+/// prices include dividends as the holdings' do; an index level (`^GSPC`)
+/// leaves them out and makes the portfolio look better than it is.
+pub const BENCHMARKS: [(&str, &str); 4] = [
+    ("SPY", "S&P 500"),
+    ("QQQ", "Nasdaq 100"),
+    ("DIA", "Dow Jones"),
+    ("VT", "World"),
+];
+
+/// Display name of a benchmark ticker, e.g. `S&P 500`; the ticker itself
+/// when it isn't a well-known one.
+pub fn benchmark_name(ticker: &str) -> String {
+    const INDEXES: [(&str, &str); 7] = [
+        ("^GSPC", "S&P 500"),
+        ("^SP500TR", "S&P 500"),
+        ("^NDX", "Nasdaq 100"),
+        ("^DJI", "Dow Jones"),
+        ("^SET.BK", "SET"),
+        ("^SET50.BK", "SET50"),
+        ("^SET100.BK", "SET100"),
+    ];
+    BENCHMARKS
+        .iter()
+        .chain(INDEXES.iter())
+        .find(|(t, _)| t.eq_ignore_ascii_case(ticker))
+        .map_or_else(|| ticker.to_string(), |(_, name)| name.to_string())
+}
+
+/// Whether a benchmark is a price index: its level leaves out dividends,
+/// unlike the (dividend-adjusted) prices of holdings and ETFs.
+pub fn is_price_index(ticker: &str) -> bool {
+    ticker.starts_with('^') && !ticker.to_ascii_uppercase().ends_with("TR")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn benchmarks_have_names() {
+        assert_eq!(benchmark_name("SPY"), "S&P 500");
+        assert_eq!(benchmark_name("^gspc"), "S&P 500");
+        assert_eq!(benchmark_name("^SET50.BK"), "SET50");
+        assert_eq!(benchmark_name("EWJ"), "EWJ");
+        assert!(is_price_index("^GSPC") && !is_price_index("^SP500TR") && !is_price_index("SPY"));
+    }
 
     #[test]
     fn defaults_are_valid_and_checked() {

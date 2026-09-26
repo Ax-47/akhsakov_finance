@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use dtos::{
     fundamentals::StockFundamentals,
-    research::{CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
+    research::{AssetProfile, CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
 };
 use types::ticker_symbol::TickerSymbol;
 
@@ -22,6 +22,8 @@ pub trait ResearchGateway: Send + Sync {
     /// `financial_currency`), without valuation history.
     async fn fundamentals(&self, ticker: &TickerSymbol) -> Result<RawFundamentals, String>;
     async fn news(&self, ticker: &TickerSymbol) -> Result<Vec<NewsItem>, String>;
+    /// Sector and country only: much lighter than [`Self::fundamentals`].
+    async fn profile(&self, ticker: &TickerSymbol) -> Result<AssetProfile, String>;
     async fn rating_changes(&self, ticker: &TickerSymbol) -> Result<Vec<RatingChange>, String>;
     async fn holders(&self, ticker: &TickerSymbol) -> Result<Holders, String>;
     async fn corporate_actions(

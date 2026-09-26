@@ -1,7 +1,7 @@
 use crate::i18n::tr;
 use super::force_graph::ForceGraph;
 use crate::components::{
-    analysis::stats::{correlation_matrix, daily_returns, Returns},
+    analysis::stats::{correlation_matrix, PriceSeries, MIN_SAMPLES},
     card::{Card, Segmented, ToggleButton},
 };
 use api::quote::quote::get_charts;
@@ -11,7 +11,11 @@ use std::collections::HashMap;
 use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
 
 /// Graph of holdings where correlated stocks sit close together and
-/// uncorrelated / inversely correlated ones are pushed apart.
+/// uncorrelated / inversely correlated ones are pushed apart. Holdings in
+/// markets that close at different times are compared a day apart, or a
+/// Bangkok and a New York stock would look unrelated when they aren't.
+/// Holdings without price history are left out (and named) rather than
+/// drawn as unrelated to everything.
 ///
 /// `allocation` is `(ticker, weight %)` in the same order as the allocation
 /// card, so node colours match its legend.
@@ -49,18 +53,23 @@ pub fn CorrelationGraph(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) ->
         }
     });
 
+    // (indices of the holdings shown, their correlations, tickers left out)
     let corr = use_memo(move || {
         let history = history.read();
         let history = history.as_ref()?;
-        let returns: Vec<Returns> = tickers
+        let series: Vec<PriceSeries> = tickers
             .read()
             .iter()
-            .map(|t| history.get(t).map(|c| daily_returns(c)).unwrap_or_default())
+            .map(|t| history.get(t).map(|c| PriceSeries::from_candles(c)).unwrap_or_default())
             .collect();
-        Some(correlation_matrix(&returns))
+        let (shown, missing): (Vec<usize>, Vec<usize>) =
+            (0..series.len()).partition(|&i| series[i].closes.len() > MIN_SAMPLES);
+        let kept: Vec<PriceSeries> = shown.iter().map(|&i| series[i].clone()).collect();
+        Some((shown, correlation_matrix(&kept), missing))
     });
 
-    let tickers_now = tickers();
+    let all_tickers = tickers();
+    let all_weights = weights();
 
     rsx! {
         Card {
@@ -74,17 +83,30 @@ pub fn CorrelationGraph(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) ->
             },
 
             match corr() {
-                _ if tickers_now.len() < 2 => rsx! {
-                    GraphPlaceholder { text: "Need at least two priced holdings" }
+                _ if all_tickers.len() < 2 => rsx! {
+                    GraphPlaceholder { text: tr("Need at least two priced holdings") }
                 },
-                None => rsx! { GraphPlaceholder { text: "Loading price history…" } },
-                Some(corr) => rsx! {
-                    div { class: "flex flex-col lg:flex-row gap-4",
-                        ForceGraph { tickers: tickers_now.clone(), corr: corr.clone(), weights, hovered }
-                        PairList { tickers: tickers_now.clone(), corr, hovered: hovered() }
+                None => rsx! { GraphPlaceholder { text: tr("Loading price history…") } },
+                Some((shown, _, _)) if shown.len() < 2 => rsx! {
+                    GraphPlaceholder { text: tr("Need at least two priced holdings") }
+                },
+                Some((shown, corr, missing)) => {
+                    let tickers_shown: Vec<TickerSymbol> = shown.iter().map(|&i| all_tickers[i].clone()).collect();
+                    let weights_shown: Vec<f64> = shown.iter().map(|&i| all_weights.get(i).copied().unwrap_or(0.0)).collect();
+                    let missing: Vec<String> = missing.iter().map(|&i| all_tickers[i].to_string()).collect();
+                    rsx! {
+                        div { class: "flex flex-col lg:flex-row gap-4",
+                            ForceGraph { tickers: tickers_shown.clone(), corr: corr.clone(), weights: weights_shown, hovered }
+                            PairList { tickers: tickers_shown, corr, hovered: hovered() }
+                        }
+                        GraphLegend {}
+                        if !missing.is_empty() {
+                            p { class: "mt-2 text-xs text-ctp-peach",
+                                {crate::i18n::trf("Not shown (no price history): {}", &[&missing.join(", ")])}
+                            }
+                        }
                     }
-                    GraphLegend {}
-                },
+                }
             }
         }
     }
