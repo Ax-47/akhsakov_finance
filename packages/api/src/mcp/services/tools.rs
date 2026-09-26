@@ -3,7 +3,7 @@
 //! portfolio of its own, look up prices and trade in it. Everything the AI
 //! writes is marked as written by AI.
 
-use super::trading::{Side, Size, Trading};
+use super::trading::{Book as MyBook, Side, Size, Trading};
 use crate::{portfolio::PortfolioService, thesis::ThesisService, watchlist::WatchlistService};
 use dtos::{
     compute_positions,
@@ -37,6 +37,10 @@ pub fn definitions() -> Value {
         "description": "Portfolio name or id. May be left out when there is only one portfolio, or only one holds the ticker."
     });
     let ticker = json!({ "type": "string", "description": "Ticker symbol as the app lists it, e.g. NVDA, PTT.BK." });
+    let mine = json!({
+        "type": "string",
+        "description": "Which of your own portfolios, by name or id. May be left out when you have only one."
+    });
     let read_only = json!({ "readOnlyHint": true, "openWorldHint": false });
     let writes = json!({ "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false });
     json!([
@@ -103,9 +107,9 @@ pub fn definitions() -> Value {
         },
         {
             "name": "get_my_portfolio",
-            "title": "Your own portfolio",
-            "description": "The portfolio the user gave you to manage yourself, with paper money: cash, holdings at live prices, total value, profit against the money you were given, and your recent trades. Amounts are USD.",
-            "inputSchema": { "type": "object", "properties": {} },
+            "title": "Your own portfolios",
+            "description": "The portfolios the user gave you to manage yourself, each with its own paper money: cash, holdings at live prices, total value, profit against the money you were given, and your recent trades. All of them, or the one named. Amounts are USD.",
+            "inputSchema": { "type": "object", "properties": { "portfolio": mine } },
             "annotations": { "readOnlyHint": true, "openWorldHint": true },
         },
         {
@@ -118,10 +122,11 @@ pub fn definitions() -> Value {
         {
             "name": "place_order",
             "title": "Buy or sell in your portfolio",
-            "description": "Buys or sells in your own portfolio (see get_my_portfolio) at the live price, with no fee. It can't trade in the user's other portfolios. Give either `shares` (fractions allowed) or `amount_usd`; to sell everything, pass shares \"all\". The reason goes in the holding's thesis journal.",
+            "description": "Buys or sells in one of your own portfolios (see get_my_portfolio) at the live price, with no fee, using that portfolio's cash. It can't trade in the user's portfolios. Give either `shares` (fractions allowed) or `amount_usd`; to sell everything, pass shares \"all\". The reason goes in the holding's thesis journal.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "portfolio": mine,
                     "ticker": ticker,
                     "side": { "type": "string", "enum": ["buy", "sell"] },
                     "shares": { "type": ["number", "string"], "description": "How many shares, or \"all\" to sell the whole holding." },
@@ -296,7 +301,7 @@ impl Tools {
             "get_thesis" => self.get_thesis(args),
             "save_thesis" => self.save_thesis(args),
             "add_thesis_note" => self.add_note(args),
-            "get_my_portfolio" => self.my_portfolio().await,
+            "get_my_portfolio" => self.my_portfolio(args).await,
             "get_quote" => self.quote(args).await,
             "place_order" => self.place_order(args).await,
             _ => return None,
@@ -468,8 +473,26 @@ impl Tools {
         Ok(json!({ "added": true, "portfolio": p.name, "ticker": ticker.as_str(), "text": entry.text }))
     }
 
-    async fn my_portfolio(&self) -> ToolResult {
-        let book = self.trading.book().map_err(|e| e.to_string())?.ok_or(NO_PORTFOLIO)?;
+    async fn my_portfolio(&self, args: &Value) -> ToolResult {
+        let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+        let books = match wanted {
+            Some(_) => vec![self.trading.book(wanted).map_err(|e| e.to_string())?],
+            None => self.trading.books().map_err(|e| e.to_string())?,
+        };
+        if books.is_empty() {
+            return Err(NO_PORTFOLIO.into());
+        }
+        let mut portfolios = Vec::with_capacity(books.len());
+        for book in &books {
+            portfolios.push(self.book_json(book).await);
+        }
+        Ok(json!({
+            "portfolios": portfolios,
+            "note": "Paper money the user gave you to manage; each portfolio has its own cash. Orders fill at the latest price with no fee, so results are a little better than a real broker's.",
+        }))
+    }
+
+    async fn book_json(&self, book: &MyBook) -> Value {
         let positions = book.positions();
         let mut holdings = Vec::with_capacity(positions.len());
         let mut invested = Decimal::ZERO;
@@ -523,12 +546,11 @@ impl Tools {
             "holdings": holdings,
             "trades": book.trades().count(),
             "recent_trades": recent,
-            "note": "Paper money the user gave you to manage. Orders fill at the latest price with no fee, so results are a little better than a real broker's.",
         });
         if !unpriced.is_empty() {
             out["unpriced_at_cost"] = json!(unpriced);
         }
-        Ok(out)
+        out
     }
 
     async fn quote(&self, args: &Value) -> ToolResult {
@@ -577,7 +599,8 @@ impl Tools {
             (None, Some(v)) => Size::Usd(amount(v, "amount_usd")?),
             (None, None) => return Err("Say how much: `shares` or `amount_usd`.".into()),
         };
-        let fill = self.trading.order(&ticker, side, size).await.map_err(|e| e.to_string())?;
+        let wanted = args.get("portfolio").and_then(Value::as_str);
+        let fill = self.trading.order(wanted, &ticker, side, size).await.map_err(|e| e.to_string())?;
         let tx = &fill.tx;
         let verb = if side == Side::Buy { "Bought" } else { "Sold" };
         let mut entry = format!(
@@ -680,9 +703,9 @@ mod tests {
         let refused = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await;
         assert!(refused.is_err(), "no orders before it has a portfolio");
 
-        let info = s.trading().start(dec!(1000)).await.unwrap();
+        let info = s.trading().start("", dec!(1000)).await.unwrap();
         assert_eq!((info.name.as_str(), info.funded, info.cash), ("Claude", dec!(1000), dec!(1000)));
-        assert!(s.trading().start(dec!(5)).await.is_err(), "only one");
+        assert!(s.trading().start("", dec!(0)).await.is_err(), "needs cash");
 
         let quote = call(&s, "get_quote", json!({"ticker":"PTT.BK"})).await.unwrap();
         assert_eq!((quote["price"].as_f64(), quote["price_usd"].as_f64()), (Some(35.0), Some(1.05)));
@@ -710,7 +733,8 @@ mod tests {
             .unwrap();
         assert_eq!(sold["shares"].as_f64(), Some(2.0));
 
-        let mine = call(&s, "get_my_portfolio", json!({})).await.unwrap();
+        let all = call(&s, "get_my_portfolio", json!({})).await.unwrap();
+        let mine = &all["portfolios"][0];
         assert_eq!(mine["portfolio"]["name"], "Claude");
         assert_eq!(mine["trades"], 3);
         assert_eq!(mine["recent_trades"][0]["side"], "sell");
@@ -734,10 +758,45 @@ mod tests {
         assert_eq!(main["yours"], false);
         assert!(list["portfolios"].as_array().unwrap().iter().any(|p| p["name"] == "Claude" && p["yours"] == true));
 
-        let more = s.trading().add_funds(dec!(500)).await.unwrap();
+        let more = s.trading().add_funds(info.portfolio_id, dec!(500)).await.unwrap();
         assert_eq!(more.funded, dec!(1500));
-        s.trading().stop().unwrap();
-        assert!(s.trading().info().unwrap().is_none());
+        s.trading().stop(info.portfolio_id).unwrap();
+        assert!(s.trading().infos().unwrap().is_empty());
         assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.is_err());
+        assert!(s.trading().add_funds(info.portfolio_id, dec!(5)).await.is_err(), "not Claude's any more");
+    }
+
+    #[tokio::test]
+    async fn each_portfolio_trades_with_its_own_cash() {
+        let s = service();
+        let us = s.trading().start("US growth", dec!(500)).await.unwrap();
+        let thai = s.trading().start("", dec!(100)).await.unwrap();
+        assert_eq!(thai.name, "Claude");
+        assert!(s.trading().start("main", dec!(5)).await.is_err(), "names stay unique");
+
+        let unsure = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
+        assert!(unsure.contains("US growth") && unsure.contains("Claude"), "{unsure}");
+        assert!(call(&s, "place_order", json!({"portfolio":"Main","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.is_err(), "not the user's");
+
+        // $200 fits the US portfolio's $500 but not the other's $100.
+        call(&s, "place_order", json!({"portfolio":"us growth","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap();
+        let broke = call(&s, "place_order", json!({"portfolio":"Claude","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
+        assert!(broke.contains("you have $100"), "{broke}");
+        let sell = call(&s, "place_order", json!({"portfolio":"Claude","ticker":"NVDA","side":"sell","shares":1,"reason":"x"})).await.unwrap_err();
+        assert!(sell.contains("don't hold"), "holdings are per portfolio too: {sell}");
+
+        let all = call(&s, "get_my_portfolio", json!({})).await.unwrap();
+        let cash = |name: &str| {
+            let p = all["portfolios"].as_array().unwrap().iter().find(|p| p["portfolio"]["name"] == name).unwrap();
+            p["cash"].as_f64().unwrap()
+        };
+        assert_eq!((cash("US growth"), cash("Claude")), (300.0, 100.0));
+        let one = call(&s, "get_my_portfolio", json!({"portfolio": us.portfolio_id.to_string()})).await.unwrap();
+        assert_eq!(one["portfolios"].as_array().unwrap().len(), 1);
+
+        s.trading().stop(us.portfolio_id).unwrap();
+        // One left: it needn't be named.
+        call(&s, "place_order", json!({"ticker":"PTT.BK","side":"buy","amount_usd":50,"reason":"x"})).await.unwrap();
+        assert_eq!(s.trading().infos().unwrap().len(), 1);
     }
 }

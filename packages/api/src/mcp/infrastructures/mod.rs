@@ -54,22 +54,22 @@ impl SqliteAiPortfolioRepository {
 }
 
 impl AiPortfolioRepository for SqliteAiPortfolioRepository {
-    fn ai_portfolio(&self) -> Result<Option<Uuid>, RepositoryError> {
-        let id: Option<String> = self.db.with(|c| {
-            c.query_row("SELECT portfolio_id FROM ai_portfolio WHERE id = 1", [], |r| r.get(0))
-                .optional()
+    fn ai_portfolios(&self) -> Result<Vec<Uuid>, RepositoryError> {
+        let ids: Vec<String> = self.db.with(|c| {
+            c.prepare("SELECT portfolio_id FROM ai_portfolios ORDER BY created_at, rowid")?
+                .query_map([], |r| r.get(0))?
+                .collect()
         })?;
-        Ok(id.and_then(|id| Uuid::parse_str(&id).ok()))
+        Ok(ids.iter().filter_map(|id| Uuid::parse_str(id).ok()).collect())
     }
 
-    fn set_ai_portfolio(&self, id: Option<Uuid>) -> Result<(), RepositoryError> {
-        self.db.with(|c| match id {
-            Some(id) => c.execute(
-                "INSERT OR REPLACE INTO ai_portfolio (id, portfolio_id, created_at) VALUES (1, ?1, datetime('now'))",
-                [id.to_string()],
-            ),
-            None => c.execute("DELETE FROM ai_portfolio", []),
-        })?;
+    fn add_ai_portfolio(&self, id: Uuid) -> Result<(), RepositoryError> {
+        self.db.with(|c| c.execute("INSERT OR IGNORE INTO ai_portfolios (portfolio_id) VALUES (?1)", [id.to_string()]))?;
+        Ok(())
+    }
+
+    fn remove_ai_portfolio(&self, id: Uuid) -> Result<(), RepositoryError> {
+        self.db.with(|c| c.execute("DELETE FROM ai_portfolios WHERE portfolio_id = ?1", [id.to_string()]))?;
         Ok(())
     }
 }

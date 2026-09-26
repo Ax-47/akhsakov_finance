@@ -1,5 +1,5 @@
-//! The portfolio Claude manages itself through the connector, with paper
-//! money you give it.
+//! Portfolios Claude manages itself through the connector, each with the
+//! paper money you give it.
 
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;

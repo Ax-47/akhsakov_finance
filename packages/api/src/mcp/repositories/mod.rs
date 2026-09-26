@@ -9,11 +9,13 @@ pub trait KeyRepository: Send + Sync {
     fn set_key(&self, key: Option<&str>) -> Result<(), RepositoryError>;
 }
 
-/// Which portfolio, if any, Claude manages itself.
+/// Which portfolios Claude manages itself.
 pub trait AiPortfolioRepository: Send + Sync {
-    fn ai_portfolio(&self) -> Result<Option<uuid::Uuid>, RepositoryError>;
-    /// `None` hands the portfolio back to you; it and its trades stay.
-    fn set_ai_portfolio(&self, id: Option<uuid::Uuid>) -> Result<(), RepositoryError>;
+    /// Oldest first.
+    fn ai_portfolios(&self) -> Result<Vec<uuid::Uuid>, RepositoryError>;
+    fn add_ai_portfolio(&self, id: uuid::Uuid) -> Result<(), RepositoryError>;
+    /// Hands the portfolio back to you; it and its trades stay.
+    fn remove_ai_portfolio(&self, id: uuid::Uuid) -> Result<(), RepositoryError>;
 }
 
 /// A live price to trade at, in the instrument's own currency.

@@ -1,6 +1,6 @@
-//! Claude's own portfolio: paper money you give it, which it trades through
-//! the connector at live prices. Orders only ever go into that portfolio;
-//! your other portfolios stay read-only to the AI.
+//! Claude's own portfolios: paper money you give it, each with its own
+//! cash, which it trades through the connector at live prices. Orders only
+//! ever go into those portfolios; yours stay read-only to the AI.
 
 use crate::{
     mcp::repositories::{AiPortfolioRepository, LivePrices, LiveQuote},
@@ -153,74 +153,97 @@ impl Trading {
         }
     }
 
-    /// Claude's portfolio, or `None` if you haven't given it one.
-    pub fn book(&self) -> Result<Option<Book>, ServiceError> {
-        let Some(id) = self.repo.ai_portfolio()? else {
-            return Ok(None);
-        };
+    /// Every portfolio you've given Claude, oldest first.
+    pub fn books(&self) -> Result<Vec<Book>, ServiceError> {
+        let ids = self.repo.ai_portfolios()?;
         let dash = self.portfolios.dashboard()?;
-        let Some(p) = dash.portfolios.iter().find(|p| p.id == id) else {
-            return Ok(None);
-        };
-        Ok(Some(Book {
-            id,
-            name: p.name.clone(),
-            transactions: dash
-                .transactions
-                .into_iter()
-                .filter(|t| t.portfolio_id == id)
-                .collect(),
-        }))
+        Ok(dash
+            .portfolios
+            .iter()
+            .filter(|p| ids.contains(&p.id))
+            .map(|p| Book {
+                id: p.id,
+                name: p.name.clone(),
+                transactions: dash
+                    .transactions
+                    .iter()
+                    .filter(|t| t.portfolio_id == p.id)
+                    .cloned()
+                    .collect(),
+            })
+            .collect())
     }
 
-    fn required_book(&self) -> Result<Book, ServiceError> {
-        self.book()?.ok_or_else(|| {
-            invalid(
+    /// The portfolio of Claude's named by `wanted` (name or id), or the
+    /// only one when it's left out.
+    pub fn book(&self, wanted: Option<&str>) -> Result<Book, ServiceError> {
+        let mut books = self.books()?;
+        if books.is_empty() {
+            return Err(invalid(
                 "You don't have a portfolio of your own yet. The user can give you one, with starting \
                  cash, in the app under Settings → Connect Claude.",
-            )
-        })
-    }
-
-    pub fn info(&self) -> Result<Option<AiPortfolioInfo>, ServiceError> {
-        Ok(self.book()?.map(|b| b.info()))
-    }
-
-    /// Makes a new portfolio for Claude with `starting_cash` USD in it.
-    pub async fn start(&self, starting_cash: Decimal) -> Result<AiPortfolioInfo, ServiceError> {
-        check_amount(starting_cash)?;
-        if self.book()?.is_some() {
-            return Err(invalid("Claude already has a portfolio. Add funds to it instead."));
+            ));
         }
-        let taken: Vec<String> = self
-            .portfolios
-            .dashboard()?
-            .portfolios
-            .into_iter()
-            .map(|p| p.name.to_lowercase())
-            .collect();
-        let name = std::iter::once(AI_PORTFOLIO_NAME.to_string())
-            .chain((2..).map(|n| format!("{AI_PORTFOLIO_NAME} {n}")))
-            .find(|n| !taken.contains(&n.to_lowercase()))
-            .expect("some name is free");
+        let names = || books.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ");
+        match wanted.map(str::trim).filter(|w| !w.is_empty()) {
+            Some(w) => match books
+                .iter()
+                .position(|b| b.id.to_string() == w || b.name.eq_ignore_ascii_case(w))
+            {
+                Some(i) => Ok(books.swap_remove(i)),
+                None => Err(invalid(format!("None of your portfolios is called “{w}”. Yours are: {}.", names()))),
+            },
+            None if books.len() == 1 => Ok(books.remove(0)),
+            None => Err(invalid(format!("Say which of your portfolios: {}.", names()))),
+        }
+    }
+
+    pub fn infos(&self) -> Result<Vec<AiPortfolioInfo>, ServiceError> {
+        Ok(self.books()?.iter().map(Book::info).collect())
+    }
+
+    fn info_of(&self, id: Uuid) -> Result<AiPortfolioInfo, ServiceError> {
+        self.book(Some(&id.to_string())).map(|b| b.info())
+    }
+
+    /// Makes a new portfolio for Claude with `starting_cash` USD in it,
+    /// called `name` (or "Claude", "Claude 2" … when it's blank).
+    pub async fn start(&self, name: &str, starting_cash: Decimal) -> Result<AiPortfolioInfo, ServiceError> {
+        check_amount(starting_cash)?;
+        let name = match name.trim() {
+            "" => {
+                let taken: Vec<String> = self
+                    .portfolios
+                    .dashboard()?
+                    .portfolios
+                    .into_iter()
+                    .map(|p| p.name.to_lowercase())
+                    .collect();
+                std::iter::once(AI_PORTFOLIO_NAME.to_string())
+                    .chain((2..).map(|n| format!("{AI_PORTFOLIO_NAME} {n}")))
+                    .find(|n| !taken.contains(&n.to_lowercase()))
+                    .expect("some name is free")
+            }
+            name => name.to_string(),
+        };
         let id = self.portfolios.create_portfolio(&name)?;
         self.portfolios.save_transaction(cash_tx(id, starting_cash)).await?;
-        self.repo.set_ai_portfolio(Some(id))?;
-        Ok(self.required_book()?.info())
+        self.repo.add_ai_portfolio(id)?;
+        self.info_of(id)
     }
 
-    /// Gives Claude more cash to invest.
-    pub async fn add_funds(&self, amount: Decimal) -> Result<AiPortfolioInfo, ServiceError> {
+    /// Gives one of Claude's portfolios more cash to invest.
+    pub async fn add_funds(&self, id: Uuid, amount: Decimal) -> Result<AiPortfolioInfo, ServiceError> {
         check_amount(amount)?;
-        let book = self.required_book()?;
+        let book = self.book(Some(&id.to_string()))?;
         self.portfolios.save_transaction(cash_tx(book.id, amount)).await?;
-        Ok(self.required_book()?.info())
+        self.info_of(id)
     }
 
-    /// Takes the portfolio back: Claude can't trade in it any more. It and
+    /// Takes a portfolio back: Claude can't trade in it any more. It and
     /// its history stay, as an ordinary portfolio.
-    pub fn stop(&self) -> Result<(), ServiceError> {
-        Ok(self.repo.set_ai_portfolio(None)?)
+    pub fn stop(&self, id: Uuid) -> Result<(), ServiceError> {
+        Ok(self.repo.remove_ai_portfolio(id)?)
     }
 
     pub async fn quote(&self, ticker: &TickerSymbol) -> Result<LiveQuote, ServiceError> {
@@ -229,9 +252,16 @@ impl Trading {
         })
     }
 
-    /// Buys or sells in Claude's portfolio at the live price, with no fee.
-    pub async fn order(&self, ticker: &TickerSymbol, side: Side, size: Size) -> Result<Fill, ServiceError> {
-        let book = self.required_book()?;
+    /// Buys or sells in one of Claude's portfolios at the live price, with
+    /// no fee. Each portfolio trades with its own cash.
+    pub async fn order(
+        &self,
+        portfolio: Option<&str>,
+        ticker: &TickerSymbol,
+        side: Side,
+        size: Size,
+    ) -> Result<Fill, ServiceError> {
+        let book = self.book(portfolio)?;
         if ticker.as_str() == CASH_TICKER || !is_convertible(ticker.as_str()) {
             return Err(invalid("Only stocks, funds and other assets can be traded, not cash, indices or currency pairs."));
         }

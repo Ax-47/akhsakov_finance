@@ -96,8 +96,8 @@ impl PortfolioRepository for SqlitePortfolioRepository {
     fn portfolios(&self) -> Result<Vec<PortfolioRecord>, RepositoryError> {
         let rows: Vec<(String, String, bool)> = self.db.with(|c| {
             c.prepare(
-                "SELECT p.id, p.name, a.id IS NOT NULL FROM portfolios p
-                 LEFT JOIN ai_portfolio a ON a.portfolio_id = p.id
+                "SELECT p.id, p.name, a.portfolio_id IS NOT NULL FROM portfolios p
+                 LEFT JOIN ai_portfolios a ON a.portfolio_id = p.id
                  ORDER BY p.created_at, p.name",
             )?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
