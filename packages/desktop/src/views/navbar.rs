@@ -8,6 +8,7 @@ use ui::{
 #[component]
 pub fn Navbar() -> Element {
     rsx! {
+        KeepLinksInApp {}
         Sidebar {
             links: rsx! {
                 NavSection { label: ui::i18n::tr("Your money") }
@@ -53,4 +54,36 @@ pub fn Navbar() -> Element {
             Outlet::<Route> {}
         }
     }
+}
+
+/// Safety net for in-app links. When a click on an `<a>` isn't taken by the
+/// router (the event didn't reach `Link`'s handler), Dioxus desktop hands the
+/// href to the system browser, which opens `/portfolio` as
+/// file:///portfolio ("File not found"). In-app paths are routed here
+/// instead; other links still open in the browser.
+#[component]
+fn KeepLinksInApp() -> Element {
+    #[cfg(all(feature = "desktop", not(feature = "server")))]
+    use_future(|| async {
+        let mut channel = document::eval(
+            r#"const i = window.interpreter;
+               const open = i.handleClickNavigate;
+               i.handleClickNavigate = function (event, target) {
+                   const a = target.closest("a");
+                   const href = a && a.getAttribute("href");
+                   if (href && href.startsWith("/") && !href.startsWith("//")) {
+                       event.preventDefault();
+                       try { dioxus.send(href); return; } catch (_) { i.handleClickNavigate = open; }
+                   }
+                   return open.call(this, event, target);
+               };
+               await new Promise(() => {});"#,
+        );
+        while let Ok(href) = channel.recv::<String>().await {
+            if let Ok(route) = href.parse::<Route>() {
+                navigator().push(route);
+            }
+        }
+    });
+    rsx! {}
 }
