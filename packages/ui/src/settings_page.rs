@@ -169,6 +169,7 @@ pub fn SettingsPage() -> Element {
                 Appearance {}
                 crate::auth::SecurityCard {}
                 NotificationSettings {}
+                ConnectorCard {}
                 Card { title: tr("Your data"),
                     div { class: "grid gap-4 text-sm",
                         DataRow { label: tr("Transactions"), hint: tr("Every trade, dividend and cash movement. Re-importable."),
@@ -412,6 +413,157 @@ fn Appearance() -> Element {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// The AI connector: lets Claude (claude.ai, the Claude apps, Claude Code)
+/// read your portfolios and theses and add to the journals, over MCP.
+#[component]
+fn ConnectorCard() -> Element {
+    let mut key = use_signal(|| None::<String>);
+    let mut loaded = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut address = use_signal(String::new);
+    let mut confirm = use_signal(|| None::<&'static str>);
+    use_future(move || async move {
+        match api::get_connector_key().await {
+            Ok(k) => key.set(k),
+            Err(e) => error.set(Some(e.to_string())),
+        }
+        loaded.set(true);
+        // The desktop app talks to its own server; in a browser, the page's
+        // own address is the server.
+        let server = dioxus::fullstack::get_server_url();
+        address.set(if server.is_empty() {
+            document::eval("return window.location.origin;").join::<String>().await.unwrap_or_default()
+        } else {
+            server.to_string()
+        });
+    });
+    let message = |e: ServerFnError| match e {
+        ServerFnError::ServerError { message, .. } => message,
+        e => e.to_string(),
+    };
+    let new_key = move |_| async move {
+        confirm.set(None);
+        match api::new_connector_key().await {
+            Ok(k) => {
+                key.set(Some(k));
+                error.set(None);
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    let turn_off = move |_| async move {
+        confirm.set(None);
+        match api::turn_off_connector().await {
+            Ok(()) => key.set(None),
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    let base = address().trim().trim_end_matches('/').to_string();
+    rsx! {
+        Card {
+            title: tr("Connect Claude"),
+            subtitle: tr("Let Claude read your portfolios and theses, and add what it learns to the journals. Works with Claude Pro.").to_string(),
+            if !loaded() {
+                p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
+            } else if let Some(k) = key() {
+                div { class: "grid gap-4 text-sm",
+                    Field {
+                        label: tr("Address Claude uses"),
+                        hint: tr("claude.ai needs an https address it can reach over the internet, e.g. a Cloudflare Tunnel or Tailscale Funnel to this app. Claude Code and Claude Desktop on this computer can use the local address."),
+                        input {
+                            class: INPUT,
+                            value: "{address}",
+                            oninput: move |e| address.set(e.value()),
+                        }
+                    }
+                    ConnectorRow {
+                        label: tr("claude.ai and the Claude apps"),
+                        hint: tr("Customize → Connectors → Add custom connector, and paste this URL. Leave the OAuth fields empty."),
+                        shown: format!("{base}/mcp/{}", masked(&k)),
+                        copy: format!("{base}/mcp/{k}"),
+                    }
+                    ConnectorRow {
+                        label: tr("Claude Code"),
+                        hint: tr("Run this in a terminal."),
+                        shown: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"", masked(&k)),
+                        copy: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\""),
+                    }
+                    ConnectorRow {
+                        label: tr("Claude Desktop, config file"),
+                        hint: tr("Settings → Developer → Edit Config, add this under mcpServers, then restart Claude. Needs Node.js."),
+                        shown: format!("\"akhsakov\": {{ \"command\": \"npx\", \"args\": [\"-y\", \"mcp-remote\", \"{base}/mcp/{}\"] }}", masked(&k)),
+                        copy: format!("\"akhsakov\": {{ \"command\": \"npx\", \"args\": [\"-y\", \"mcp-remote\", \"{base}/mcp/{k}\"] }}"),
+                    }
+                    p { class: "text-xs text-ctp-peach",
+                        {tr("The address holds your key: anyone who has it can read your portfolios and change your theses. Keep it private; make a new key if it leaks.")}
+                    }
+                    div { class: "flex flex-wrap items-center gap-2",
+                        match confirm() {
+                            Some("new") => rsx! {
+                                span { class: "text-xs text-ctp-peach", {tr("Claude will need the new address. Continue?")} }
+                                GhostButton { label: tr("Make a new key"), onclick: new_key }
+                                GhostButton { label: tr("Cancel"), onclick: move |_| confirm.set(None) }
+                            },
+                            Some(_) => rsx! {
+                                span { class: "text-xs text-ctp-peach", {tr("Claude will lose access. Continue?")} }
+                                GhostButton { label: tr("Turn off"), onclick: turn_off }
+                                GhostButton { label: tr("Cancel"), onclick: move |_| confirm.set(None) }
+                            },
+                            None => rsx! {
+                                GhostButton { label: tr("New key"), onclick: move |_| confirm.set(Some("new")) }
+                                GhostButton { label: tr("Turn off"), onclick: move |_| confirm.set(Some("off")) }
+                            },
+                        }
+                    }
+                }
+            } else {
+                div { class: "flex flex-wrap items-center justify-between gap-3 text-sm",
+                    p { class: "max-w-xl text-ctp-subtext0",
+                        {tr("Claude connects through MCP with a private key. Until you turn it on, nothing outside the app can reach your data this way.")}
+                    }
+                    ActionButton { label: tr("Turn on"), onclick: new_key }
+                }
+            }
+            if let Some(e) = error() {
+                p { class: "mt-3 text-sm text-ctp-red", "{e}" }
+            }
+        }
+    }
+}
+
+/// The key with all but its last four characters hidden.
+fn masked(key: &str) -> String {
+    format!("••••{}", &key[key.len().saturating_sub(4)..])
+}
+
+/// One way to connect: what to paste where, with a copy button.
+#[component]
+fn ConnectorRow(label: String, hint: String, shown: String, copy: String) -> Element {
+    let mut copied = use_signal(|| None::<bool>);
+    rsx! {
+        div { class: "border-t border-ctp-surface0/60 pt-4",
+            div { class: "font-medium text-ctp-text", "{label}" }
+            div { class: "text-xs text-ctp-subtext0", "{hint}" }
+            div { class: "mt-2 flex items-start gap-2",
+                code { class: "min-w-0 flex-1 break-all rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-2 font-mono text-xs text-ctp-subtext1",
+                    "{shown}"
+                }
+                GhostButton {
+                    label: match copied() {
+                        Some(true) => tr("Copied ✓"),
+                        Some(false) => tr("Couldn't copy"),
+                        None => tr("Copy"),
+                    },
+                    onclick: move |_| {
+                        let text = copy.clone();
+                        spawn(async move { copied.set(Some(crate::files::copy_to_clipboard(&text).await)) });
+                    },
                 }
             }
         }
