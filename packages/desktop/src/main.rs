@@ -41,7 +41,14 @@ fn main() {
         // it's opt-in with AKHSAKOV_FAST_RENDERING=1.
         let fast = std::env::var("AKHSAKOV_FAST_RENDERING").is_ok_and(|v| v == "1");
         dioxus::LaunchBuilder::new()
-            .with_cfg(dioxus::desktop::Config::new().with_disable_dma_buf_on_wayland(!fast))
+            .with_cfg(
+                dioxus::desktop::Config::new()
+                    .with_disable_dma_buf_on_wayland(!fast)
+                    // Parts of the page not painted yet (while it loads, or
+                    // when scrolling outruns painting on the fast path) show
+                    // this colour: Mocha's base instead of flashing white.
+                    .with_background_color((0x1e, 0x1e, 0x2e, 0xff)),
+            )
             .launch(App);
     }
     #[cfg(not(any(feature = "desktop", feature = "server")))]

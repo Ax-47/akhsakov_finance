@@ -19,6 +19,7 @@ pub const NAV_LINK_ACTIVE: &str = "bg-ctp-surface0! text-ctp-text! [&_svg]:text-
 #[component]
 pub fn Sidebar(links: Element, children: Element) -> Element {
     rsx! {
+        crate::vim::VimRouter {}
         // The page itself scrolls (with a sticky sidebar): browsers scroll the
         // document much more smoothly than a scrolling box inside it.
         div { class: "{crate::theme::theme_class()} flex min-h-screen flex-col bg-ctp-base text-ctp-text md:flex-row print:block",
