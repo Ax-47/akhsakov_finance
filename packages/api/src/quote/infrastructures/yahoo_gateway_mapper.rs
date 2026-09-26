@@ -6,6 +6,7 @@ use yfinance_rs::{
 };
 
 use crate::quote::infrastructures::yahoo_gateway_error::YahooGateWayError;
+use rust_decimal::prelude::ToPrimitive;
 
 pub fn to_yinterval(value: Interval) -> YInterval {
     match value {
@@ -77,13 +78,22 @@ pub fn to_yrange(value: Range) -> YRange {
 }
 
 pub fn to_candle(c: YCandle) -> Candle {
+    let close = c.ohlc.close.into_inner();
+    // Traded close vs the adjusted one, so real trade prices and the
+    // broker's (unadjusted) chart can be matched to these prices.
+    let adj_factor = c
+        .close_unadj
+        .map(|raw| raw.into_inner())
+        .filter(|raw| *raw > Decimal::ZERO)
+        .and_then(|raw| (close / raw).to_f64());
     Candle {
         ts: c.ts,
         open: c.ohlc.open.into_inner(),
         high: c.ohlc.high.into_inner(),
         low: c.ohlc.low.into_inner(),
-        close: c.ohlc.close.into_inner(),
-        volume: None,
+        close,
+        volume: c.volume.and_then(|v| v.as_decimal().to_u64()),
+        adj_factor,
     }
 }
 

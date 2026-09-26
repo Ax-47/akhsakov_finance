@@ -6,6 +6,11 @@
 //! * Holdings (all, or one portfolio) use a time-weighted return: trades are
 //!   cash flows at their actual price, so buying moves the value but not the
 //!   return line, while the fill-to-close move on the trade day still counts.
+//! * Prices are adjusted for splits and dividends (so a line is the total
+//!   return). Trades are put on the same footing: recorded splits restate
+//!   earlier trades in today's shares, and each fill price is scaled by that
+//!   day's dividend adjustment. Otherwise buying a stock that later split or
+//!   paid dividends showed as a loss on the day you bought it.
 //! * A ticker is simply its price change.
 
 use crate::components::analysis::stats::{civil_from_days, days_from_civil, MONTHS};
@@ -125,6 +130,8 @@ struct PriceGrid<'a> {
     index_of: HashMap<&'a TickerSymbol, usize>,
     /// `closes[step][ticker]`
     closes: Vec<Vec<Option<f64>>>,
+    /// Per ticker: (unix time, dividend adjustment) of each candle.
+    adjustments: Vec<Vec<(i64, f64)>>,
 }
 
 impl<'a> PriceGrid<'a> {
@@ -167,11 +174,35 @@ impl<'a> PriceGrid<'a> {
             })
             .collect();
 
+        let adjustments = tickers
+            .iter()
+            .map(|t| {
+                let mut points: Vec<(i64, f64)> = charts[*t]
+                    .iter()
+                    .map(|c| (c.ts.timestamp(), c.adjustment()))
+                    .collect();
+                points.sort_by_key(|p| p.0);
+                points
+            })
+            .collect();
+
         Self {
             timeline,
             index_of: tickers.iter().enumerate().map(|(i, t)| (*t, i)).collect(),
             closes,
+            adjustments,
         }
+    }
+
+    /// The dividend adjustment of ticker `i` for a trade at `ts`: that of
+    /// the first candle at or after it (the trade day's), else the last.
+    fn adjustment(&self, i: usize, ts: i64) -> f64 {
+        let points = &self.adjustments[i];
+        let at = points.partition_point(|p| p.0 < ts);
+        points
+            .get(at)
+            .or_else(|| points.last())
+            .map_or(1.0, |p| p.1)
     }
 
     /// Index of the first timestamp on the last (UTC) trading day. US
@@ -239,7 +270,14 @@ impl Raw {
 
 /// Time-weighted growth of a set of transactions.
 fn holdings(prices: &PriceGrid, transactions: &[Transaction]) -> Raw {
-    // Trades as (unix time, ticker index, share delta, price), oldest first.
+    // Recorded splits per ticker, as (date, ratio).
+    let splits: Vec<(&TickerSymbol, &str, f64)> = transactions
+        .iter()
+        .filter(|tx| tx.transaction_type == TransactionType::Split)
+        .filter_map(|tx| Some((&tx.ticker, tx.date.as_str(), tx.shares.to_f64().filter(|r| *r > 0.0)?)))
+        .collect();
+    // Trades as (unix time, ticker index, share delta, price), oldest first,
+    // in today's (split-adjusted) shares at dividend-adjusted prices.
     let mut trades: Vec<(i64, usize, f64, f64)> = transactions
         .iter()
         .filter_map(|tx| {
@@ -248,11 +286,17 @@ fn holdings(prices: &PriceGrid, transactions: &[Transaction]) -> Raw {
                 TransactionType::Sell => -1.0,
                 _ => return None,
             };
+            let (ts, i) = (date_to_unix(&tx.date)?, *prices.index_of.get(&tx.ticker)?);
+            let split: f64 = splits
+                .iter()
+                .filter(|(t, date, _)| *t == &tx.ticker && *date > tx.date.as_str())
+                .map(|(_, _, ratio)| ratio)
+                .product();
             Some((
-                date_to_unix(&tx.date)?,
-                *prices.index_of.get(&tx.ticker)?,
-                sign * tx.shares.to_f64()?,
-                tx.usd_price().to_f64()?,
+                ts,
+                i,
+                sign * tx.shares.to_f64()? * split,
+                tx.usd_price().to_f64()? / split * prices.adjustment(i, ts),
             ))
         })
         .collect();
@@ -348,6 +392,7 @@ mod tests {
                     low: close,
                     close,
                     volume: None,
+                    adj_factor: None,
                 }
             })
             .collect()
@@ -432,6 +477,45 @@ mod tests {
     }
 
     #[test]
+    fn a_later_split_does_not_look_like_a_loss() {
+        let (spx, aaa) = (sym("^GSPC"), sym("AAA"));
+        // Split-adjusted history: $400 before the 4-for-1 split shows as $100.
+        let charts = HashMap::from([
+            (spx.clone(), candles(&[100.0, 100.0, 100.0, 100.0])),
+            (aaa.clone(), candles(&[100.0, 100.0, 100.0, 110.0])),
+        ]);
+        let mut split = buy(&aaa, START + 2, 4, 0.0);
+        split.transaction_type = TransactionType::Split;
+        let txs = vec![buy(&aaa, START + 1, 10, 400.0), split];
+        let cmp = compare(&charts, &[Subject::Holdings(txs)], LabelStyle::Date, false);
+        assert!(cmp.lines[0].values.iter().all(|v| *v >= 0.0), "{:?}", cmp.lines[0].values);
+        assert!(close(cmp.lines[0].change(), 10.0));
+        // 40 shares rose $10 each.
+        assert!(close(cmp.lines[0].gain.unwrap(), 400.0));
+    }
+
+    #[test]
+    fn dividend_adjusted_prices_meet_the_real_fill() {
+        let aaa = sym("AAA");
+        // Adjusted closes are 3% below the traded ones until a later dividend.
+        let mut history = candles(&[97.0, 97.0, 97.0, 100.0]);
+        for c in &mut history[..3] {
+            c.adj_factor = Some(0.97);
+        }
+        let charts = HashMap::from([(aaa.clone(), history)]);
+        // Bought at the traded price of 100 on day 1.
+        let cmp = compare(
+            &charts,
+            &[Subject::Holdings(vec![buy(&aaa, START + 1, 1, 100.0)])],
+            LabelStyle::Date,
+            false,
+        );
+        // No −3% on the trade day; the dividend counts in the total return.
+        assert!(close(cmp.lines[0].values[1], 0.0), "{:?}", cmp.lines[0].values);
+        assert!(close(cmp.lines[0].change(), (100.0 / 97.0 - 1.0) * 100.0));
+    }
+
+    #[test]
     fn compares_portfolios_and_single_stocks() {
         let (aaa, bbb) = (sym("AAA"), sym("BBB"));
         let charts = HashMap::from([
@@ -475,6 +559,7 @@ mod tests {
                         low: close,
                         close,
                         volume: None,
+                        adj_factor: None,
                     }
                 })
             })

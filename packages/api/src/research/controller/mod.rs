@@ -4,8 +4,9 @@
 use dioxus::prelude::*;
 use dtos::{
     fundamentals::StockFundamentals,
-    research::{CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
+    research::{AssetProfile, CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
 };
+use std::collections::HashMap;
 use types::ticker_symbol::TickerSymbol;
 
 #[cfg(feature = "server")]
@@ -17,6 +18,15 @@ use dioxus::server::axum::Extension;
 #[post("/api/research/fundamentals", service: Extension<ResearchService>)]
 pub async fn get_fundamentals(ticker: TickerSymbol) -> Result<StockFundamentals, ServerFnError> {
     Ok(service.fundamentals(&ticker).await?)
+}
+
+/// Sector and country of each ticker (for exposure breakdowns); tickers
+/// Yahoo can't describe are left out.
+#[post("/api/research/profiles", service: Extension<ResearchService>)]
+pub async fn get_profiles(
+    tickers: Vec<TickerSymbol>,
+) -> Result<HashMap<TickerSymbol, AssetProfile>, ServerFnError> {
+    Ok(service.profiles(&tickers).await)
 }
 
 #[post("/api/research/news", service: Extension<ResearchService>)]

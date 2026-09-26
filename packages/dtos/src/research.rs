@@ -3,6 +3,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// What a holding is, for grouping a portfolio by sector and country.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AssetProfile {
+    /// e.g. "Technology"; `None` for funds and unknowns.
+    pub sector: Option<String>,
+    /// Where the company is based, e.g. "Thailand".
+    pub country: Option<String>,
+    /// A fund or ETF rather than a single company.
+    pub fund: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewsItem {
     pub title: String,

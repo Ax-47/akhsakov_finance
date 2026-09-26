@@ -6,8 +6,8 @@ use crate::research::repositories::{RawFundamentals, ResearchGateway};
 use async_trait::async_trait;
 use dtos::{
     research::{
-        humanize, CorporateAction, Holders, InsiderTrade, Institution, NewsItem, OptionChainView,
-        OptionQuote, RatingChange,
+        humanize, AssetProfile, CorporateAction, Holders, InsiderTrade, Institution, NewsItem,
+        OptionChainView, OptionQuote, RatingChange,
     },
 };
 use rust_decimal::prelude::ToPrimitive;
@@ -43,6 +43,26 @@ fn debug_name(v: impl std::fmt::Debug) -> String {
 impl ResearchGateway for YahooResearchGateway {
     async fn fundamentals(&self, ticker: &TickerSymbol) -> Result<RawFundamentals, String> {
         fundamentals::fetch(&self.client, ticker.as_str()).await
+    }
+
+    async fn profile(&self, ticker: &TickerSymbol) -> Result<AssetProfile, String> {
+        let profile = self
+            .ticker(ticker)
+            .profile()
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(match profile {
+            yfinance_rs::Profile::Company(c) => AssetProfile {
+                sector: c.sector,
+                country: c.address.and_then(|a| a.country),
+                fund: false,
+            },
+            yfinance_rs::Profile::Fund(_) => AssetProfile {
+                fund: true,
+                ..AssetProfile::default()
+            },
+            _ => AssetProfile::default(),
+        })
     }
 
     async fn news(&self, ticker: &TickerSymbol) -> Result<Vec<NewsItem>, String> {

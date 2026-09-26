@@ -57,6 +57,9 @@ pub fn normalize_tags(tags: &[String]) -> Vec<String> {
     out
 }
 
+/// Ticker stored on alerts about all holdings together.
+pub const PORTFOLIO_TICKER: &str = "$PORTFOLIO";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AlertKind {
     /// Price rises to or above `value`.
@@ -67,15 +70,27 @@ pub enum AlertKind {
     DayMove,
     /// The holding grows to at least `value` percent of all holdings.
     WeightAbove,
+    /// All holdings together fall at least `value` percent today.
+    PortfolioDayDrop,
+    /// All holdings together fall `value` percent or more below their
+    /// highest value since the alert was set.
+    PortfolioDrawdown,
 }
 
 impl AlertKind {
-    pub const ALL: [AlertKind; 4] = [
+    pub const ALL: [AlertKind; 6] = [
         Self::PriceAbove,
         Self::PriceBelow,
         Self::DayMove,
         Self::WeightAbove,
+        Self::PortfolioDayDrop,
+        Self::PortfolioDrawdown,
     ];
+
+    /// Whether the alert watches all holdings rather than one ticker.
+    pub fn is_portfolio(self) -> bool {
+        matches!(self, Self::PortfolioDayDrop | Self::PortfolioDrawdown)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -83,6 +98,8 @@ impl AlertKind {
             Self::PriceBelow => "Price falls below",
             Self::DayMove => "Moves more than (% today)",
             Self::WeightAbove => "Weight in portfolio above (%)",
+            Self::PortfolioDayDrop => "All holdings fall more than (% today)",
+            Self::PortfolioDrawdown => "All holdings fall from their peak by (%)",
         }
     }
 }
@@ -94,6 +111,8 @@ impl fmt::Display for AlertKind {
             Self::PriceBelow => "price_below",
             Self::DayMove => "day_move",
             Self::WeightAbove => "weight_above",
+            Self::PortfolioDayDrop => "portfolio_day_drop",
+            Self::PortfolioDrawdown => "portfolio_drawdown",
         })
     }
 }
@@ -117,6 +136,9 @@ pub struct Alert {
     pub created_at: String,
     /// When it fired; `None` while still active.
     pub triggered_at: Option<String>,
+    /// Drawdown alerts: highest value of all holdings seen since it was set.
+    #[serde(default)]
+    pub peak: Option<Decimal>,
 }
 
 impl Alert {
@@ -137,6 +159,23 @@ impl Alert {
             AlertKind::PriceBelow => price.is_some_and(|p| p > Decimal::ZERO && p <= self.value),
             AlertKind::DayMove => day_pct.is_some_and(|d| d.abs() >= self.value),
             AlertKind::WeightAbove => weight_pct.is_some_and(|w| w >= self.value),
+            AlertKind::PortfolioDayDrop | AlertKind::PortfolioDrawdown => false,
+        }
+    }
+
+    /// For alerts on all holdings: whether the condition holds for today's
+    /// change (%) of their total value and that value, measured against
+    /// [`Self::peak`].
+    pub fn is_met_by_portfolio(&self, day_pct: Option<Decimal>, value: Option<Decimal>) -> bool {
+        match self.kind {
+            AlertKind::PortfolioDayDrop => day_pct.is_some_and(|d| -d >= self.value),
+            AlertKind::PortfolioDrawdown => match (value, self.peak) {
+                (Some(v), Some(peak)) if peak > Decimal::ZERO => {
+                    (peak - v) / peak * Decimal::ONE_HUNDRED >= self.value
+                }
+                _ => false,
+            },
+            _ => false,
         }
     }
 
@@ -148,6 +187,8 @@ impl Alert {
             AlertKind::PriceBelow => format!("{} price below ${v}", self.ticker),
             AlertKind::DayMove => format!("{} moves more than {v}% in a day", self.ticker),
             AlertKind::WeightAbove => format!("{} over {v}% of your holdings", self.ticker),
+            AlertKind::PortfolioDayDrop => format!("All holdings down {v}% or more in a day"),
+            AlertKind::PortfolioDrawdown => format!("All holdings {v}% or more below their peak"),
         }
     }
 }
@@ -165,6 +206,7 @@ mod tests {
             value,
             created_at: "2026-01-01".into(),
             triggered_at: None,
+            peak: None,
         }
     }
 
@@ -185,6 +227,21 @@ mod tests {
 
         let weight = alert(AlertKind::WeightAbove, dec!(25));
         assert!(weight.is_met(None, None, Some(dec!(30))));
+    }
+
+    #[test]
+    fn portfolio_conditions() {
+        let drop = alert(AlertKind::PortfolioDayDrop, dec!(2));
+        assert!(drop.is_met_by_portfolio(Some(dec!(-2.5)), None));
+        assert!(!drop.is_met_by_portfolio(Some(dec!(2.5)), None), "a rise isn't a drop");
+        assert!(!drop.is_met(None, Some(dec!(-5)), None), "not a ticker alert");
+
+        let mut dd = alert(AlertKind::PortfolioDrawdown, dec!(10));
+        assert!(!dd.is_met_by_portfolio(None, Some(dec!(80))), "no peak yet");
+        dd.peak = Some(dec!(100));
+        assert!(!dd.is_met_by_portfolio(None, Some(dec!(91))));
+        assert!(dd.is_met_by_portfolio(None, Some(dec!(90))));
+        assert!(AlertKind::PortfolioDrawdown.is_portfolio() && !AlertKind::DayMove.is_portfolio());
     }
 
     #[test]

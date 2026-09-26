@@ -1,13 +1,16 @@
 //! Interactive price chart for one stock: candles or line, moving averages,
 //! Bollinger bands, volume, and an RSI or MACD pane. Indicators are
 //! computed here (see `dtos::technicals`); `stock_chart.js` draws them.
+//!
+//! Prices are the ones actually traded, in the stock's own currency, as a
+//! broker shows them: converting a Thai stock's history to dollars (or
+//! back) at each day's rate would mix exchange-rate moves into the price,
+//! and dividend-adjusted history would put past prices, and so the moving
+//! averages and bands, below where the stock really traded.
 
 use crate::i18n::tr;
-use crate::{
-    components::card::{Card, Segmented, ToggleButton},
-    format::display_currency,
-};
-use api::quote::quote::get_chart;
+use crate::components::card::{Card, Segmented, ToggleButton};
+use api::quote::quote::get_native_chart;
 use dioxus::prelude::*;
 use dtos::technicals::{bollinger, ema, macd, rsi, sma};
 use rust_decimal::prelude::ToPrimitive;
@@ -100,7 +103,7 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
         let t = t.clone();
         async move {
             let (range, interval) = span().fetch();
-            get_chart(t, range, interval, false).await.map_err(|e| e.to_string())
+            get_native_chart(t, range, interval).await.map_err(|e| e.to_string())
         }
     });
 
@@ -113,10 +116,10 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
 
     let id = chart_id.clone();
     use_effect(move || {
-        let Some(Ok(candles)) = &*history.read() else {
+        let Some(Ok((candles, currency))) = &*history.read() else {
             return;
         };
-        let cfg = chart_config(candles, span(), candles_style(), overlays(), lower());
+        let cfg = chart_config(candles, currency_symbol(currency), span(), candles_style(), overlays(), lower());
         // The chart scripts may still be loading the first time.
         let script = format!(
             "for (let i = 0; i < 200 && !(window.StockChart && window.StockChart.init && window.GrowthChart); i++)
@@ -133,9 +136,9 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
     let o = overlays();
     let unit = if span() == Span::Y5 { "weeks" } else { "days" };
     let status = match &*history.read() {
-        None => Some("Loading chart…".to_string()),
+        None => Some(tr("Loading chart…").to_string()),
         Some(Err(e)) => Some(crate::i18n::trf("Couldn't load prices: {}", &[e])),
-        Some(Ok(c)) if c.is_empty() => Some("No price history.".to_string()),
+        Some(Ok((c, _))) if c.is_empty() => Some(tr("No price history.").to_string()),
         _ => None,
     };
 
@@ -200,18 +203,29 @@ fn Chip(label: String, color: &'static str, on: bool, onclick: EventHandler<Mous
     }
 }
 
-/// Everything the chart draws, in the display currency.
+/// Symbol for a currency code, e.g. `฿` for THB; the code itself when
+/// there's no short symbol.
+fn currency_symbol(code: &str) -> String {
+    dtos::settings::CURRENCIES
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map_or_else(|| format!("{code} "), |(_, symbol)| symbol.to_string())
+}
+
+/// Everything the chart draws. `candles` are in the stock's currency
+/// (`symbol`) and adjusted for dividends; they're drawn as traded.
 fn chart_config(
     candles: &[Candle],
+    symbol: String,
     span: Span,
     candle_style: bool,
     o: Overlays,
     lower: Lower,
 ) -> Value {
-    let (symbol, rate) = display_currency();
-    let px = |d: rust_decimal::Decimal| d.to_f64().unwrap_or(0.0) * rate;
+    // Undo the dividend adjustment, back to the price that traded.
+    let px = |d: rust_decimal::Decimal, c: &Candle| d.to_f64().unwrap_or(0.0) / c.adjustment();
     let dates: Vec<String> = candles.iter().map(|c| c.ts.date_naive().to_string()).collect();
-    let close: Vec<f64> = candles.iter().map(|c| px(c.close)).collect();
+    let close: Vec<f64> = candles.iter().map(|c| px(c.close, c)).collect();
     let round = |v: Option<f64>| v.map(|x| (x * 1e4).round() / 1e4);
     let line = |v: Vec<Option<f64>>| v.into_iter().map(round).collect::<Vec<_>>();
 
@@ -270,7 +284,7 @@ fn chart_config(
     json!({
         "dates": dates,
         // ECharts candlesticks are [open, close, low, high].
-        "ohlc": candles.iter().map(|c| [px(c.open), px(c.close), px(c.low), px(c.high)].map(|v| (v * 1e4).round() / 1e4)).collect::<Vec<_>>(),
+        "ohlc": candles.iter().map(|c| [px(c.open, c), px(c.close, c), px(c.low, c), px(c.high, c)].map(|v| (v * 1e4).round() / 1e4)).collect::<Vec<_>>(),
         "close": close.iter().map(|v| (v * 1e4).round() / 1e4).collect::<Vec<_>>(),
         "volume": candles.iter().map(|c| c.volume.unwrap_or(0)).collect::<Vec<_>>(),
         "up": candles.iter().map(|c| c.close >= c.open).collect::<Vec<_>>(),
@@ -299,6 +313,7 @@ mod tests {
                     low: p - Decimal::ONE,
                     close: p + Decimal::new(5, 1),
                     volume: Some(1000),
+                    adj_factor: None,
                 }
             })
             .collect()
@@ -308,7 +323,7 @@ mod tests {
     fn config_lines_up_every_series_and_zooms_to_the_span() {
         let c = candles(400);
         let o = Overlays { sma20: true, sma50: false, sma200: true, ema20: false, bollinger: true };
-        let cfg = chart_config(&c, Span::M3, true, o, Lower::Macd);
+        let cfg = chart_config(&c, "$".into(), Span::M3, true, o, Lower::Macd);
         assert_eq!(cfg["ohlc"].as_array().unwrap().len(), 400);
         let overlays = cfg["overlays"].as_array().unwrap();
         assert_eq!(overlays.len(), 4, "SMA 20, SMA 200 and two bands");
@@ -318,5 +333,18 @@ mod tests {
         // Three months of 400 days: the view starts about 77% in.
         let zoom = cfg["zoomStart"].as_f64().unwrap();
         assert!((75.0..80.0).contains(&zoom), "{zoom}");
+    }
+
+    #[test]
+    fn draws_prices_as_traded() {
+        let mut c = candles(2);
+        c[0].adj_factor = Some(0.5);
+        let o = Overlays { sma20: false, sma50: false, sma200: false, ema20: false, bollinger: false };
+        let cfg = chart_config(&c, "฿".into(), Span::M1, false, o, Lower::None);
+        // 100.5 adjusted at half is 201 as traded; the next day is as is.
+        assert_eq!(cfg["close"][0], 201.0);
+        assert_eq!(cfg["close"][1], 101.5);
+        assert_eq!(currency_symbol("THB"), "฿");
+        assert_eq!(currency_symbol("XYZ"), "XYZ ");
     }
 }

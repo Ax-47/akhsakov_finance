@@ -32,9 +32,11 @@ pub trait AlertStore: Send + Sync {
     fn active_alerts(&self) -> Result<Vec<Alert>, String>;
     /// `Ok(false)` if it had already fired (e.g. another check got there first).
     fn mark_fired(&self, id: Uuid) -> Result<bool, String>;
+    /// Remembers the highest value a drawdown alert has seen.
+    fn save_peak(&self, id: Uuid, peak: Decimal) -> Result<(), String>;
 }
 
-/// Holdings, for weight alerts.
+/// Holdings, for weight and whole-portfolio alerts.
 pub trait HoldingsSource: Send + Sync {
     fn dashboard(&self) -> Result<GetDashBoardResponse, String>;
 }

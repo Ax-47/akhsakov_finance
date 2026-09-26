@@ -129,7 +129,7 @@ pub fn BacktestPage() -> Element {
                     {tr("Backtest")}
                 }
                 p { class: "mt-2 text-sm text-ctp-subtext0",
-                    {tr("How a mix of stocks or funds would have done, investing a lump sum and a monthly amount. Uses monthly prices; dividends aren't reinvested.")}
+                    {tr("How a mix of stocks or funds would have done, investing a lump sum and a monthly amount. Uses monthly prices with dividends reinvested (an index benchmark such as ^GSPC leaves them out).")}
                 }
             }
 
@@ -356,7 +356,7 @@ async fn simulate(
     Ok(Outcome {
         mix,
         benchmark: benchmark_result,
-        benchmark_name: if benchmark.as_str() == "^GSPC" { "S&P 500".into() } else { benchmark.to_string() },
+        benchmark_name: dtos::settings::benchmark_name(benchmark.as_str()),
         note: (!late.is_empty()).then(|| crate::i18n::trf("Not listed yet at the start: {}. Until then the others take their share.", &[&late.join(", ")])),
     })
 }

@@ -316,6 +316,8 @@ const MIGRATIONS: &[&str] = &[
         created_at  TEXT NOT NULL DEFAULT (datetime('now')),
         expires_at  TEXT NOT NULL
     );",
+    // 8: highest value seen by portfolio drawdown alerts
+    "ALTER TABLE alerts ADD COLUMN peak TEXT;",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
