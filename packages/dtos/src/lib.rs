@@ -17,3 +17,4 @@ pub mod technicals;
 pub mod insights;
 pub mod notifications;
 pub mod auth;
+pub mod thesis;

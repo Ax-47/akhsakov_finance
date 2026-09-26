@@ -45,6 +45,7 @@ mod notify;
 mod page;
 mod plan_tab;
 mod search;
+mod thesis;
 
 mod dashboard;
 pub use dashboard::Dashboard;

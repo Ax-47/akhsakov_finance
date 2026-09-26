@@ -197,6 +197,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                         }
                         StockReport { ticker: ticker.clone() }
                         Peers { ticker: ticker.clone() }
+                        crate::thesis::StockTheses { ticker: ticker.clone() }
                         NotesCard { ticker: ticker.clone() }
                     }
                 },

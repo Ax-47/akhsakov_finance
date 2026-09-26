@@ -63,6 +63,14 @@ pub fn is_convertible(ticker: &str) -> bool {
     !ticker.starts_with('^') && !ticker.ends_with("=X")
 }
 
+/// The day an FX candle's close belongs to. FX days start at midnight
+/// London time, 23:00 UTC in summer, so the UTC date would be a day early
+/// and every price would convert at the next day's rate.
+#[cfg(feature = "server")]
+pub fn fx_day(ts: chrono::DateTime<chrono::Utc>) -> NaiveDate {
+    (ts + chrono::Duration::hours(6)).date_naive()
+}
+
 /// Rate on `date`: the last close on or before it, else the earliest one.
 #[cfg(feature = "server")]
 pub fn rate_on(series: &[(NaiveDate, Decimal)], date: NaiveDate) -> Option<Decimal> {
@@ -215,6 +223,20 @@ impl QuoteService {
         Ok(candles)
     }
 
+    /// Candles in the currency the instrument trades in, and that currency.
+    pub async fn native_chart(
+        &self,
+        ticker: TickerSymbol,
+        range: Range,
+        interval: Interval,
+    ) -> Result<(Vec<Candle>, String), QuoteGateWayError> {
+        let (candles, code) = tokio::join!(
+            self.fetch_chart(ticker.clone(), range, interval, false),
+            self.currency_of(&ticker)
+        );
+        Ok((candles?, code?))
+    }
+
     /// A streamed price in USD; `None` if the rate isn't available.
     pub async fn to_usd(&self, mut update: QuoteUpdate) -> Option<QuoteUpdate> {
         if !is_convertible(&update.ticker_symbol) {
@@ -268,7 +290,8 @@ impl QuoteService {
         Ok(rate)
     }
 
-    /// Ten years of daily USD rates for `code`, oldest first.
+    /// Every daily USD rate for `code` Yahoo has, oldest first (so old
+    /// candles, e.g. for crisis scenarios, convert at their own rate).
     async fn daily_rates(
         &self,
         code: &str,
@@ -279,12 +302,12 @@ impl QuoteService {
             }
         }
         let candles = self
-            .fetch_chart(fx_pair(code)?, Range::Y10, Interval::D1, false)
+            .fetch_chart(fx_pair(code)?, Range::Max, Interval::D1, false)
             .await?;
         let mut series: Vec<(NaiveDate, Decimal)> = candles
             .into_iter()
             .filter(|c| c.close > Decimal::ZERO)
-            .map(|c| (c.ts.date_naive(), c.close))
+            .map(|c| (fx_day(c.ts), c.close))
             .collect();
         series.sort_by_key(|(d, _)| *d);
         if series.is_empty() {
@@ -343,6 +366,7 @@ mod tests {
                 low: dec!(1),
                 close: dec!(2),
                 volume: None,
+                adj_factor: None,
             }])
         }
         async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
@@ -393,5 +417,15 @@ mod tests {
         assert_eq!(rate_on(&series, d("2025-12-01")), Some(dec!(0.030)), "before history");
         assert_eq!(rate_on(&[], d("2026-01-01")), None);
         assert!(is_convertible("PTT.BK") && !is_convertible("^GSPC") && !is_convertible("USDTHB=X"));
+    }
+
+    #[test]
+    fn fx_candles_belong_to_the_london_day() {
+        use chrono::TimeZone;
+        let at = |h: u32| chrono::Utc.with_ymd_and_hms(2026, 7, 5, h, 0, 0).unwrap();
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        // Monday's candle opens Sunday 23:00 UTC in summer, 00:00 in winter.
+        assert_eq!(fx_day(at(23)), d("2026-07-06"));
+        assert_eq!(fx_day(at(0)), d("2026-07-05"));
     }
 }

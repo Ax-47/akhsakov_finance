@@ -1,8 +1,8 @@
-//! Per-stock analysis: returns, risk vs the S&P 500, 52-week range, trend
+//! Per-stock analysis: returns, risk vs the benchmark, 52-week range, trend
 //! and momentum, a 1-year chart against the market, and your position.
 
 use crate::i18n::tr;
-use super::stats::{daily_returns, RiskReport};
+use super::stats::{PriceSeries, RiskReport};
 use crate::{
     components::{
         card::{Card, MetricTile},
@@ -14,7 +14,6 @@ use crate::{
     format::{fmt_signed, fmt_usd, signed_color},
     hooks::{use_portfolio, PortfolioState},
 };
-use api::quote::quote::get_charts;
 use dioxus::prelude::*;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
@@ -40,9 +39,15 @@ pub struct StockStats {
 }
 
 impl StockStats {
-    /// `candles` and `market` are daily candles covering about a year.
+    /// `candles` are daily candles covering about a year; `stock` and
+    /// `market` the same history in the display currency, for risk.
     /// `risk_free` is the annual rate as a fraction.
-    pub fn compute(candles: &[Candle], market: &[Candle], risk_free: f64) -> Option<Self> {
+    pub fn compute(
+        candles: &[Candle],
+        stock: &PriceSeries,
+        market: &PriceSeries,
+        risk_free: f64,
+    ) -> Option<Self> {
         let mut sorted: Vec<&Candle> = candles.iter().collect();
         sorted.sort_by_key(|c| c.ts);
         let closes: Vec<f64> = sorted
@@ -70,12 +75,7 @@ impl StockStats {
             sma50: sma(&closes, 50),
             sma200: sma(&closes, 200),
             rsi14: rsi(&closes, 14),
-            risk: RiskReport::compute(
-                &[daily_returns(candles)],
-                &[1.0],
-                &daily_returns(market),
-                risk_free,
-            ),
+            risk: RiskReport::compute(std::slice::from_ref(stock), &[1.0], 0.0, market, risk_free),
         })
     }
 
@@ -141,26 +141,33 @@ pub fn open_stock(ticker: &TickerSymbol) {
 }
 
 /// Price-based analysis of one stock: signals, returns, a year vs the
-/// S&P 500, risk, range & trend, and your position.
+/// benchmark, risk, range & trend, and your position.
 #[component]
 pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
     let app_settings = use_context::<crate::app::AppSettings>();
     let (benchmark, risk_free) = (app_settings.benchmark(), app_settings.risk_free());
-    let (symbol, key) = (ticker.clone(), format!("stock-report/{ticker}/{benchmark}"));
+    let currency = app_settings.currency();
+    let bench_name = app_settings.benchmark_name();
+    let (symbol, key) = (ticker.clone(), format!("stock-report/{ticker}/{benchmark}/{currency}"));
     let data = crate::cache::use_cached(move || key.clone(), move || {
         let ticker = symbol.clone();
-        let benchmark = benchmark.clone();
+        let (benchmark, currency) = (benchmark.clone(), currency.clone());
         async move {
             let market = benchmark.clone();
-            let charts = get_charts(
-                vec![ticker.clone(), market.clone()],
+            let (history, charts) = super::risk::fetch_history_and_charts(
+                vec![ticker.clone()],
+                market.clone(),
+                currency,
                 Range::Y1,
                 Interval::D1,
-                false,
             )
-            .await
-            .ok()?;
-            let stats = StockStats::compute(charts.get(&ticker)?, charts.get(&market)?, risk_free)?;
+            .await?;
+            let stats = StockStats::compute(
+                charts.get(&ticker)?,
+                history.holdings.first()?,
+                &history.market,
+                risk_free,
+            )?;
             let cmp = compare(
                 &charts,
                 &[Subject::Ticker(ticker.clone()), Subject::Ticker(market)],
@@ -191,7 +198,7 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
                         .unwrap_or_default(),
                 },
                 Series {
-                    name: "S&P 500".into(),
+                    name: bench_name.clone(),
                     color: MARKET_HEX.into(),
                     values: cmp
                         .lines
@@ -203,11 +210,11 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
             rsx! {
                 div { class: "grid gap-5 min-w-0",
                     ReportHeader { stats: stats.clone() }
-                    Card { title: tr("Past year vs S&P 500"), subtitle: tr("Both start at 0%").to_string(),
+                    Card { title: crate::i18n::trf("Past year vs {}", &[&bench_name]), subtitle: tr("Both start at 0%").to_string(),
                         document::Script { src: asset!("/assets/js/growth_chart.js") }
                         GrowthChart { chart_dates: cmp.labels.clone(), series, height: dec!(220) }
                     }
-                    RiskTiles { stats: stats.clone() }
+                    RiskTiles { stats: stats.clone(), bench: bench_name.clone() }
                     div { class: "grid gap-5 md:grid-cols-2",
                         RangeAndTrend { stats: stats.clone() }
                         PositionCard { ticker: ticker.clone() }
@@ -297,7 +304,7 @@ fn ReportHeader(stats: StockStats) -> Element {
 }
 
 #[component]
-fn RiskTiles(stats: StockStats) -> Element {
+fn RiskTiles(stats: StockStats, bench: String) -> Element {
     let Some(r) = stats.risk else {
         return rsx! {};
     };
@@ -324,18 +331,18 @@ fn RiskTiles(stats: StockStats) -> Element {
             MetricTile {
                 label: tr("Volatility"),
                 value: format!("{:.1}%", pct(r.volatility)),
-                hint: crate::i18n::trf("Yearly swing · S&P {}%", &[&format!("{:.1}", pct(r.market_volatility))]),
+                hint: crate::i18n::trf("Yearly swing · {} {}%", &[&bench, &format!("{:.1}", pct(r.market_volatility))]),
                 tone: vol_tone,
             }
             MetricTile {
                 label: tr("Beta"),
                 value: format!("{:.2}", r.beta),
-                hint: crate::i18n::trf("Correlation {} with the S&P", &[&format!("{:.2}", r.market_correlation)]),
+                hint: crate::i18n::trf("Correlation {} with the {}", &[&format!("{:.2}", r.market_correlation), &bench]),
             }
             MetricTile {
                 label: tr("Max drawdown"),
                 value: format!("−{:.1}%", pct(r.max_drawdown)),
-                hint: crate::i18n::trf("Worst fall · S&P −{}%", &[&format!("{:.1}", pct(r.market_max_drawdown))]),
+                hint: crate::i18n::trf("Worst fall · {} −{}%", &[&bench, &format!("{:.1}", pct(r.market_max_drawdown))]),
                 tone: dd_tone,
             }
             MetricTile {

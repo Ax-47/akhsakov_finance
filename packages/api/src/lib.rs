@@ -39,6 +39,12 @@ pub use settings::controller::*;
 pub mod watchlist;
 pub use watchlist::controller::*;
 
+pub mod thesis;
+pub use thesis::controller::*;
+
+pub mod mcp;
+pub use mcp::controller::*;
+
 /// Adds every context's service to the router, sharing one database.
 #[cfg(feature = "server")]
 pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::axum::Router {
@@ -58,9 +64,11 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
     let economy = economy::economy_services_setup();
     warm_up(market.clone(), economy.clone());
     let auth = auth::auth_services_setup(db.clone());
+    let theses = thesis::thesis_services_setup(db.clone());
+    let connector = mcp::mcp_services_setup(db.clone(), theses.clone(), portfolio.clone(), watchlist.clone());
     // Layers wrap what's added before them: the sign-in check runs first,
     // then the services are attached.
-    let router = router
+    let router = mcp::routes(router, connector.clone())
         .layer(Extension(auth.clone()))
         .layer(Extension(quotes))
         .layer(Extension(research::research_services_setup(fx.clone())))
@@ -69,6 +77,8 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         .layer(Extension(market.clone()))
         .layer(Extension(portfolio))
         .layer(Extension(watchlist))
+        .layer(Extension(theses))
+        .layer(Extension(connector))
         .layer(Extension(notifications))
         .layer(Extension(planning::planning_services_setup(db.clone())))
         .layer(Extension(settings::settings_services_setup(db)));

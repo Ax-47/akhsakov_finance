@@ -1,7 +1,7 @@
 //! SQLite storage shared by every repository: one connection, versioned
 //! migrations, and a sample portfolio on first run.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -97,7 +97,8 @@ impl Database {
     }
 
     /// A consistent copy of the whole database as SQLite file bytes,
-    /// without sign-in sessions (a backup must not carry live tokens).
+    /// without sign-in sessions or the AI connector's key (a backup must
+    /// not carry live tokens).
     pub fn export(&self) -> Result<Vec<u8>, DatabaseError> {
         let path = std::env::temp_dir().join(format!("akhsakov-export-{}.db", uuid::Uuid::new_v4()));
         let result = (|| {
@@ -105,6 +106,7 @@ impl Database {
             {
                 let copy = Connection::open(&path)?;
                 copy.execute("DELETE FROM sessions", [])?;
+                copy.execute("DELETE FROM mcp_access", [])?;
                 copy.execute_batch("VACUUM")?;
             }
             std::fs::read(&path).map_err(|e| DatabaseError::File(e.to_string()))
@@ -148,12 +150,13 @@ impl Database {
     }
 }
 
-/// Accounts and sessions of the running server. A restore keeps them: a
-/// backup can't remove sign-in (by holding no accounts), add accounts, or
-/// bring back old sessions.
+/// Accounts, sessions and the AI connector's key of the running server. A
+/// restore keeps them: a backup can't remove sign-in (by holding no
+/// accounts), add accounts, bring back old sessions or swap the key.
 struct Accounts {
     users: Vec<(String, String, String)>,
     sessions: Vec<(String, String, String, String)>,
+    connector: Option<String>,
 }
 
 impl Accounts {
@@ -166,13 +169,24 @@ impl Accounts {
             .prepare("SELECT token, username, created_at, expires_at FROM sessions")?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Self { users, sessions })
+        let connector = conn
+            .query_row("SELECT token FROM mcp_access WHERE id = 1", [], |r| r.get(0))
+            .optional()?;
+        Ok(Self {
+            users,
+            sessions,
+            connector,
+        })
     }
 
     /// Replaces the restored accounts with these. With no accounts here
     /// (a fresh install), the backup's accounts stay, minus any sessions.
     fn write(&self, conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("DELETE FROM sessions", [])?;
+        conn.execute("DELETE FROM mcp_access", [])?;
+        if let Some(token) = &self.connector {
+            conn.execute("INSERT INTO mcp_access (id, token) VALUES (1, ?1)", [token])?;
+        }
         if self.users.is_empty() {
             return Ok(());
         }
@@ -315,6 +329,38 @@ const MIGRATIONS: &[&str] = &[
         username    TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
         created_at  TEXT NOT NULL DEFAULT (datetime('now')),
         expires_at  TEXT NOT NULL
+    );",
+    // 8: highest value seen by portfolio drawdown alerts
+    "ALTER TABLE alerts ADD COLUMN peak TEXT;",
+    // 9: a thesis per holding of each portfolio, its journal, and the key
+    // that lets an AI assistant in through the MCP connector
+    "CREATE TABLE theses (
+        portfolio_id  TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        ticker        TEXT NOT NULL,
+        thesis        TEXT NOT NULL DEFAULT '',
+        exit_if       TEXT NOT NULL DEFAULT '',
+        target_price  TEXT,
+        conviction    INTEGER,
+        review_on     TEXT,
+        status        TEXT NOT NULL DEFAULT 'OnTrack',
+        updated_by    TEXT NOT NULL DEFAULT 'You',
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (portfolio_id, ticker)
+    );
+    CREATE TABLE thesis_log (
+        id            TEXT PRIMARY KEY,
+        portfolio_id  TEXT NOT NULL,
+        ticker        TEXT NOT NULL,
+        author        TEXT NOT NULL,
+        text          TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (portfolio_id, ticker) REFERENCES theses(portfolio_id, ticker) ON DELETE CASCADE
+    );
+    CREATE INDEX thesis_log_holding ON thesis_log(portfolio_id, ticker);
+    CREATE TABLE mcp_access (
+        id          INTEGER PRIMARY KEY CHECK (id = 1),
+        token       TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );",
 ];
 
@@ -467,6 +513,31 @@ mod backup_tests {
         let fresh = Database::in_memory().unwrap();
         fresh.restore(&bytes).unwrap();
         assert_eq!((count(&fresh, "users"), count(&fresh, "sessions")), (1, 0));
+    }
+
+    #[test]
+    fn backups_carry_no_connector_key_and_restores_keep_it() {
+        let set_key = |db: &Database, key: &str| {
+            db.with(|c| c.execute("INSERT OR REPLACE INTO mcp_access (id, token) VALUES (1, ?1)", [key]))
+                .unwrap();
+        };
+        let key = |db: &Database| -> Option<String> {
+            db.with(|c| c.query_row("SELECT token FROM mcp_access", [], |r| r.get(0)).optional())
+                .unwrap()
+        };
+        let a = Database::in_memory().unwrap();
+        set_key(&a, "old-connector-key");
+        let bytes = a.export().unwrap();
+        assert!(!bytes.windows(17).any(|w| w == b"old-connector-key"));
+
+        let b = Database::in_memory().unwrap();
+        set_key(&b, "live-key");
+        b.restore(&bytes).unwrap();
+        assert_eq!(key(&b).as_deref(), Some("live-key"));
+
+        let c = Database::in_memory().unwrap();
+        c.restore(&bytes).unwrap();
+        assert_eq!(key(&c), None);
     }
 
     #[test]

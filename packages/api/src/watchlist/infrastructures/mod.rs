@@ -151,14 +151,14 @@ impl WatchlistRepository for SqliteWatchlistRepository {
     }
 
     fn alerts(&self) -> Result<Vec<Alert>, RepositoryError> {
-        type Row = (String, String, String, String, String, Option<String>);
+        type Row = (String, String, String, String, String, Option<String>, Option<String>);
         let rows: Vec<Row> = self.db.with(|c| {
-            c.prepare("SELECT id, ticker, kind, value, created_at, triggered_at FROM alerts ORDER BY created_at DESC")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
+            c.prepare("SELECT id, ticker, kind, value, created_at, triggered_at, peak FROM alerts ORDER BY created_at DESC")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
                 .collect()
         })?;
         rows.into_iter()
-            .map(|(id, ticker, kind, value, created_at, triggered_at)| {
+            .map(|(id, ticker, kind, value, created_at, triggered_at, peak)| {
                 Ok(Alert {
                     id: Uuid::parse_str(&id).map_err(|_| corrupt("alert id", &id))?,
                     ticker: TickerSymbol::new(&ticker).map_err(|_| corrupt("ticker", &ticker))?,
@@ -166,6 +166,7 @@ impl WatchlistRepository for SqliteWatchlistRepository {
                     value: Decimal::from_str(&value).map_err(|_| corrupt("alert value", &value))?,
                     created_at,
                     triggered_at,
+                    peak: peak.and_then(|p| Decimal::from_str(&p).ok()),
                 })
             })
             .collect()
@@ -174,8 +175,8 @@ impl WatchlistRepository for SqliteWatchlistRepository {
     fn save_alert(&self, alert: &Alert) -> Result<(), RepositoryError> {
         self.db.with(|c| {
             c.execute(
-                "INSERT OR REPLACE INTO alerts (id, ticker, kind, value, triggered_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![alert.id.to_string(), alert.ticker.as_str(), alert.kind.to_string(), alert.value.to_string(), alert.triggered_at],
+                "INSERT OR REPLACE INTO alerts (id, ticker, kind, value, triggered_at, peak) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![alert.id.to_string(), alert.ticker.as_str(), alert.kind.to_string(), alert.value.to_string(), alert.triggered_at, alert.peak.map(|p| p.to_string())],
             )
         })?;
         Ok(())
@@ -184,6 +185,16 @@ impl WatchlistRepository for SqliteWatchlistRepository {
     fn delete_alert(&self, id: Uuid) -> Result<(), RepositoryError> {
         self.db
             .with(|c| c.execute("DELETE FROM alerts WHERE id = ?1", [id.to_string()]))?;
+        Ok(())
+    }
+
+    fn set_alert_peak(&self, id: Uuid, peak: Decimal) -> Result<(), RepositoryError> {
+        self.db.with(|c| {
+            c.execute(
+                "UPDATE alerts SET peak = ?2 WHERE id = ?1",
+                params![id.to_string(), peak.to_string()],
+            )
+        })?;
         Ok(())
     }
 

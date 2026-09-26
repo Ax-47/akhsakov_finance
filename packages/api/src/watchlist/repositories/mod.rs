@@ -2,6 +2,7 @@
 
 use crate::shared::RepositoryError;
 use dtos::watch::{Alert, Note, Watchlist};
+use rust_decimal::Decimal;
 use types::ticker_symbol::TickerSymbol;
 use uuid::Uuid;
 
@@ -29,4 +30,6 @@ pub trait WatchlistRepository: Send + Sync {
     fn delete_alert(&self, id: Uuid) -> Result<(), RepositoryError>;
     /// Records that the alert fired now; `NotFound` if it doesn't exist.
     fn mark_triggered(&self, id: Uuid) -> Result<(), RepositoryError>;
+    /// Stores the highest value a drawdown alert has seen.
+    fn set_alert_peak(&self, id: Uuid, peak: Decimal) -> Result<(), RepositoryError>;
 }
