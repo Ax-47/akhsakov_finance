@@ -1,0 +1,136 @@
+//! Live portfolio state: positions priced from the quote stream, totals,
+//! allocation and concentration metrics, for all holdings or one portfolio.
+
+use super::mpt::{compute_mpt, MptAnalysis};
+use super::use_price_stream;
+use dioxus::prelude::*;
+use dtos::{
+    portfolio::GetDashBoardResponse,
+    position::{cash_balance, compute_positions, portfolio_summary, realized_pnl},
+    Position,
+};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use std::collections::{HashMap, HashSet};
+use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
+
+pub struct PortfolioState {
+    /// Latest price per ticker.
+    pub ticker_price_map: HashMap<TickerSymbol, Decimal>,
+    /// Today's change (%) per ticker.
+    pub change_map: HashMap<TickerSymbol, Decimal>,
+    pub loaded: bool,
+    pub positions: Vec<Position>,
+    /// Realized gains incl. dividends, net of fees.
+    pub realized: Decimal,
+    /// Market value of holdings (excludes cash).
+    pub total_value: Decimal,
+    pub total_cost: Decimal,
+    pub total_pnl: Decimal,
+    pub day_change: Decimal,
+    pub pnl_pct: Decimal,
+    pub day_pct: Decimal,
+    /// Uninvested cash, when deposits / withdrawals are recorded.
+    pub cash: Option<Decimal>,
+    /// `(ticker, weight %)`, largest first.
+    pub allocation: Vec<(TickerSymbol, Decimal)>,
+    pub mpt: Option<MptAnalysis>,
+}
+
+/// `scope` is a portfolio id, or `None` for all holdings. Prices stream for
+/// every ticker, so switching scope doesn't reconnect.
+pub fn use_portfolio(scope: Option<String>) -> PortfolioState {
+    let data = use_context::<Signal<GetDashBoardResponse>>();
+
+    let tickers = use_memo(move || {
+        data()
+            .transactions
+            .iter()
+            .filter(|tx| !tx.is_cash())
+            .map(|tx| tx.ticker.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    });
+    let (quotes, _) = use_price_stream(tickers, Range::D1, Interval::I2m, false);
+
+    let prices: HashMap<TickerSymbol, (Decimal, Decimal)> = quotes
+        .read()
+        .iter()
+        .map(|(ticker, q)| {
+            let change = day_change_pct(q.current_price, q.previous_close_price);
+            (ticker.clone(), (q.current_price, change))
+        })
+        .collect();
+    let loaded = !prices.is_empty();
+    let ticker_price_map = prices.iter().map(|(t, (p, _))| (t.clone(), *p)).collect();
+    let change_map = prices.iter().map(|(t, (_, c))| (t.clone(), *c)).collect();
+
+    let scoped = scoped_data(&data.read(), scope.as_deref());
+    let positions = compute_positions(&scoped, &prices);
+    let (total_value, total_cost, total_pnl, day_change) = portfolio_summary(&positions);
+    let pct = |part: Decimal, whole: Decimal| {
+        if whole > Decimal::ZERO {
+            part / whole * dec!(100)
+        } else {
+            Decimal::ZERO
+        }
+    };
+
+    let mut allocation: Vec<(TickerSymbol, Decimal)> = positions
+        .iter()
+        .filter(|p| p.current_price > Decimal::ZERO)
+        .map(|p| (p.ticker.clone(), pct(p.market_value(), total_value)))
+        .collect();
+    allocation.sort_by(|a, b| b.1.cmp(&a.1));
+
+    PortfolioState {
+        ticker_price_map,
+        change_map,
+        loaded,
+        realized: realized_pnl(&scoped.transactions),
+        cash: cash_balance(&scoped.transactions),
+        mpt: if loaded {
+            compute_mpt(&positions, total_value)
+        } else {
+            None
+        },
+        positions,
+        total_value,
+        total_cost,
+        total_pnl,
+        day_change,
+        pnl_pct: pct(total_pnl, total_cost),
+        day_pct: pct(day_change, total_value),
+        allocation,
+    }
+}
+
+/// Percent move from the previous close to the current price.
+fn day_change_pct(current: Decimal, previous_close: Decimal) -> Decimal {
+    if previous_close.is_zero() {
+        return Decimal::ZERO;
+    }
+    (current - previous_close) / previous_close * dec!(100)
+}
+
+/// Only the transactions of one portfolio, or everything for `None`.
+pub fn scoped_data(data: &GetDashBoardResponse, scope: Option<&str>) -> GetDashBoardResponse {
+    match scope {
+        None => data.clone(),
+        Some(id) => GetDashBoardResponse {
+            portfolios: data
+                .portfolios
+                .iter()
+                .filter(|p| p.id.to_string() == id)
+                .cloned()
+                .collect(),
+            transactions: data
+                .transactions
+                .iter()
+                .filter(|tx| tx.portfolio_id.to_string() == id)
+                .cloned()
+                .collect(),
+        },
+    }
+}
