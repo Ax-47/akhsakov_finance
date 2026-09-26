@@ -104,7 +104,8 @@ impl AlertMonitor {
         if active.is_empty() {
             return Ok(0);
         }
-        let dashboard = self.holdings.dashboard()?;
+        // Your holdings only; Claude's paper money doesn't set off your alerts.
+        let dashboard = self.holdings.dashboard()?.without_ai();
         let needs_holdings = active
             .iter()
             .any(|a| a.kind == AlertKind::WeightAbove || a.kind.is_portfolio());

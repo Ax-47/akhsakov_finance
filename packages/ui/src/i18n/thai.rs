@@ -876,6 +876,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Give Claude a portfolio", "สร้างพอร์ตให้ Claude"),
     ("Claude manages this portfolio with paper money", "Claude บริหารพอร์ตนี้เองด้วยเงินสมมติ"),
     ("AI-managed · paper money", "AI บริหาร · เงินสมมติ"),
+    ("Claude's portfolio · paper money, not counted in your totals", "พอร์ตของ Claude · เงินสมมติ ไม่นับรวมในยอดของคุณ"),
     ("Enter an amount more than zero", "ใส่จำนวนเงินที่มากกว่าศูนย์"),
     ("From", "จากโบรกเกอร์"),
     ("Any broker (detect columns)", "โบรกเกอร์ใดก็ได้ (หาคอลัมน์ให้เอง)"),

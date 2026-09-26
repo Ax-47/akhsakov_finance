@@ -145,6 +145,7 @@ pub fn Dashboard() -> Element {
                         transactions: data.read().transactions.clone(),
                         portfolios: names.clone(),
                         portfolio: scope(),
+                        hidden: data.read().ai_ids(),
                         height: dec!(260),
                     }
                 }

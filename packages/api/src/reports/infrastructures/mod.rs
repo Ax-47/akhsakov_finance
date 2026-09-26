@@ -27,6 +27,10 @@ impl ReportData for AppReportData {
         Ok(self.portfolio.dashboard().map_err(|e| e.to_string())?.transactions)
     }
 
+    fn ai_portfolios(&self) -> Result<Vec<uuid::Uuid>, String> {
+        Ok(self.portfolio.dashboard().map_err(|e| e.to_string())?.ai_ids())
+    }
+
     async fn closes(&self, ticker: &TickerSymbol, range: Range) -> Result<Vec<(String, Decimal)>, String> {
         let candles = self
             .quotes

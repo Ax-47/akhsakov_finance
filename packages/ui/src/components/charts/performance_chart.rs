@@ -16,6 +16,7 @@ use dtos::Transaction;
 use rust_decimal::Decimal;
 use std::collections::HashSet;
 use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
+use uuid::Uuid;
 
 const PERIODS: [Range; 5] = [Range::D1, Range::M1, Range::M6, Range::Ytd, Range::Y1];
 const MAX_LINES: usize = 5;
@@ -45,6 +46,9 @@ pub fn ChartSection(
     portfolios: ReadSignal<Vec<(String, String)>>,
     height: Decimal,
     portfolio: ReadSignal<Option<String>>,
+    /// Portfolios left out of the "all holdings" line (Claude's).
+    #[props(default)]
+    hidden: ReadSignal<Vec<Uuid>>,
 ) -> Element {
     let mut period = use_signal(|| Range::Y1);
     let benchmark = use_context::<crate::app::AppSettings>().benchmark();
@@ -73,14 +77,15 @@ pub fn ChartSection(
         move || {
             let txs = transactions.read();
             let fingerprint = txs.iter().fold(0u128, |a, t| a.wrapping_mul(31).wrapping_add(t.id.as_u128()));
-            format!("performance/{:?}/{:?}/{}/{fingerprint}", picks(), period(), txs.len())
+            format!("performance/{:?}/{:?}/{}/{fingerprint}/{}", picks(), period(), txs.len(), hidden.read().len())
         },
         move || {
         let txs = transactions.read().clone();
+        let hidden = hidden.read().clone();
         let picks = picks();
         let range = period();
         async move {
-            let subjects: Vec<Subject> = picks.iter().map(|p| subject(p, &txs)).collect();
+            let subjects: Vec<Subject> = picks.iter().map(|p| subject(p, &txs, &hidden)).collect();
             let mut symbols: HashSet<TickerSymbol> = HashSet::new();
             for s in &subjects {
                 match s {
@@ -372,9 +377,15 @@ fn holdings_pick(portfolio: Option<String>) -> Pick {
     portfolio.map_or(Pick::AllHoldings, Pick::Portfolio)
 }
 
-fn subject(pick: &Pick, transactions: &[Transaction]) -> Subject {
+fn subject(pick: &Pick, transactions: &[Transaction], hidden: &[Uuid]) -> Subject {
     match pick {
-        Pick::AllHoldings => Subject::Holdings(transactions.to_vec()),
+        Pick::AllHoldings => Subject::Holdings(
+            transactions
+                .iter()
+                .filter(|tx| !hidden.contains(&tx.portfolio_id))
+                .cloned()
+                .collect(),
+        ),
         Pick::Portfolio(id) => Subject::Holdings(
             transactions
                 .iter()

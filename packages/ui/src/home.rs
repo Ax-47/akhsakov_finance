@@ -96,6 +96,7 @@ pub fn Home() -> Element {
                         .map(|p| (p.id.to_string(), p.name.clone()))
                         .collect::<Vec<_>>(),
                     height: dec!(260),
+                    hidden: data().ai_ids(),
                 }
             }
 

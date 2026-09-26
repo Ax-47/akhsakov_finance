@@ -69,6 +69,8 @@ pub fn PortfoliosCard(
             }
         })
         .collect();
+    // Claude's paper money is listed apart and left out of the shares.
+    let (ai_rows, rows): (Vec<PortfolioRow>, Vec<PortfolioRow>) = rows.into_iter().partition(|r| r.ai);
     let grand_total: Decimal = rows.iter().map(|r| r.value).sum();
 
     rsx! {
@@ -95,6 +97,18 @@ pub fn PortfoliosCard(
                                 share: if grand_total > Decimal::ZERO { row.value / grand_total * dec!(100) } else { Decimal::ZERO },
                                 row,
                                 loaded,
+                            }
+                        }
+                    }
+                    if !ai_rows.is_empty() {
+                        tbody {
+                            tr { class: "border-t border-ctp-surface0",
+                                td { class: "pl-6 pr-4 pt-4 pb-1.5 text-xs font-medium text-ctp-mauve", colspan: "6",
+                                    {tr("Claude's portfolio · paper money, not counted in your totals")}
+                                }
+                            }
+                            for row in ai_rows {
+                                PortfolioRowView { key: "{row.id}", share: Decimal::ZERO, row, loaded }
                             }
                         }
                     }
@@ -212,6 +226,9 @@ fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element 
             td { class: "{cell} {signed_color(row.realized)}",
                 if row.realized.abs() > dec!(0.01) { "{fmt_signed(row.realized, 2)}" } else { span { class: "text-ctp-overlay1", "—" } }
             }
+            if row.ai {
+                td { class: "pl-4 pr-6 py-3.5 text-right text-ctp-overlay1", "—" }
+            } else {
             td { class: "pl-4 pr-6 py-3.5 text-right",
                 span { class: "inline-flex items-center justify-end gap-2",
                     span { class: "h-1 w-16 rounded-full bg-ctp-surface0 overflow-hidden",
@@ -219,6 +236,7 @@ fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element 
                     }
                     span { class: "w-11 tabular-nums text-ctp-subtext0", "{share:.1}%" }
                 }
+            }
             }
         }
     }
