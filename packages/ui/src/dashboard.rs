@@ -192,6 +192,7 @@ pub fn Dashboard() -> Element {
                                 StockHeatmap { positions: positions.clone() }
                                 AllocationCard { allocation: allocation.clone() }
                             }
+                            crate::assets_card::AssetsCard {}
                             ReturnDrivers {
                                 transactions: transactions.clone(),
                                 positions: positions.clone(),
@@ -234,6 +235,7 @@ pub fn Dashboard() -> Element {
                     },
                     Tab::Activity => rsx! {
                         TabPanel {
+                            crate::report_card::ReportCard { portfolio: scope_id }
                             TransactionList { transactions, portfolio: scope_id }
                         }
                     },

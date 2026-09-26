@@ -25,7 +25,8 @@ pub fn quote_services_setup(db: crate::database::Database) -> QuoteService {
         infrastructures::yahoo_gateway::YahooGateWay::new(),
     ));
     QuoteService::new(quote_gateway)
-        .with_cache(Arc::new(infrastructures::sqlite_cache::SqliteQuoteCache::new(db)))
+        .with_cache(Arc::new(infrastructures::sqlite_cache::SqliteQuoteCache::new(db.clone())))
+        .with_manual(Arc::new(infrastructures::sqlite_manual::SqliteManualQuotes::new(db)))
 }
 
 /// [`crate::shared::FxRates`] backed by the quote service's FX data.

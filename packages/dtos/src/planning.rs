@@ -344,6 +344,21 @@ pub fn days_between(a: &str, b: &str) -> Option<i64> {
     Some(day_number(b)? - day_number(a)?)
 }
 
+/// `date` (`YYYY-MM-DD`) moved by `days`.
+pub fn add_days(date: &str, days: i64) -> Option<String> {
+    // civil_from_days
+    let z = day_number(date)? + days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    Some(format!("{y:04}-{m:02}-{d:02}"))
+}
+
 fn day_number(date: &str) -> Option<i64> {
     let y: i64 = date.get(..4)?.parse().ok()?;
     let m: i64 = date.get(5..7)?.parse().ok()?;
@@ -449,6 +464,15 @@ mod tests {
         ];
         assert!((xirr(&flows).unwrap() - 0.10).abs() < 1e-3);
         assert_eq!(xirr(&[("2024-01-01".into(), 100.0)]), None);
+    }
+
+    #[test]
+    fn adds_days_across_months_and_leap_years() {
+        assert_eq!(add_days("2026-01-30", 3).as_deref(), Some("2026-02-02"));
+        assert_eq!(add_days("2024-02-28", 1).as_deref(), Some("2024-02-29"));
+        assert_eq!(add_days("2026-03-01", -1).as_deref(), Some("2026-02-28"));
+        assert_eq!(add_days("2025-12-31", 1).as_deref(), Some("2026-01-01"));
+        assert_eq!(add_days("bad", 1), None);
     }
 
     #[test]

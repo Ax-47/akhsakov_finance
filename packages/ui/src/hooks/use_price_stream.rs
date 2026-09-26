@@ -19,6 +19,15 @@ use types::{quote::Quote, ticker_symbol::TickerSymbol};
 /// reached; cleared by the next live price.
 pub static OFFLINE: GlobalSignal<bool> = Signal::global(|| false);
 
+/// Bumped by [`reprice`].
+static REPRICE: GlobalSignal<u32> = Signal::global(|| 0);
+
+/// Fetches every streamed price again, e.g. after entering a price by
+/// hand (hand-priced assets aren't streamed).
+pub fn reprice() {
+    *REPRICE.write() += 1;
+}
+
 /// Live quotes for `tickers`: one batched request for the starting prices,
 /// then updates over a websocket, applied at most once a second (every
 /// three in Lite; see [`crate::perf::price_flush_ms`]). Yahoo can send
@@ -28,17 +37,20 @@ pub static OFFLINE: GlobalSignal<bool> = Signal::global(|| false);
 pub fn use_price_stream(tickers: Memo<Vec<TickerSymbol>>) -> ReadSignal<HashMap<TickerSymbol, Quote>> {
     let mut price_map = use_signal(HashMap::<TickerSymbol, Quote>::new);
     let mut socket = use_websocket(|| quote_subscribe(WebSocketOptions::new()));
+    let repriced = use_hook(|| Rc::new(Cell::new(0_u32)));
 
     use_effect(move || {
         let current = tickers.read().clone();
+        let round = REPRICE();
         if current.is_empty() {
             return;
         }
+        let refetch_all = repriced.replace(round) != round;
         spawn(async move {
             // Only fetch tickers not already priced; the stream keeps the rest fresh.
             let missing: Vec<TickerSymbol> = current
                 .iter()
-                .filter(|t| !price_map.peek().contains_key(*t))
+                .filter(|t| refetch_all || !price_map.peek().contains_key(*t))
                 .cloned()
                 .collect();
             if !missing.is_empty() {

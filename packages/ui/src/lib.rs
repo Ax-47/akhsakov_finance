@@ -37,6 +37,7 @@ mod auth;
 pub use app::App;
 
 mod alerts;
+mod assets_card;
 mod components;
 mod editors;
 mod files;
@@ -44,10 +45,13 @@ mod format;
 mod notify;
 mod page;
 mod plan_tab;
+mod report_card;
 mod search;
 mod thesis;
+mod thai_tax_card;
 
 mod dashboard;
+mod dca_card;
 pub use dashboard::Dashboard;
 
 mod home;

@@ -40,7 +40,12 @@ fn display() -> (&'static str, Decimal) {
 /// `$1,234.56` style, with a leading `-` for negatives.
 pub fn fmt_usd(value: Decimal, decimals: u32) -> String {
     let (symbol, rate) = display();
-    let value = value * rate;
+    fmt_money(value * rate, symbol, decimals)
+}
+
+/// `฿1,234.56` style: `value` as is (not converted to the display
+/// currency), with `symbol` in front.
+pub fn fmt_money(value: Decimal, symbol: &str, decimals: u32) -> String {
     let abs = value.abs().round_dp(decimals);
     let whole = abs.trunc();
     let frac = ((abs - whole) * Decimal::from(10u64.pow(decimals)))

@@ -18,7 +18,7 @@ use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::Tic
 use crate::{
     events::quote_update_event::QuoteUpdateEvent,
     repositories::{
-        quote_cache::QuoteCache, quote_gateway::QuoteGateway,
+        manual_quotes::ManualQuotes, quote_cache::QuoteCache, quote_gateway::QuoteGateway,
         quote_gateway_errors::QuoteGateWayError,
     },
 };
@@ -45,6 +45,8 @@ pub struct QuoteService {
     gateway: Arc<RwLock<dyn QuoteGateway>>,
     fx: Arc<Mutex<FxCache>>,
     cache: Option<Arc<dyn QuoteCache>>,
+    /// Assets priced by hand instead of by the provider.
+    manual: Option<Arc<dyn ManualQuotes>>,
 }
 
 #[cfg(feature = "server")]
@@ -56,6 +58,48 @@ struct FxCache {
     live: HashMap<String, (Instant, Decimal)>,
     /// USD per unit at each day's close, oldest first.
     daily: HashMap<String, (Instant, Arc<Vec<(NaiveDate, Decimal)>>)>,
+}
+
+/// Daily candles from hand-entered prices: each weekday from the first
+/// entry to `today` carries the latest price entered on or before it,
+/// limited to `range`.
+#[cfg(feature = "server")]
+pub fn manual_candles(prices: &[dtos::assets::ManualPrice], range: Range, today: NaiveDate) -> Vec<Candle> {
+    use chrono::{Datelike, TimeZone, Weekday};
+    let mut series: Vec<(NaiveDate, Decimal)> = prices
+        .iter()
+        .filter_map(|p| Some((NaiveDate::parse_from_str(&p.date, "%Y-%m-%d").ok()?, p.price)))
+        .collect();
+    series.sort_by_key(|(d, _)| *d);
+    let Some(&(first, _)) = series.first() else {
+        return vec![];
+    };
+    let days_back: i64 = match range {
+        Range::D5 => 5,
+        Range::M1 => 31,
+        Range::M3 => 92,
+        Range::M6 => 183,
+        Range::Y1 => 366,
+        Range::Y2 => 731,
+        Range::Y5 => 1827,
+        Range::Y10 => 3653,
+        Range::Ytd => today.ordinal0() as i64,
+        Range::Max => i64::MAX / 4,
+        _ => 1,
+    };
+    let start = first.max(today - chrono::Duration::days(days_back.min(365 * 200)));
+    let mut out = Vec::new();
+    let mut day = start;
+    while day <= today {
+        if !matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+            if let Some(price) = rate_on(&series, day) {
+                let ts = chrono::Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0).expect("midnight"));
+                out.push(Candle { ts, open: price, high: price, low: price, close: price, volume: None, adj_factor: None });
+            }
+        }
+        day += chrono::Duration::days(1);
+    }
+    out
 }
 
 /// Whether prices of `ticker` are converted to USD.
@@ -96,12 +140,23 @@ impl QuoteService {
             gateway,
             fx: Default::default(),
             cache: None,
+            manual: None,
         }
     }
 
     pub fn with_cache(mut self, cache: Arc<dyn QuoteCache>) -> Self {
         self.cache = Some(cache);
         self
+    }
+
+    pub fn with_manual(mut self, manual: Arc<dyn ManualQuotes>) -> Self {
+        self.manual = Some(manual);
+        self
+    }
+
+    /// Currency and prices of a hand-priced asset.
+    fn manual(&self, ticker: &TickerSymbol) -> Option<(String, Vec<dtos::assets::ManualPrice>)> {
+        self.manual.as_ref()?.manual(ticker)
     }
 
     /// Candles from the provider, saved for offline use; the saved copy if
@@ -113,6 +168,9 @@ impl QuoteService {
         interval: Interval,
         is_prepost_market: bool,
     ) -> Result<Vec<Candle>, QuoteGateWayError> {
+        if let Some((_, prices)) = self.manual(&ticker) {
+            return Ok(manual_candles(&prices, range, chrono::Utc::now().date_naive()));
+        }
         let key = format!("{ticker}|{}|{interval:?}|{is_prepost_market}", range.code());
         let fetched = self.gateway.read().await
             .get_chart(ticker, range, interval, is_prepost_market)
@@ -134,10 +192,17 @@ impl QuoteService {
     }
 
     pub async fn watch(&self, ticker: TickerSymbol) -> Result<(), QuoteGateWayError> {
+        // Hand-priced assets have nothing to stream.
+        if self.manual(&ticker).is_some() {
+            return Ok(());
+        }
         self.gateway.write().await.add_ticker(ticker).await
     }
 
     pub async fn unwatch(&self, ticker: &TickerSymbol) -> Result<(), QuoteGateWayError> {
+        if self.manual(ticker).is_some() {
+            return Ok(());
+        }
         self.gateway.write().await.remove_ticker(ticker).await
     }
 
@@ -170,6 +235,20 @@ impl QuoteService {
     /// Latest quote in the instrument's own currency, e.g. for recording a
     /// trade as the broker shows it.
     pub async fn native_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
+        if let Some((currency, prices)) = self.manual(&ticker) {
+            let (current, previous) = dtos::assets::latest_two(&prices).ok_or_else(|| {
+                QuoteGateWayError::GateWayError(format!("no price entered for {ticker} yet"))
+            })?;
+            self.fx.lock().await.currency.insert(ticker.clone(), currency.clone());
+            return Ok(Quote {
+                ticker_symbol: ticker,
+                current_price: current,
+                previous_close_price: previous,
+                timestamp: chrono::Utc::now().timestamp(),
+                currency,
+                stale: false,
+            });
+        }
         let fetched = self.gateway.read().await.get_quote(ticker.clone()).await;
         let q = match (fetched, &self.cache) {
             (Ok(q), Some(cache)) => {
@@ -417,6 +496,32 @@ mod tests {
         assert_eq!(rate_on(&series, d("2025-12-01")), Some(dec!(0.030)), "before history");
         assert_eq!(rate_on(&[], d("2026-01-01")), None);
         assert!(is_convertible("PTT.BK") && !is_convertible("^GSPC") && !is_convertible("USDTHB=X"));
+    }
+
+    struct OneFund;
+    impl ManualQuotes for OneFund {
+        fn manual(&self, t: &TickerSymbol) -> Option<(String, Vec<dtos::assets::ManualPrice>)> {
+            let p = |d: &str, v| dtos::assets::ManualPrice { date: d.into(), price: v };
+            (t.as_str() == "KFSSF").then(|| ("THB".into(), vec![p("2026-01-05", dec!(10)), p("2026-01-07", dec!(11))]))
+        }
+    }
+
+    #[tokio::test]
+    async fn hand_priced_assets_skip_the_provider() {
+        let online = Arc::new(AtomicBool::new(false));
+        let service = QuoteService::new(Arc::new(RwLock::new(Flaky { online }))).with_manual(Arc::new(OneFund));
+        let fund = TickerSymbol::new("KFSSF").unwrap();
+        let q = service.native_quote(fund.clone()).await.unwrap();
+        assert_eq!((q.current_price, q.previous_close_price, q.currency.as_str()), (dec!(11), dec!(10), "THB"));
+        assert!(service.watch(fund).await.is_ok());
+
+        let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let prices = OneFund.manual(&TickerSymbol::new("KFSSF").unwrap()).unwrap().1;
+        // Mon 5th to Mon 12th: six weekdays, the weekend skipped.
+        let candles = manual_candles(&prices, Range::Max, d("2026-01-12"));
+        let closes: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+        assert_eq!(closes, vec![dec!(10), dec!(10), dec!(11), dec!(11), dec!(11), dec!(11)]);
+        assert_eq!(manual_candles(&prices, Range::D5, d("2026-01-12")).len(), 4);
     }
 
     #[test]

@@ -18,3 +18,7 @@ pub mod insights;
 pub mod notifications;
 pub mod auth;
 pub mod thesis;
+pub mod assets;
+pub mod thai_tax;
+pub mod dca;
+pub mod report;

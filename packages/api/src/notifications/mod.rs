@@ -26,6 +26,7 @@ pub fn notification_services_setup(
     watchlist: crate::watchlist::WatchlistService,
     portfolio: crate::portfolio::PortfolioService,
     quotes: crate::quote::services::quote::QuoteService,
+    market: crate::market::MarketService,
 ) -> NotificationService {
     use infrastructures::*;
     use std::sync::Arc;
@@ -36,9 +37,10 @@ pub fn notification_services_setup(
     AlertMonitor::new(
         Arc::new(WatchlistAlerts(watchlist)),
         Arc::new(PortfolioHoldings(portfolio)),
-        Arc::new(QuotePrices(quotes)),
+        Arc::new(QuotePrices(quotes.clone())),
         service.clone(),
     )
+    .with_market(Arc::new(QuoteHistory::new(quotes)), Arc::new(MarketEvents::new(market)))
     .spawn();
     service
 }

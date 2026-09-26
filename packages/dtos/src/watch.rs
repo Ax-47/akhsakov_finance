@@ -75,21 +75,90 @@ pub enum AlertKind {
     /// All holdings together fall `value` percent or more below their
     /// highest value since the alert was set.
     PortfolioDrawdown,
+    /// 14-day RSI rises to `value` or above (overbought).
+    RsiAbove,
+    /// 14-day RSI falls to `value` or below (oversold).
+    RsiBelow,
+    /// Price crosses above its `value`-day simple moving average.
+    CrossAboveSma,
+    /// Price crosses below its `value`-day simple moving average.
+    CrossBelowSma,
+    /// Price comes within `value` percent of its 52-week high.
+    Near52WeekHigh,
+    /// Price comes within `value` percent of its 52-week low.
+    Near52WeekLow,
+    /// Earnings are due within `value` days.
+    EarningsWithin,
+    /// The ex-dividend date is within `value` days.
+    ExDividendWithin,
 }
 
 impl AlertKind {
-    pub const ALL: [AlertKind; 6] = [
+    pub const ALL: [AlertKind; 14] = [
         Self::PriceAbove,
         Self::PriceBelow,
         Self::DayMove,
         Self::WeightAbove,
         Self::PortfolioDayDrop,
         Self::PortfolioDrawdown,
+        Self::RsiAbove,
+        Self::RsiBelow,
+        Self::CrossAboveSma,
+        Self::CrossBelowSma,
+        Self::Near52WeekHigh,
+        Self::Near52WeekLow,
+        Self::EarningsWithin,
+        Self::ExDividendWithin,
     ];
 
     /// Whether the alert watches all holdings rather than one ticker.
     pub fn is_portfolio(self) -> bool {
         matches!(self, Self::PortfolioDayDrop | Self::PortfolioDrawdown)
+    }
+
+    /// Whether the alert needs daily price history (indicators, 52 weeks).
+    pub fn is_technical(self) -> bool {
+        matches!(
+            self,
+            Self::RsiAbove | Self::RsiBelow | Self::CrossAboveSma | Self::CrossBelowSma | Self::Near52WeekHigh | Self::Near52WeekLow
+        )
+    }
+
+    /// Whether the alert watches the earnings / dividend calendar.
+    pub fn is_event(self) -> bool {
+        matches!(self, Self::EarningsWithin | Self::ExDividendWithin)
+    }
+
+    /// What `value` means, for the input label.
+    pub fn unit(self) -> &'static str {
+        match self {
+            Self::PriceAbove | Self::PriceBelow => "Price ($)",
+            Self::RsiAbove | Self::RsiBelow => "RSI (0–100)",
+            Self::CrossAboveSma | Self::CrossBelowSma => "Moving average (days)",
+            Self::EarningsWithin | Self::ExDividendWithin => "Days before",
+            _ => "Percent (%)",
+        }
+    }
+
+    /// Checks a value for this kind; the message says what's wrong.
+    pub fn validate(self, value: Decimal) -> Result<(), &'static str> {
+        use rust_decimal_macros::dec;
+        let ok = match self {
+            Self::RsiAbove | Self::RsiBelow => value > Decimal::ZERO && value < Decimal::ONE_HUNDRED,
+            Self::CrossAboveSma | Self::CrossBelowSma => value.fract().is_zero() && (dec!(2)..=dec!(250)).contains(&value),
+            Self::Near52WeekHigh | Self::Near52WeekLow => value >= Decimal::ZERO && value <= dec!(50),
+            Self::EarningsWithin | Self::ExDividendWithin => value.fract().is_zero() && (Decimal::ZERO..=dec!(90)).contains(&value),
+            _ => true,
+        };
+        if ok {
+            return Ok(());
+        }
+        Err(match self {
+            Self::RsiAbove | Self::RsiBelow => "RSI levels are between 0 and 100",
+            Self::CrossAboveSma | Self::CrossBelowSma => "Use a whole number of days from 2 to 250, e.g. 50 or 200",
+            Self::Near52WeekHigh | Self::Near52WeekLow => "Use a distance from 0% to 50%",
+            _ => "Use a whole number of days from 0 to 90",
+        })
     }
 
     pub fn label(self) -> &'static str {
@@ -100,6 +169,14 @@ impl AlertKind {
             Self::WeightAbove => "Weight in portfolio above (%)",
             Self::PortfolioDayDrop => "All holdings fall more than (% today)",
             Self::PortfolioDrawdown => "All holdings fall from their peak by (%)",
+            Self::RsiAbove => "RSI (14) rises above — overbought",
+            Self::RsiBelow => "RSI (14) falls below — oversold",
+            Self::CrossAboveSma => "Price crosses above moving average (days)",
+            Self::CrossBelowSma => "Price crosses below moving average (days)",
+            Self::Near52WeekHigh => "Within (%) of its 52-week high",
+            Self::Near52WeekLow => "Within (%) of its 52-week low",
+            Self::EarningsWithin => "Earnings in (days)",
+            Self::ExDividendWithin => "Ex-dividend date in (days)",
         }
     }
 }
@@ -113,6 +190,14 @@ impl fmt::Display for AlertKind {
             Self::WeightAbove => "weight_above",
             Self::PortfolioDayDrop => "portfolio_day_drop",
             Self::PortfolioDrawdown => "portfolio_drawdown",
+            Self::RsiAbove => "rsi_above",
+            Self::RsiBelow => "rsi_below",
+            Self::CrossAboveSma => "cross_above_sma",
+            Self::CrossBelowSma => "cross_below_sma",
+            Self::Near52WeekHigh => "near_52w_high",
+            Self::Near52WeekLow => "near_52w_low",
+            Self::EarningsWithin => "earnings_within",
+            Self::ExDividendWithin => "ex_dividend_within",
         })
     }
 }
@@ -159,8 +244,56 @@ impl Alert {
             AlertKind::PriceBelow => price.is_some_and(|p| p > Decimal::ZERO && p <= self.value),
             AlertKind::DayMove => day_pct.is_some_and(|d| d.abs() >= self.value),
             AlertKind::WeightAbove => weight_pct.is_some_and(|w| w >= self.value),
-            AlertKind::PortfolioDayDrop | AlertKind::PortfolioDrawdown => false,
+            _ => false,
         }
+    }
+
+    /// For technical alerts: whether the condition holds for daily closes,
+    /// oldest first, whose last entry is the latest price.
+    pub fn is_met_by_history(&self, closes: &[f64]) -> bool {
+        use crate::technicals::{rsi, sma};
+        use rust_decimal::prelude::ToPrimitive;
+        let v = self.value.to_f64().unwrap_or(0.0);
+        let Some(&last) = closes.last() else { return false };
+        match self.kind {
+            AlertKind::RsiAbove => rsi(closes, 14).last().copied().flatten().is_some_and(|r| r >= v),
+            AlertKind::RsiBelow => rsi(closes, 14).last().copied().flatten().is_some_and(|r| r <= v),
+            AlertKind::CrossAboveSma | AlertKind::CrossBelowSma => {
+                let avg = sma(closes, v as usize);
+                let n = closes.len();
+                let (Some(Some(now)), Some(Some(before))) = (avg.last(), n.checked_sub(2).and_then(|i| avg.get(i))) else {
+                    return false;
+                };
+                let prev = closes[n - 2];
+                if self.kind == AlertKind::CrossAboveSma {
+                    prev < *before && last >= *now
+                } else {
+                    prev > *before && last <= *now
+                }
+            }
+            AlertKind::Near52WeekHigh | AlertKind::Near52WeekLow => {
+                // About 252 trading days in a year.
+                let year = &closes[closes.len().saturating_sub(252)..];
+                if year.len() < 20 {
+                    return false;
+                }
+                if self.kind == AlertKind::Near52WeekHigh {
+                    let high = year.iter().copied().fold(f64::MIN, f64::max);
+                    last >= high * (1.0 - v / 100.0)
+                } else {
+                    let low = year.iter().copied().fold(f64::MAX, f64::min);
+                    low > 0.0 && last <= low * (1.0 + v / 100.0)
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// For calendar alerts: whether the next event is `days_until` away or
+    /// sooner (and not past).
+    pub fn is_met_by_event(&self, days_until: Option<i64>) -> bool {
+        self.kind.is_event()
+            && days_until.is_some_and(|d| d >= 0 && Decimal::from(d) <= self.value)
     }
 
     /// For alerts on all holdings: whether the condition holds for today's
@@ -189,6 +322,14 @@ impl Alert {
             AlertKind::WeightAbove => format!("{} over {v}% of your holdings", self.ticker),
             AlertKind::PortfolioDayDrop => format!("All holdings down {v}% or more in a day"),
             AlertKind::PortfolioDrawdown => format!("All holdings {v}% or more below their peak"),
+            AlertKind::RsiAbove => format!("{} RSI at or above {v} (overbought)", self.ticker),
+            AlertKind::RsiBelow => format!("{} RSI at or below {v} (oversold)", self.ticker),
+            AlertKind::CrossAboveSma => format!("{} crossed above its {v}-day average", self.ticker),
+            AlertKind::CrossBelowSma => format!("{} crossed below its {v}-day average", self.ticker),
+            AlertKind::Near52WeekHigh => format!("{} within {v}% of its 52-week high", self.ticker),
+            AlertKind::Near52WeekLow => format!("{} within {v}% of its 52-week low", self.ticker),
+            AlertKind::EarningsWithin => format!("{} reports earnings within {v} days", self.ticker),
+            AlertKind::ExDividendWithin => format!("{} goes ex-dividend within {v} days", self.ticker),
         }
     }
 }
@@ -242,6 +383,31 @@ mod tests {
         assert!(!dd.is_met_by_portfolio(None, Some(dec!(91))));
         assert!(dd.is_met_by_portfolio(None, Some(dec!(90))));
         assert!(AlertKind::PortfolioDrawdown.is_portfolio() && !AlertKind::DayMove.is_portfolio());
+    }
+
+    #[test]
+    fn technical_conditions() {
+        // 30 days rising 1 a day, then a sharp drop.
+        let mut closes: Vec<f64> = (1..=30).map(|i| 100.0 + i as f64).collect();
+        assert!(alert(AlertKind::RsiAbove, dec!(70)).is_met_by_history(&closes));
+        assert!(!alert(AlertKind::RsiBelow, dec!(30)).is_met_by_history(&closes));
+        assert!(alert(AlertKind::Near52WeekHigh, dec!(1)).is_met_by_history(&closes));
+        assert!(!alert(AlertKind::Near52WeekLow, dec!(5)).is_met_by_history(&closes));
+        assert!(!alert(AlertKind::CrossBelowSma, dec!(10)).is_met_by_history(&closes), "still above");
+        closes.push(110.0);
+        assert!(alert(AlertKind::CrossBelowSma, dec!(10)).is_met_by_history(&closes), "fell through the average");
+        assert!(!alert(AlertKind::CrossAboveSma, dec!(10)).is_met_by_history(&closes));
+        assert!(!alert(AlertKind::RsiAbove, dec!(70)).is_met_by_history(&[]), "no history");
+
+        let earnings = alert(AlertKind::EarningsWithin, dec!(3));
+        assert!(earnings.is_met_by_event(Some(2)));
+        assert!(!earnings.is_met_by_event(Some(5)) && !earnings.is_met_by_event(Some(-1)) && !earnings.is_met_by_event(None));
+        assert!(!earnings.is_met(Some(dec!(1)), Some(dec!(50)), Some(dec!(50))), "not a price alert");
+
+        assert!(AlertKind::CrossAboveSma.validate(dec!(50)).is_ok());
+        assert!(AlertKind::CrossAboveSma.validate(dec!(50.5)).is_err());
+        assert!(AlertKind::RsiBelow.validate(dec!(100)).is_err());
+        assert!(AlertKind::EarningsWithin.validate(dec!(0)).is_ok());
     }
 
     #[test]

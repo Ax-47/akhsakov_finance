@@ -362,6 +362,35 @@ const MIGRATIONS: &[&str] = &[
         token       TEXT NOT NULL,
         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );",
+    // 10: what each asset is (fund, gold, deposit …), prices entered by
+    // hand for assets Yahoo doesn't price, and Thai tax-saving wrappers
+    "CREATE TABLE assets (
+        ticker    TEXT PRIMARY KEY,
+        class     TEXT NOT NULL DEFAULT 'stock',
+        name      TEXT NOT NULL DEFAULT '',
+        currency  TEXT NOT NULL DEFAULT 'USD',
+        manual    INTEGER NOT NULL DEFAULT 0,
+        wrapper   TEXT
+    );
+    CREATE TABLE manual_prices (
+        ticker  TEXT NOT NULL,
+        date    TEXT NOT NULL,
+        price   TEXT NOT NULL,
+        PRIMARY KEY (ticker, date)
+    );",
+    // 11: monthly investment (DCA) plans
+    "CREATE TABLE dca_plans (
+        id             TEXT PRIMARY KEY,
+        portfolio_id   TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        ticker         TEXT NOT NULL,
+        amount         TEXT NOT NULL,
+        currency       TEXT NOT NULL DEFAULT 'USD',
+        day            INTEGER NOT NULL,
+        active         INTEGER NOT NULL DEFAULT 1,
+        start          TEXT NOT NULL,
+        last_done      TEXT,
+        last_reminded  TEXT
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

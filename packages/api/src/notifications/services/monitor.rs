@@ -1,11 +1,14 @@
 //! Checks active price alerts against live prices every minute.
 
 use super::NotificationService;
-use crate::notifications::repositories::{AlertStore, HoldingsSource, PriceSource};
+use crate::notifications::repositories::{AlertStore, EventSource, HistorySource, HoldingsSource, PriceSource};
 use dtos::{
+    market::EventKind,
+    planning::days_between,
     position::{compute_positions, portfolio_summary},
-    watch::AlertKind,
+    watch::{Alert, AlertKind},
 };
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::{
     collections::{HashMap, HashSet},
@@ -22,6 +25,9 @@ pub struct AlertMonitor {
     holdings: Arc<dyn HoldingsSource>,
     prices: Arc<dyn PriceSource>,
     notifications: NotificationService,
+    /// For technical and calendar alerts; without them those never fire.
+    history: Option<Arc<dyn HistorySource>>,
+    events: Option<Arc<dyn EventSource>>,
 }
 
 impl AlertMonitor {
@@ -36,7 +42,46 @@ impl AlertMonitor {
             holdings,
             prices,
             notifications,
+            history: None,
+            events: None,
         }
+    }
+
+    /// Adds daily history and the events calendar, for technical and
+    /// calendar alerts.
+    pub fn with_market(mut self, history: Arc<dyn HistorySource>, events: Arc<dyn EventSource>) -> Self {
+        self.history = Some(history);
+        self.events = Some(events);
+        self
+    }
+
+    /// Closes, oldest first, ending with the live `price` (today's close
+    /// so far) when known.
+    async fn closes(&self, ticker: &TickerSymbol, price: Option<Decimal>, today: &str) -> Option<Vec<f64>> {
+        let history = self.history.as_ref()?.daily_closes(ticker).await.ok()?;
+        let mut closes: Vec<f64> = history.iter().map(|(_, c)| *c).collect();
+        if let Some(p) = price.and_then(|p| p.to_f64()) {
+            match history.last() {
+                Some((date, _)) if date.as_str() >= today => *closes.last_mut()? = p,
+                _ => closes.push(p),
+            }
+        }
+        Some(closes)
+    }
+
+    /// Days until the next event the alert watches, if one is known.
+    fn days_until(alert: &Alert, events: &[dtos::market::CalendarEvent], today: &str) -> Option<i64> {
+        let kind = match alert.kind {
+            AlertKind::EarningsWithin => EventKind::Earnings,
+            AlertKind::ExDividendWithin => EventKind::ExDividend,
+            _ => return None,
+        };
+        events
+            .iter()
+            .filter(|e| e.kind == kind && e.ticker.eq_ignore_ascii_case(alert.ticker.as_str()))
+            .filter_map(|e| days_between(today, &e.date))
+            .filter(|d| *d >= 0)
+            .min()
     }
 
     /// Runs [`check_once`](Self::check_once) every minute, forever.
@@ -98,8 +143,50 @@ impl AlertMonitor {
             (before > Decimal::ZERO).then(|| day_change / before * Decimal::ONE_HUNDRED)
         });
 
+        let today = chrono::Utc::now().date_naive().format("%Y-%m-%d").to_string();
+        let event_tickers: Vec<TickerSymbol> = active
+            .iter()
+            .filter(|a| a.kind.is_event())
+            .map(|a| a.ticker.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let events = match (&self.events, event_tickers.is_empty()) {
+            (Some(source), false) => source.events(event_tickers).await.unwrap_or_default(),
+            _ => vec![],
+        };
+        let mut history: HashMap<TickerSymbol, Option<Vec<f64>>> = HashMap::new();
+
         let mut fired = 0;
         for mut alert in active {
+            if alert.kind.is_technical() || alert.kind.is_event() {
+                let price = prices.get(&alert.ticker).map(|(p, _)| *p);
+                let met = if alert.kind.is_event() {
+                    let days = Self::days_until(&alert, &events, &today);
+                    alert.is_met_by_event(days).then(|| {
+                        let date = dtos::planning::add_days(&today, days.unwrap_or(0)).unwrap_or_default();
+                        format!("On {date}")
+                    })
+                } else {
+                    if !history.contains_key(&alert.ticker) {
+                        let closes = self.closes(&alert.ticker, price, &today).await;
+                        history.insert(alert.ticker.clone(), closes);
+                    }
+                    let closes = history.get(&alert.ticker).cloned().flatten().unwrap_or_default();
+                    alert.is_met_by_history(&closes).then(|| {
+                        price.map(|p| format!("Now ${:.2}", p.round_dp(2))).unwrap_or_default()
+                    })
+                };
+                let Some(body) = met else { continue };
+                if !self.alerts.mark_fired(alert.id)? {
+                    continue;
+                }
+                fired += 1;
+                if let Err(e) = self.notifications.notify(&format!("🔔 {}", alert.describe()), &body).await {
+                    tracing::warn!("couldn't record notification: {e}");
+                }
+                continue;
+            }
             if alert.kind.is_portfolio() {
                 if alert.kind == AlertKind::PortfolioDrawdown {
                     if let Some(v) = portfolio_value {
@@ -306,6 +393,55 @@ mod tests {
         async fn price(&self, _: &TickerSymbol) -> Result<(Decimal, Decimal), String> {
             Ok(*self.0.lock().unwrap())
         }
+    }
+
+    /// NVDA rising 1 a day for 30 days, to 130.
+    struct Rising;
+    #[async_trait]
+    impl HistorySource for Rising {
+        async fn daily_closes(&self, _: &TickerSymbol) -> Result<Vec<(String, f64)>, String> {
+            Ok((1..=30).map(|i| (format!("2020-01-{i:02}"), 100.0 + i as f64)).collect())
+        }
+    }
+
+    /// NVDA reports in two days.
+    struct Soon;
+    #[async_trait]
+    impl EventSource for Soon {
+        async fn events(&self, _: Vec<TickerSymbol>) -> Result<Vec<dtos::market::CalendarEvent>, String> {
+            let today = chrono::Utc::now().date_naive();
+            Ok(vec![dtos::market::CalendarEvent {
+                date: (today + chrono::Duration::days(2)).format("%Y-%m-%d").to_string(),
+                ticker: "NVDA".into(),
+                name: "NVIDIA".into(),
+                kind: EventKind::Earnings,
+                annual_dividend: None,
+                estimated: false,
+            }])
+        }
+    }
+
+    #[tokio::test]
+    async fn technical_and_calendar_alerts() {
+        let store = Arc::new(Store::default());
+        *store.alerts.lock().unwrap() = vec![
+            alert(AlertKind::Near52WeekHigh, dec!(10)),   // 120 vs a 130 high: met
+            alert(AlertKind::CrossBelowSma, dec!(10)),    // live 120 < 10-day avg of ~126: met
+            alert(AlertKind::EarningsWithin, dec!(3)),    // in 2 days: met
+            alert(AlertKind::ExDividendWithin, dec!(30)), // none known
+        ];
+        let repo = Arc::new(Memory::default());
+        let monitor = AlertMonitor::new(
+            store.clone(),
+            Arc::new(NoHoldings),
+            Arc::new(Prices),
+            NotificationService::new(repo.clone(), Arc::new(CountingPusher::default())),
+        );
+        assert_eq!(monitor.check_once().await.unwrap(), 0, "no history source, nothing fires");
+        let monitor = monitor.with_market(Arc::new(Rising), Arc::new(Soon));
+        assert_eq!(monitor.check_once().await.unwrap(), 3);
+        let titles: Vec<String> = repo.items.lock().unwrap().iter().map(|n| n.title.clone()).collect();
+        assert!(titles.iter().any(|t| t.contains("earnings within 3 days")), "{titles:?}");
     }
 
     #[tokio::test]

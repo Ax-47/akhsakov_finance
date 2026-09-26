@@ -121,9 +121,11 @@ impl WatchlistService {
         kind: AlertKind,
         value: Decimal,
     ) -> Result<Alert, ServiceError> {
-        if value <= Decimal::ZERO {
+        // Calendar alerts may be "on the day" (zero days before).
+        if value < Decimal::ZERO || (value.is_zero() && !kind.is_event()) {
             return Err(ServiceError::Validation("Enter a value above zero".into()));
         }
+        kind.validate(value).map_err(|e| ServiceError::Validation(e.into()))?;
         if matches!(kind, AlertKind::WeightAbove) && value > Decimal::ONE_HUNDRED {
             return Err(ServiceError::Validation(
                 "A weight can't be over 100%".into(),

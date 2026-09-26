@@ -40,11 +40,13 @@ pub fn PlanTab(
     rsx! {
         div { class: "grid gap-5",
             RebalanceCard { positions: positions.clone(), portfolio }
+            crate::dca_card::DcaCard { portfolio }
             div { class: "grid gap-5 lg:grid-cols-[1fr_1fr]",
                 ReturnsCard { transactions: transactions.clone(), total_value, today: today.clone() }
                 GoalsCard { prices, today: today.clone() }
             }
-            TaxCard { transactions, positions, today }
+            TaxCard { transactions: transactions.clone(), positions, today }
+            crate::thai_tax_card::ThaiTaxCard { transactions }
         }
     }
 }
