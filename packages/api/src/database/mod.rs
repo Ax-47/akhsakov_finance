@@ -391,6 +391,12 @@ const MIGRATIONS: &[&str] = &[
         last_done      TEXT,
         last_reminded  TEXT
     );",
+    // 12: the portfolio Claude manages itself, with paper money
+    "CREATE TABLE ai_portfolio (
+        id            INTEGER PRIMARY KEY CHECK (id = 1),
+        portfolio_id  TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

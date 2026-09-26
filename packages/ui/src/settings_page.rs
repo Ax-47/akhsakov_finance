@@ -1,16 +1,18 @@
 //! Settings: display currency, analysis assumptions, and data export.
 
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use crate::{
-    app::{AppSettings, DataRefresh},
+    app::{AppSettings, DataRefresh, PortfolioScope},
     components::card::{ActionButton, Card, Field, Segmented, Stepper, ToggleButton, INPUT},
     editors::{Dialog, Dialogs},
     files::{print_report, ExportButtons},
+    format::fmt_usd,
     hooks::use_portfolio_memo,
     page::{GhostButton, Page},
 };
 use dioxus::prelude::*;
 use dtos::{
+    ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
     settings::{Settings, BENCHMARKS, CURRENCIES},
@@ -168,6 +170,7 @@ pub fn SettingsPage() -> Element {
                 crate::auth::SecurityCard {}
                 NotificationSettings {}
                 ConnectorCard {}
+                AiPortfolioCard {}
                 Card { title: tr("Your data"),
                     div { class: "grid gap-4 text-sm",
                         DataRow { label: tr("Transactions"), hint: tr("Every trade, dividend and cash movement. Re-importable."),
@@ -527,6 +530,146 @@ fn ConnectorCard() -> Element {
                         {tr("Claude connects through MCP with a private key. Until you turn it on, nothing outside the app can reach your data this way.")}
                     }
                     ActionButton { label: tr("Turn on"), onclick: new_key }
+                }
+            }
+            if let Some(e) = error() {
+                p { class: "mt-3 text-sm text-ctp-red", "{e}" }
+            }
+        }
+    }
+}
+
+/// A portfolio Claude manages itself through the connector, with paper
+/// money you give it. Your other portfolios stay read-only to it.
+#[component]
+fn AiPortfolioCard() -> Element {
+    let refresh = use_context::<DataRefresh>();
+    let PortfolioScope(mut scope) = use_context::<PortfolioScope>();
+    let mut info = use_signal(|| None::<AiPortfolioInfo>);
+    let mut loaded = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut amount = use_signal(|| DEFAULT_STARTING_CASH.to_string());
+    let mut confirm_stop = use_signal(|| false);
+    use_future(move || async move {
+        match api::get_ai_portfolio().await {
+            Ok(i) => info.set(i),
+            Err(e) => error.set(Some(e.to_string())),
+        }
+        loaded.set(true);
+    });
+    let message = |e: ServerFnError| match e {
+        ServerFnError::ServerError { message, .. } => message,
+        e => e.to_string(),
+    };
+    let parsed = move || {
+        Decimal::from_str(amount().trim().trim_start_matches('$').replace(',', "").as_str())
+            .ok()
+            .filter(|d| *d > Decimal::ZERO)
+            .ok_or_else(|| tr("Enter an amount more than zero").to_string())
+    };
+    let start = move |_| async move {
+        let cash = match parsed() {
+            Ok(c) => c,
+            Err(e) => return error.set(Some(e)),
+        };
+        match api::start_ai_portfolio(cash).await {
+            Ok(i) => {
+                info.set(Some(i));
+                error.set(None);
+                amount.set(String::new());
+                refresh.reload();
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    let fund = move |_| async move {
+        let cash = match parsed() {
+            Ok(c) => c,
+            Err(e) => return error.set(Some(e)),
+        };
+        match api::fund_ai_portfolio(cash).await {
+            Ok(i) => {
+                info.set(Some(i));
+                error.set(None);
+                amount.set(String::new());
+                refresh.reload();
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    let stop = move |_| async move {
+        confirm_stop.set(false);
+        match api::stop_ai_portfolio().await {
+            Ok(()) => {
+                info.set(None);
+                amount.set(DEFAULT_STARTING_CASH.to_string());
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+    rsx! {
+        Card {
+            title: tr("Claude's own portfolio"),
+            subtitle: tr("Give Claude paper money to invest by itself through the connector, and see how it does. It can't trade in your other portfolios.").to_string(),
+            if !loaded() {
+                p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
+            } else if let Some(i) = info() {
+                div { class: "grid gap-4 text-sm",
+                    div { class: "flex flex-wrap items-center justify-between gap-3",
+                        div {
+                            div { class: "font-medium text-ctp-text", "{i.name}" }
+                            div { class: "text-xs text-ctp-subtext0",
+                                {trf("Given {} · cash {} · {} trades", &[&fmt_usd(i.funded, 2), &fmt_usd(i.cash, 2), &i.trades])}
+                            }
+                        }
+                        GhostButton {
+                            label: tr("Open portfolio"),
+                            onclick: move |_| {
+                                scope.set(Some(i.portfolio_id.to_string()));
+                                navigator().push("/portfolio");
+                            },
+                        }
+                    }
+                    p { class: "text-xs text-ctp-subtext0",
+                        {tr("Ask Claude, e.g. “Check your portfolio and decide what to buy or sell today.” It trades at the latest price with no fee, and writes why in each holding's journal.")}
+                    }
+                    Field { label: tr("Add funds (USD)"),
+                        div { class: "flex flex-wrap items-center gap-2",
+                            input {
+                                class: "{INPUT} max-w-sm",
+                                inputmode: "decimal",
+                                placeholder: "1000",
+                                value: "{amount}",
+                                oninput: move |e| amount.set(e.value()),
+                            }
+                            GhostButton { label: tr("Add funds"), onclick: fund }
+                        }
+                    }
+                    div { class: "flex flex-wrap items-center gap-2",
+                        if confirm_stop() {
+                            span { class: "text-xs text-ctp-peach", {tr("Claude will stop trading; the portfolio and its history stay. Continue?")} }
+                            GhostButton { label: tr("Stop"), onclick: stop }
+                            GhostButton { label: tr("Cancel"), onclick: move |_| confirm_stop.set(false) }
+                        } else {
+                            GhostButton { label: tr("Stop Claude trading"), onclick: move |_| confirm_stop.set(true) }
+                        }
+                    }
+                }
+            } else {
+                div { class: "grid gap-3 text-sm",
+                    Field {
+                        label: tr("Starting cash (USD)"),
+                        hint: tr("Paper money only: nothing is bought at a real broker. Connect Claude above so it can trade."),
+                        input {
+                            class: "{INPUT} max-w-sm",
+                            inputmode: "decimal",
+                            value: "{amount}",
+                            oninput: move |e| amount.set(e.value()),
+                        }
+                    }
+                    div { class: "flex justify-end",
+                        ActionButton { label: tr("Give Claude a portfolio"), onclick: start }
+                    }
                 }
             }
             if let Some(e) = error() {

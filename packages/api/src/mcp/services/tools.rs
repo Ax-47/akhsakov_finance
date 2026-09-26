@@ -1,7 +1,9 @@
 //! The tools the connector offers: read your portfolios and theses, save a
-//! thesis, and add to its journal. Everything the AI writes is marked as
-//! written by AI.
+//! thesis, and add to its journal; and, when you've given Claude a
+//! portfolio of its own, look up prices and trade in it. Everything the AI
+//! writes is marked as written by AI.
 
+use super::trading::{Side, Size, Trading};
 use crate::{portfolio::PortfolioService, thesis::ThesisService, watchlist::WatchlistService};
 use dtos::{
     compute_positions,
@@ -22,6 +24,12 @@ type ToolResult = Result<Value, String>;
 
 /// Journal entries shown per thesis when listing many.
 const LIST_JOURNAL: usize = 3;
+
+/// Trades listed by get_my_portfolio.
+const RECENT_TRADES: usize = 10;
+
+const NO_PORTFOLIO: &str = "You don't have a portfolio of your own yet. The user can give you one, with \
+starting cash, in the app under Settings → Connect Claude.";
 
 pub fn definitions() -> Value {
     let portfolio = json!({
@@ -93,6 +101,37 @@ pub fn definitions() -> Value {
             },
             "annotations": writes,
         },
+        {
+            "name": "get_my_portfolio",
+            "title": "Your own portfolio",
+            "description": "The portfolio the user gave you to manage yourself, with paper money: cash, holdings at live prices, total value, profit against the money you were given, and your recent trades. Amounts are USD.",
+            "inputSchema": { "type": "object", "properties": {} },
+            "annotations": { "readOnlyHint": true, "openWorldHint": true },
+        },
+        {
+            "name": "get_quote",
+            "title": "Get a live price",
+            "description": "The latest price of a stock, ETF or fund, in its own currency and in USD, with the change since the previous close.",
+            "inputSchema": { "type": "object", "properties": { "ticker": ticker }, "required": ["ticker"] },
+            "annotations": { "readOnlyHint": true, "openWorldHint": true },
+        },
+        {
+            "name": "place_order",
+            "title": "Buy or sell in your portfolio",
+            "description": "Buys or sells in your own portfolio (see get_my_portfolio) at the live price, with no fee. It can't trade in the user's other portfolios. Give either `shares` (fractions allowed) or `amount_usd`; to sell everything, pass shares \"all\". The reason goes in the holding's thesis journal.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ticker": ticker,
+                    "side": { "type": "string", "enum": ["buy", "sell"] },
+                    "shares": { "type": ["number", "string"], "description": "How many shares, or \"all\" to sell the whole holding." },
+                    "amount_usd": { "type": "number", "description": "How many dollars' worth, instead of shares." },
+                    "reason": { "type": "string", "description": "Why, in one or two sentences, in the user's language." },
+                },
+                "required": ["ticker", "side", "reason"],
+            },
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true },
+        },
     ])
 }
 
@@ -101,6 +140,7 @@ pub struct Tools {
     theses: ThesisService,
     portfolios: PortfolioService,
     watchlist: WatchlistService,
+    trading: Trading,
 }
 
 /// Everything the tools look at, read once per call.
@@ -233,23 +273,32 @@ fn text(v: &Value, field: &str) -> Result<String, String> {
 }
 
 impl Tools {
-    pub fn new(theses: ThesisService, portfolios: PortfolioService, watchlist: WatchlistService) -> Self {
+    pub fn new(
+        theses: ThesisService,
+        portfolios: PortfolioService,
+        watchlist: WatchlistService,
+        trading: Trading,
+    ) -> Self {
         Self {
             theses,
             portfolios,
             watchlist,
+            trading,
         }
     }
 
     /// `None` for an unknown tool. `Err` is shown to the model as a failed
     /// call, so it says what to fix.
-    pub fn call(&self, name: &str, args: &Value) -> Option<ToolResult> {
+    pub async fn call(&self, name: &str, args: &Value) -> Option<ToolResult> {
         Some(match name {
             "list_portfolios" => self.list_portfolios(),
             "list_theses" => self.list_theses(args),
             "get_thesis" => self.get_thesis(args),
             "save_thesis" => self.save_thesis(args),
             "add_thesis_note" => self.add_note(args),
+            "get_my_portfolio" => self.my_portfolio().await,
+            "get_quote" => self.quote(args).await,
+            "place_order" => self.place_order(args).await,
             _ => return None,
         })
     }
@@ -418,17 +467,157 @@ impl Tools {
             .map_err(|e| e.to_string())?;
         Ok(json!({ "added": true, "portfolio": p.name, "ticker": ticker.as_str(), "text": entry.text }))
     }
+
+    async fn my_portfolio(&self) -> ToolResult {
+        let book = self.trading.book().map_err(|e| e.to_string())?.ok_or(NO_PORTFOLIO)?;
+        let positions = book.positions();
+        let mut holdings = Vec::with_capacity(positions.len());
+        let mut invested = Decimal::ZERO;
+        let mut unpriced = vec![];
+        for pos in &positions {
+            let price = match self.trading.quote(&pos.ticker).await {
+                Ok(q) => Some(q.price * q.usd_per_unit),
+                Err(_) => {
+                    unpriced.push(pos.ticker.as_str());
+                    None
+                }
+            };
+            // Without a price it's counted at cost.
+            let value = price.map_or(pos.cost_basis(), |p| p * pos.shares);
+            invested += value;
+            let mut h = position_json(pos, None);
+            h["ticker"] = json!(pos.ticker.as_str());
+            h["price"] = json!(price.map(|p| num(p, 4)));
+            h["market_value"] = num(value, 2);
+            h["unrealized_pnl"] = num(value - pos.cost_basis(), 2);
+            holdings.push(h);
+        }
+        let (cash, funded) = (book.cash(), book.funded());
+        let total = cash + invested;
+        let profit = total - funded;
+        let recent: Vec<Value> = book
+            .trades()
+            .rev()
+            .take(RECENT_TRADES)
+            .map(|t| {
+                json!({
+                    "date": t.date,
+                    "side": if t.transaction_type == TransactionType::Buy { "buy" } else { "sell" },
+                    "ticker": t.ticker.as_str(),
+                    "shares": num(t.shares, 6),
+                    "price": num(t.price, 4),
+                    "currency": t.currency,
+                    "total_usd": num(t.shares * t.usd_price(), 2),
+                })
+            })
+            .collect();
+        let mut out = json!({
+            "portfolio": { "id": book.id, "name": book.name },
+            "funded": num(funded, 2),
+            "cash": num(cash, 2),
+            "invested_value": num(invested, 2),
+            "total_value": num(total, 2),
+            "profit": num(profit, 2),
+            "profit_pct": if funded > Decimal::ZERO { num(profit / funded * Decimal::ONE_HUNDRED, 2) } else { Value::Null },
+            "realized_pnl": num(dtos::position::realized_pnl(&book.transactions), 2),
+            "holdings": holdings,
+            "trades": book.trades().count(),
+            "recent_trades": recent,
+            "note": "Paper money the user gave you to manage. Orders fill at the latest price with no fee, so results are a little better than a real broker's.",
+        });
+        if !unpriced.is_empty() {
+            out["unpriced_at_cost"] = json!(unpriced);
+        }
+        Ok(out)
+    }
+
+    async fn quote(&self, args: &Value) -> ToolResult {
+        let ticker = ticker(args)?;
+        let q = self.trading.quote(&ticker).await.map_err(|e| e.to_string())?;
+        let change = if q.previous_close > Decimal::ZERO {
+            Some(num((q.price / q.previous_close - Decimal::ONE) * Decimal::ONE_HUNDRED, 2))
+        } else {
+            None
+        };
+        Ok(json!({
+            "ticker": ticker.as_str(),
+            "price": num(q.price, 4),
+            "currency": q.currency,
+            "price_usd": num(q.price * q.usd_per_unit, 4),
+            "previous_close": num(q.previous_close, 4),
+            "change_pct": change,
+            "as_of": chrono::DateTime::from_timestamp(q.timestamp, 0).map(|t| t.to_rfc3339()),
+            "stale": q.stale,
+        }))
+    }
+
+    async fn place_order(&self, args: &Value) -> ToolResult {
+        let ticker = ticker(args)?;
+        let side = match args.get("side").and_then(Value::as_str).map(str::to_lowercase).as_deref() {
+            Some("buy") => Side::Buy,
+            Some("sell") => Side::Sell,
+            _ => return Err("`side` must be buy or sell.".into()),
+        };
+        let reason = args.get("reason").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+        if reason.is_empty() {
+            return Err("Give a `reason` for the trade.".into());
+        }
+        let amount = |v: &Value, field: &str| -> Result<Decimal, String> {
+            match v {
+                Value::String(s) => Decimal::from_str(s.trim()).ok(),
+                v => v.as_f64().and_then(Decimal::from_f64),
+            }
+            .filter(|d| *d > Decimal::ZERO)
+            .ok_or_else(|| format!("`{field}` must be a number more than zero."))
+        };
+        let size = match (args.get("shares").filter(|v| !v.is_null()), args.get("amount_usd").filter(|v| !v.is_null())) {
+            (Some(_), Some(_)) => return Err("Give `shares` or `amount_usd`, not both.".into()),
+            (Some(Value::String(s)), None) if s.trim().eq_ignore_ascii_case("all") => Size::All,
+            (Some(v), None) => Size::Shares(amount(v, "shares")?),
+            (None, Some(v)) => Size::Usd(amount(v, "amount_usd")?),
+            (None, None) => return Err("Say how much: `shares` or `amount_usd`.".into()),
+        };
+        let fill = self.trading.order(&ticker, side, size).await.map_err(|e| e.to_string())?;
+        let tx = &fill.tx;
+        let verb = if side == Side::Buy { "Bought" } else { "Sold" };
+        let mut entry = format!(
+            "{verb} {} at {} {} (${}). {reason}",
+            tx.shares.normalize(),
+            tx.price.round_dp(4).normalize(),
+            tx.currency,
+            fill.usd_total.round_dp(2)
+        );
+        if entry.chars().count() > dtos::thesis::MAX_ENTRY_LEN {
+            entry = entry.chars().take(dtos::thesis::MAX_ENTRY_LEN).collect();
+        }
+        // The trade stands even if the journal can't be written.
+        let journaled = self.theses.add_entry(tx.portfolio_id, &ticker, &entry, Author::Ai).is_ok();
+        Ok(json!({
+            "filled": true,
+            "side": if side == Side::Buy { "buy" } else { "sell" },
+            "ticker": ticker.as_str(),
+            "shares": num(tx.shares, 6),
+            "price": num(tx.price, 4),
+            "currency": tx.currency,
+            "total_usd": num(fill.usd_total, 2),
+            "cash_after": num(fill.cash_after, 2),
+            "date": tx.date,
+            "journaled": journaled,
+        }))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::mcp::services::tests::service;
+    use rust_decimal_macros::dec;
     use serde_json::{json, Value};
 
     /// Calls a tool; `Err` holds a failed call's message.
-    fn call(s: &crate::mcp::McpService, name: &str, args: Value) -> Result<Value, String> {
+    async fn call(s: &crate::mcp::McpService, name: &str, args: Value) -> Result<Value, String> {
         let reply = s
             .handle(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}))
+            .await
             .unwrap();
         let result = &reply["result"];
         let text = result["content"][0]["text"].as_str().unwrap().to_string();
@@ -439,18 +628,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn remembers_theses_through_the_tools() {
+    #[tokio::test]
+    async fn remembers_theses_through_the_tools() {
         let s = service();
-        let list = call(&s, "list_portfolios", json!({})).unwrap();
+        let list = call(&s, "list_portfolios", json!({})).await.unwrap();
         let nvda = &list["portfolios"][0]["holdings"][0];
         assert_eq!((nvda["ticker"].as_str(), nvda["shares"].as_f64()), (Some("NVDA"), Some(2.0)));
         assert_eq!(nvda["first_bought"], "2026-01-05");
         assert_eq!(nvda["thesis_status"], Value::Null);
 
-        let missing = call(&s, "list_theses", json!({})).unwrap();
+        let missing = call(&s, "list_theses", json!({})).await.unwrap();
         assert_eq!(missing["portfolios"][0]["held_without_thesis"], json!(["NVDA"]));
-        let empty = call(&s, "get_thesis", json!({"ticker":"nvda"})).unwrap();
+        let empty = call(&s, "get_thesis", json!({"ticker":"nvda"})).await.unwrap();
         assert!(empty["thesis"].is_null() && empty["hint"].is_string());
 
         // Only one portfolio: it needn't be named.
@@ -459,6 +648,7 @@ mod tests {
             "save_thesis",
             json!({"ticker":"NVDA","thesis":"Owns AI training","sell_if":"Hyperscaler capex falls","target_price":250.5,"conviction":4,"note":"Agreed with the user."}),
         )
+        .await
         .unwrap();
         assert_eq!(saved["thesis"]["target_price"], json!(250.5));
         assert_eq!(saved["thesis"]["last_edited_by"], "ai");
@@ -467,18 +657,85 @@ mod tests {
         assert!(journal.starts_with("Agreed with the user.\nUpdated: thesis, sell if, target none → 250.5"), "{journal}");
 
         // Partial updates keep the other fields; null clears.
-        let updated = call(&s, "save_thesis", json!({"portfolio":"main","ticker":"NVDA","status":"at_risk","target_price":null})).unwrap();
+        let updated = call(&s, "save_thesis", json!({"portfolio":"main","ticker":"NVDA","status":"at_risk","target_price":null})).await.unwrap();
         assert_eq!(updated["thesis"]["thesis"], "Owns AI training");
         assert_eq!((updated["thesis"]["status"].as_str(), &updated["thesis"]["target_price"]), (Some("at_risk"), &Value::Null));
 
-        call(&s, "add_thesis_note", json!({"ticker":"NVDA","text":"Q3: data-centre revenue +60%."})).unwrap();
-        let got = call(&s, "get_thesis", json!({"ticker":"NVDA"})).unwrap();
+        call(&s, "add_thesis_note", json!({"ticker":"NVDA","text":"Q3: data-centre revenue +60%."})).await.unwrap();
+        let got = call(&s, "get_thesis", json!({"ticker":"NVDA"})).await.unwrap();
         assert_eq!(got["thesis"]["journal"][0]["text"], "Q3: data-centre revenue +60%.");
         assert_eq!(got["thesis"]["journal_entries"], 3);
 
-        assert!(call(&s, "get_thesis", json!({"ticker":"NVDA","portfolio":"Other"})).unwrap_err().contains("Main"));
-        assert!(call(&s, "save_thesis", json!({"ticker":"NVDA","conviction":9})).is_err());
-        assert!(call(&s, "save_thesis", json!({"ticker":"NVDA","status":"great"})).is_err());
-        assert!(call(&s, "add_thesis_note", json!({"ticker":"NVDA","text":" "})).is_err());
+        assert!(call(&s, "get_thesis", json!({"ticker":"NVDA","portfolio":"Other"})).await.unwrap_err().contains("Main"));
+        assert!(call(&s, "save_thesis", json!({"ticker":"NVDA","conviction":9})).await.is_err());
+        assert!(call(&s, "save_thesis", json!({"ticker":"NVDA","status":"great"})).await.is_err());
+        assert!(call(&s, "add_thesis_note", json!({"ticker":"NVDA","text":" "})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn trades_only_in_its_own_portfolio() {
+        let s = service();
+        let none = call(&s, "get_my_portfolio", json!({})).await.unwrap_err();
+        assert!(none.contains("Settings"), "{none}");
+        let refused = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await;
+        assert!(refused.is_err(), "no orders before it has a portfolio");
+
+        let info = s.trading().start(dec!(1000)).await.unwrap();
+        assert_eq!((info.name.as_str(), info.funded, info.cash), ("Claude", dec!(1000), dec!(1000)));
+        assert!(s.trading().start(dec!(5)).await.is_err(), "only one");
+
+        let quote = call(&s, "get_quote", json!({"ticker":"PTT.BK"})).await.unwrap();
+        assert_eq!((quote["price"].as_f64(), quote["price_usd"].as_f64()), (Some(35.0), Some(1.05)));
+
+        let buy = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":2,"reason":"AI capex keeps growing."}))
+            .await
+            .unwrap();
+        assert_eq!((buy["total_usd"].as_f64(), buy["cash_after"].as_f64()), (Some(400.0), Some(600.0)));
+        // In baht, converted at the live rate; by amount, rounded down.
+        let thai = call(&s, "place_order", json!({"ticker":"PTT.BK","side":"buy","amount_usd":"100","reason":"Dividend"}))
+            .await
+            .unwrap();
+        assert_eq!((thai["shares"].as_f64(), thai["currency"].as_str()), (Some(95.238095), Some("THB")));
+
+        let broke = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":3,"reason":"More"})).await.unwrap_err();
+        assert!(broke.contains("Not enough cash"), "{broke}");
+        assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"sell","shares":5,"reason":"x"})).await.unwrap_err().contains("only 2"));
+        assert!(call(&s, "place_order", json!({"ticker":"OLD","side":"buy","shares":1,"reason":"x"})).await.is_err(), "stale price");
+        assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1})).await.is_err(), "needs a reason");
+        assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"amount_usd":5,"reason":"x"})).await.is_err());
+        assert!(call(&s, "place_order", json!({"ticker":"^GSPC","side":"buy","shares":1,"reason":"x"})).await.is_err());
+
+        let sold = call(&s, "place_order", json!({"ticker":"NVDA","side":"sell","shares":"all","reason":"Taking profit."}))
+            .await
+            .unwrap();
+        assert_eq!(sold["shares"].as_f64(), Some(2.0));
+
+        let mine = call(&s, "get_my_portfolio", json!({})).await.unwrap();
+        assert_eq!(mine["portfolio"]["name"], "Claude");
+        assert_eq!(mine["trades"], 3);
+        assert_eq!(mine["recent_trades"][0]["side"], "sell");
+        assert_eq!(mine["holdings"].as_array().unwrap().len(), 1);
+        assert_eq!(mine["funded"].as_f64(), Some(1000.0));
+        // Priced at cost and sold at the same price: nothing gained or lost
+        // beyond rounding the baht position.
+        assert!(mine["profit"].as_f64().unwrap().abs() < 0.01, "{mine}");
+
+        // The reason is journaled on the holding in Claude's portfolio.
+        let thesis = call(&s, "get_thesis", json!({"ticker":"NVDA","portfolio":"Claude"})).await.unwrap();
+        let journal = thesis["thesis"]["journal"].as_array().unwrap();
+        assert!(
+            journal.iter().any(|e| e["text"] == "Bought 2 at 200 USD ($400). AI capex keeps growing."),
+            "{journal:?}"
+        );
+        // The user's own portfolio is untouched.
+        let list = call(&s, "list_portfolios", json!({})).await.unwrap();
+        let main = list["portfolios"].as_array().unwrap().iter().find(|p| p["name"] == "Main").unwrap();
+        assert_eq!(main["holdings"][0]["shares"].as_f64(), Some(2.0));
+
+        let more = s.trading().add_funds(dec!(500)).await.unwrap();
+        assert_eq!(more.funded, dec!(1500));
+        s.trading().stop().unwrap();
+        assert!(s.trading().info().unwrap().is_none());
+        assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.is_err());
     }
 }

@@ -31,7 +31,7 @@ async fn with_header(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    serve(&mcp, bearer(&headers), method, &body)
+    serve(&mcp, bearer(&headers), method, &body).await
 }
 
 async fn with_path(
@@ -40,10 +40,10 @@ async fn with_path(
     method: Method,
     body: Bytes,
 ) -> Response {
-    serve(&mcp, Some(&key), method, &body)
+    serve(&mcp, Some(&key), method, &body).await
 }
 
-fn serve(mcp: &McpService, key: Option<&str>, method: Method, body: &[u8]) -> Response {
+async fn serve(mcp: &McpService, key: Option<&str>, method: Method, body: &[u8]) -> Response {
     match mcp.authorize(key) {
         Access::Granted => {}
         Access::Off => {
@@ -63,7 +63,7 @@ fn serve(mcp: &McpService, key: Option<&str>, method: Method, body: &[u8]) -> Re
         return (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST")]).into_response();
     }
     let (status, reply) = match serde_json::from_slice(body) {
-        Ok(message) => (StatusCode::OK, mcp.handle(message)),
+        Ok(message) => (StatusCode::OK, mcp.handle(message).await),
         Err(_) => (StatusCode::BAD_REQUEST, Some(McpService::parse_error())),
     };
     match reply {

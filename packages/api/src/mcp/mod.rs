@@ -1,7 +1,8 @@
 //! The AI connector: an MCP (Model Context Protocol) server at `/mcp`, so
 //! Claude (claude.ai, the Claude apps, Claude Code) can read your
-//! portfolios and read and write your theses. It's off until you turn it
-//! on in Settings, which creates the key every request must carry.
+//! portfolios and read and write your theses, and trade in a portfolio of
+//! its own with paper money you give it. It's off until you turn it on in
+//! Settings, which creates the key every request must carry.
 //!
 //! `repositories` is the key store port, `infrastructures` its SQLite
 //! adapter and the HTTP endpoint, `services` the protocol and its tools,
@@ -26,10 +27,18 @@ pub fn mcp_services_setup(
     theses: crate::thesis::ThesisService,
     portfolios: crate::portfolio::PortfolioService,
     watchlist: crate::watchlist::WatchlistService,
+    quotes: crate::quote::services::quote::QuoteService,
 ) -> McpService {
+    use std::sync::Arc;
+    let trading = services::trading::Trading::new(
+        Arc::new(infrastructures::SqliteAiPortfolioRepository::new(db.clone())),
+        portfolios.clone(),
+        Arc::new(infrastructures::QuotePrices(quotes)),
+    );
     McpService::new(
-        std::sync::Arc::new(infrastructures::SqliteKeyRepository::new(db)),
-        services::tools::Tools::new(theses, portfolios, watchlist),
+        Arc::new(infrastructures::SqliteKeyRepository::new(db)),
+        services::tools::Tools::new(theses, portfolios, watchlist, trading.clone()),
+        trading,
     )
 }
 
