@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Shared crates and server functions: lint, then run the unit tests.
+  test:
+    name: Clippy + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --features api/server,ui/server
+      - name: Tests
+        run: cargo test --workspace --features api/server,ui/server
+
+  # The web client compiled for the browser.
+  web:
+    name: Web (wasm32)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Check web client
+        run: cargo check -p web --features web --target wasm32-unknown-unknown
+
+  # The desktop app: webview renderer and server functions in one binary.
+  desktop:
+    name: Desktop (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WebKitGTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy desktop
+        run: cargo clippy -p desktop --features desktop,server
+
+  # packages/ui/assets/tailwind.css is committed; make sure it matches the sources.
+  tailwind:
+    name: Tailwind CSS up to date
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/ui/package-lock.json
+      - run: npm ci
+      - name: Rebuild tailwind.css
+        run: npx @tailwindcss/cli -i input.css -o assets/tailwind.css
+      - name: Fail if it changed
+        run: |
+          git diff --exit-code -- assets/tailwind.css || {
+            echo "::error::packages/ui/assets/tailwind.css is stale. Run 'npx @tailwindcss/cli -i input.css -o assets/tailwind.css' in packages/ui and commit it."
+            exit 1
+          }
