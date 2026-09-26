@@ -1,5 +1,6 @@
 //! Axum middleware: once sign-in is required, every `/api/` call except
-//! sign-in itself and the public quote stream needs a valid session.
+//! sign-in itself and the public quote stream needs a valid session. The
+//! AI connector (`/mcp`) checks its own key instead.
 
 use crate::auth::{controller::bearer, AuthService};
 use dioxus::server::axum::{

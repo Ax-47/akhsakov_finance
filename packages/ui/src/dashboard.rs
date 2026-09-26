@@ -14,6 +14,7 @@ use crate::{
     hooks::{scoped_data, use_portfolio, PortfolioState},
     page::{GhostButton, HeroStat, Page, PageHero},
     plan_tab::PlanTab,
+    thesis::ThesisTab,
 };
 use dioxus::prelude::*;
 use dtos::csv_export::{holdings_csv, transactions_csv};
@@ -29,6 +30,7 @@ const CONCENTRATION_WARN_PCT: Decimal = dec!(25);
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Overview,
+    Thesis,
     Income,
     Risk,
     Plan,
@@ -129,12 +131,17 @@ pub fn Dashboard() -> Element {
                     }
                 }
 
-                nav { class: "flex items-center justify-between gap-4 mt-10 mb-5",
+                nav { class: "flex items-center justify-between gap-4 mt-10 mb-5 overflow-x-auto",
                     Segmented {
                         ToggleButton {
                             label: tr("Overview"),
                             active: tab() == Tab::Overview,
                             onclick: move |_| tab.set(Tab::Overview),
+                        }
+                        ToggleButton {
+                            label: tr("Thesis"),
+                            active: tab() == Tab::Thesis,
+                            onclick: move |_| tab.set(Tab::Thesis),
                         }
                         ToggleButton {
                             label: tr("Income"),
@@ -179,6 +186,11 @@ pub fn Dashboard() -> Element {
                                 positions: positions.clone(),
                                 prices: ticker_price_map.clone(),
                             }
+                        }
+                    },
+                    Tab::Thesis => rsx! {
+                        TabPanel {
+                            ThesisTab { portfolio: scope_id }
                         }
                     },
                     Tab::Income => rsx! {
