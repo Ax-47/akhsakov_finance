@@ -45,10 +45,10 @@ fn script() -> String {
         if (e.code === "Slash") return e.shiftKey ? "?" : "/";
         return e.key;
     }};
-    const go = (path) => {{
-        const link = document.querySelector('a[href="' + path + '"]');
-        if (link) link.click();
-    }};
+    // Navigation goes through the router ([`VimRouter`]). A synthetic click
+    // on a sidebar link isn't handled by the desktop app's router, which then
+    // opens the link in the system browser as file:///portfolio.
+    const go = (path) => window.dispatchEvent(new CustomEvent("vim-go", {{ detail: path }}));
     const scroll = (dy) => window.scrollBy({{ top: dy, behavior: "auto" }});
     window.addEventListener("keydown", (e) => {{
         if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
@@ -98,6 +98,27 @@ fn script() -> String {
     }});
 }}"#
     )
+}
+
+/// Listens for `g`+key page jumps and navigates with the router. Render it
+/// inside the router (the app's layout does, via [`crate::Sidebar`]).
+#[component]
+pub fn VimRouter() -> Element {
+    use_future(|| async {
+        let mut channel = document::eval(
+            r#"const go = (e) => {
+                   try { dioxus.send(e.detail); } catch (_) { window.removeEventListener("vim-go", go); }
+               };
+               window.addEventListener("vim-go", go);
+               await new Promise(() => {});"#,
+        );
+        while let Ok(path) = channel.recv::<String>().await {
+            if PAGES.iter().any(|(_, p, _)| *p == path) {
+                navigator().push(path);
+            }
+        }
+    });
+    rsx! {}
 }
 
 /// Installs the shortcuts and renders the `?` help panel (hidden until
