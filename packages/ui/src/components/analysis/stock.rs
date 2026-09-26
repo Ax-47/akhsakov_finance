@@ -149,7 +149,7 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
     let currency = app_settings.currency();
     let bench_name = app_settings.benchmark_name();
     let (symbol, key) = (ticker.clone(), format!("stock-report/{ticker}/{benchmark}/{currency}"));
-    let data = crate::cache::use_cached(move || key.clone(), move || {
+    let data = crate::cache::use_cached_mem(move || key.clone(), move || {
         let ticker = symbol.clone();
         let (benchmark, currency) = (benchmark.clone(), currency.clone());
         async move {

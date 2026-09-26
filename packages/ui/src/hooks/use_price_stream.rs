@@ -19,6 +19,11 @@ use types::{quote::Quote, ticker_symbol::TickerSymbol};
 /// reached; cleared by the next live price.
 pub static OFFLINE: GlobalSignal<bool> = Signal::global(|| false);
 
+/// Where the last prices are kept on this device.
+const QUOTES_KEY: &str = "quotes";
+/// Streamed prices are saved every this many flushes.
+const SAVE_EVERY: u32 = 60;
+
 /// Bumped by [`reprice`].
 static REPRICE: GlobalSignal<u32> = Signal::global(|| 0);
 
@@ -54,11 +59,27 @@ pub fn use_price_stream(tickers: Memo<Vec<TickerSymbol>>) -> ReadSignal<HashMap<
                 .cloned()
                 .collect();
             if !missing.is_empty() {
-                if let Ok(quotes) = get_quotes(missing).await {
-                    if !quotes.is_empty() {
-                        *OFFLINE.write() = quotes.values().any(|q| q.stale);
+                match get_quotes(missing.clone()).await {
+                    Ok(quotes) => {
+                        if !quotes.is_empty() {
+                            *OFFLINE.write() = quotes.values().any(|q| q.stale);
+                        }
+                        price_map.with_mut(|map| map.extend(quotes));
+                        crate::offline::save(QUOTES_KEY, &*price_map.peek());
                     }
-                    price_map.with_mut(|map| map.extend(quotes));
+                    // Server unreachable: the prices saved on this device.
+                    Err(_) => {
+                        if let Some(saved) = crate::offline::load::<HashMap<TickerSymbol, Quote>>(QUOTES_KEY).await {
+                            price_map.with_mut(|map| {
+                                for t in &missing {
+                                    if let Some(q) = saved.get(t) {
+                                        map.entry(t.clone()).or_insert(Quote { stale: true, ..q.clone() });
+                                    }
+                                }
+                            });
+                            *OFFLINE.write() = true;
+                        }
+                    }
                 }
             }
             let _ = socket.send(ClientEvent::Watch(current)).await;
@@ -103,6 +124,12 @@ fn apply(mut price_map: Signal<HashMap<TickerSymbol, Quote>>, updates: HashMap<T
             .iter()
             .any(|(t, p)| map.get(t).is_some_and(|q| q.current_price != *p || q.stale))
     };
+    thread_local! {
+        static FLUSHES: Cell<u32> = const { Cell::new(0) };
+    }
+    if changed && FLUSHES.with(|n| n.replace(n.get() + 1) % SAVE_EVERY == 0) {
+        crate::offline::save(QUOTES_KEY, &*price_map.peek());
+    }
     if changed {
         price_map.with_mut(|map| {
             for (t, p) in updates {

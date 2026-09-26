@@ -980,4 +980,9 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Couldn't send", "ส่งไม่สำเร็จ"),
     ("Send now", "ส่งตอนนี้"),
     ("Send last month's report (all holdings) on the 1st to the app and your push channels (ntfy / Telegram / webhook in Settings)", "ส่งรายงานของเดือนก่อน (หุ้นทั้งหมด) ทุกวันที่ 1 เข้าแอปและช่องทางแจ้งเตือน (ntfy / Telegram / webhook ในหน้าตั้งค่า)"),
+    ("Offline — showing data saved on this device ({})", "ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้ในเครื่องนี้ ({})"),
+    ("Market data offline — showing the last saved prices", "ข้อมูลตลาดออฟไลน์ — แสดงราคาล่าสุดที่บันทึกไว้"),
+    ("More", "เพิ่มเติม"),
+    ("This device can't show system notifications here; use ntfy or Telegram for your phone.", "อุปกรณ์นี้แสดงการแจ้งเตือนของระบบไม่ได้ ใช้ ntfy หรือ Telegram สำหรับมือถือ"),
+    ("Show alerts as system notifications on this device while the app is open in the background", "แสดงการแจ้งเตือนเป็นการแจ้งเตือนของระบบบนอุปกรณ์นี้ ขณะแอปเปิดอยู่เบื้องหลัง"),
 ];

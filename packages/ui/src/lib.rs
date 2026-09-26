@@ -21,7 +21,7 @@ mod stock_page;
 mod stock_research;
 mod watchlist_page;
 pub use sidebar::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,
 };
 pub use stock_page::StockPage;
 pub use watchlist_page::WatchlistPage;
@@ -43,6 +43,7 @@ mod editors;
 mod files;
 mod format;
 mod notify;
+mod offline;
 mod page;
 mod plan_tab;
 mod report_card;

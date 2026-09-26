@@ -239,8 +239,13 @@ impl PriceSource for QuotePrices {
 /// per alert per minute.
 pub struct QuoteHistory {
     quotes: QuoteService,
-    cache: std::sync::Mutex<HashMap<TickerSymbol, (std::time::Instant, Vec<(String, f64)>)>>,
+    /// Closes per ticker, with when they were fetched.
+    cache: std::sync::Mutex<HashMap<TickerSymbol, Timed<Closes>>>,
 }
+
+type Timed<T> = (std::time::Instant, T);
+type Closes = Vec<(String, f64)>;
+type Events = (Vec<TickerSymbol>, Vec<dtos::market::CalendarEvent>);
 
 impl QuoteHistory {
     const FRESH: Duration = Duration::from_secs(30 * 60);
@@ -280,7 +285,8 @@ impl HistorySource for QuoteHistory {
 /// times a day.
 pub struct MarketEvents {
     market: MarketService,
-    cache: std::sync::Mutex<Option<(std::time::Instant, Vec<TickerSymbol>, Vec<dtos::market::CalendarEvent>)>>,
+    /// The tickers asked for last and their events, with when.
+    cache: std::sync::Mutex<Option<Timed<Events>>>,
 }
 
 impl MarketEvents {
@@ -295,13 +301,13 @@ impl MarketEvents {
 impl EventSource for MarketEvents {
     async fn events(&self, mut tickers: Vec<TickerSymbol>) -> Result<Vec<dtos::market::CalendarEvent>, String> {
         tickers.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-        if let Some((at, for_tickers, events)) = &*self.cache.lock().map_err(|e| e.to_string())? {
+        if let Some((at, (for_tickers, events))) = &*self.cache.lock().map_err(|e| e.to_string())? {
             if at.elapsed() < Self::FRESH && *for_tickers == tickers {
                 return Ok(events.clone());
             }
         }
         let events = self.market.calendar(tickers.clone()).await.map_err(message)?;
-        *self.cache.lock().map_err(|e| e.to_string())? = Some((std::time::Instant::now(), tickers, events.clone()));
+        *self.cache.lock().map_err(|e| e.to_string())? = Some((std::time::Instant::now(), (tickers, events.clone())));
         Ok(events)
     }
 }

@@ -20,6 +20,7 @@ gloo-timers = {version="0.4.0", features=["futures"]}
 uuid = { workspace = true, features = ["v4"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 base64 = "0.22"
 [features]
 server = ["api/server"]

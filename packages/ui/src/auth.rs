@@ -70,7 +70,13 @@ fn message(e: ServerFnError) -> String {
 pub fn AuthGate(children: Element) -> Element {
     let status = use_resource(|| async {
         use_token(stored_token().await.as_deref());
-        api::auth_status().await.map_err(message)
+        let result = api::auth_status().await.map_err(message);
+        // Server unreachable: open with the data saved on this device.
+        *crate::offline::SERVER_OFFLINE.write() = match &result {
+            Err(_) => crate::offline::saved_at().await,
+            Ok(_) => None,
+        };
+        result
     });
     use_context_provider(|| AuthState { status });
 
@@ -79,6 +85,7 @@ pub fn AuthGate(children: Element) -> Element {
         None => rsx! {
             div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-subtext0", {tr("Loading…")} }
         },
+        Some(Err(_)) if crate::offline::SERVER_OFFLINE.read().is_some() => rsx! { {children} },
         Some(Err(e)) => rsx! {
             div { class: "{crate::theme::theme_class()} flex h-screen flex-col items-center justify-center gap-3 bg-ctp-base text-sm",
                 p { class: "text-ctp-red", "Can't reach the server: {e}" }
@@ -193,6 +200,7 @@ pub fn SecurityCard() -> Element {
     let sign_out = move |_| async move {
         let _ = api::auth_logout().await;
         store_token(None);
+        crate::offline::clear();
         auth.recheck();
     };
 

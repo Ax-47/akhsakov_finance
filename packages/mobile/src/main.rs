@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,
 };
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -63,6 +63,25 @@ fn App() -> Element {
 fn Shell() -> Element {
     rsx! {
         Sidebar {
+            // Phones: the main pages as a bottom tab bar, the rest under "More".
+            tabs: rsx! {
+                Link { to: Route::Home {}, class: TAB_LINK, active_class: TAB_LINK_ACTIVE,
+                    DashboardIcon {}
+                    {ui::i18n::tr("Dashboard")}
+                }
+                Link { to: Route::Portfolio {}, class: TAB_LINK, active_class: TAB_LINK_ACTIVE,
+                    PortfolioIcon {}
+                    {ui::i18n::tr("Portfolio")}
+                }
+                Link { to: Route::Watchlist {}, class: TAB_LINK, active_class: TAB_LINK_ACTIVE,
+                    WatchlistIcon {}
+                    {ui::i18n::tr("Watchlist")}
+                }
+                Link { to: Route::Market {}, class: TAB_LINK, active_class: TAB_LINK_ACTIVE,
+                    MarketIcon {}
+                    {ui::i18n::tr("Markets")}
+                }
+            },
             links: rsx! {
                 NavSection { label: ui::i18n::tr("Your money") }
                 Link { to: Route::Home {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,

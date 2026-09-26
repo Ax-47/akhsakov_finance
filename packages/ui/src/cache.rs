@@ -1,8 +1,11 @@
 //! Stale-while-revalidate cache for page data: going back to a page (or a
 //! stock, index, filter …) shows the last result at once while fresh data
-//! loads in the background. Kept in memory for this session.
+//! loads in the background. Kept in memory for this session, and on this
+//! device (see [`crate::offline`]) so pages open offline too. A failed
+//! fetch (an `Err` or nothing) doesn't replace data shown before.
 
 use dioxus::prelude::*;
+use serde::{de::DeserializeOwned, Serialize};
 use std::{any::Any, cell::RefCell, collections::HashMap, future::Future, rc::Rc};
 
 /// Entries beyond this are dropped, oldest first.
@@ -36,6 +39,60 @@ pub fn put<T: 'static>(key: String, value: T) {
 /// the cached value for the new key shows while it refetches. `None` only
 /// when nothing is cached and the first load hasn't finished.
 pub fn use_cached<T, F, Fut>(key: impl Fn() -> String + 'static, fetch: F) -> Memo<Option<T>>
+where
+    T: Clone + PartialEq + Serialize + DeserializeOwned + 'static,
+    F: FnMut() -> Fut + 'static,
+    Fut: Future<Output = T> + 'static,
+{
+    let fetch = Rc::new(RefCell::new(fetch));
+    let key = Rc::new(key);
+    let for_memo = key.clone();
+    let for_restore = key.clone();
+    let latest = use_resource(move || {
+        let k = key();
+        let pending = (fetch.borrow_mut())();
+        async move {
+            let value = pending.await;
+            let failed = crate::offline::is_failure(&value);
+            if !failed || get::<T>(&k).is_none() {
+                if !failed {
+                    crate::offline::save_page(&k, &value);
+                }
+                put(k.clone(), value.clone());
+            }
+            (k, value, failed)
+        }
+    });
+    // Nothing in memory for this key yet: bring back what this device saved.
+    let mut restored = use_signal(|| 0_u32);
+    use_effect(move || {
+        let k = for_restore();
+        if get::<T>(&k).is_some() {
+            return;
+        }
+        spawn(async move {
+            if let Some(saved) = crate::offline::load_page::<T>(&k).await {
+                if get::<T>(&k).is_none() {
+                    put(k, saved);
+                    restored += 1;
+                }
+            }
+        });
+    });
+    use_memo(move || {
+        let _restored = restored();
+        let k = for_memo();
+        match &*latest.read() {
+            Some((done, value, false)) if *done == k => Some(value.clone()),
+            Some((done, value, true)) if *done == k => get::<T>(&k).or_else(|| Some(value.clone())),
+            _ => get::<T>(&k),
+        }
+    })
+}
+
+/// [`use_cached`] kept in memory only, for derived data that isn't worth
+/// saving on the device (it's rebuilt from saved data).
+pub fn use_cached_mem<T, F, Fut>(key: impl Fn() -> String + 'static, fetch: F) -> Memo<Option<T>>
 where
     T: Clone + PartialEq + 'static,
     F: FnMut() -> Fut + 'static,

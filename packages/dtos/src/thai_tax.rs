@@ -220,7 +220,7 @@ pub fn early_sales(
             let too_soon = held < holding_years(wrapper) * 365 + holding_years(wrapper) / 4;
             let too_young = wrapper == TaxWrapper::Rmf
                 && birth_year.is_some_and(|b| r.sold.get(..4).and_then(|y| y.parse::<i32>().ok()).is_some_and(|y| y - b < 55));
-            (too_soon || too_young).then(|| EarlySale {
+            (too_soon || too_young).then_some(EarlySale {
                 ticker: r.ticker,
                 wrapper,
                 bought: r.bought,

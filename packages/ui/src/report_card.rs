@@ -11,7 +11,6 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::report::{previous_month, report_text};
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 #[component]

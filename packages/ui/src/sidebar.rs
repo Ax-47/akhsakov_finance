@@ -15,9 +15,20 @@ pub const NAV_LINK: &str = "group flex items-center gap-3 rounded-xl px-3 py-2.5
                             text-ctp-subtext0 transition-colors hover:bg-ctp-surface0/50 hover:text-ctp-text";
 pub const NAV_LINK_ACTIVE: &str = "bg-ctp-surface0! text-ctp-text! [&_svg]:text-ctp-mauve";
 
+/// Classes for a bottom tab on phones; pair with `active_class: TAB_LINK_ACTIVE`.
+pub const TAB_LINK: &str = "flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 pt-2 pb-1.5 text-[11px] font-medium \
+                            text-ctp-subtext0 [&_svg]:h-5 [&_svg]:w-5";
+pub const TAB_LINK_ACTIVE: &str = "text-ctp-mauve! [&_svg]:text-ctp-mauve";
+
 /// Sidebar on wide screens, a top bar on narrow ones; `children` is the page.
+///
+/// With `tabs` (links styled with [`TAB_LINK`]), phones get an app-style
+/// bottom tab bar instead, with every other page under "More".
 #[component]
-pub fn Sidebar(links: Element, children: Element) -> Element {
+pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option<Element>) -> Element {
+    let mut more = use_signal(|| false);
+    let has_tabs = tabs.is_some();
+    let sheet_links = links.clone();
     rsx! {
         crate::vim::VimRouter {}
         // The page itself scrolls (with a sticky sidebar): browsers scroll the
@@ -31,8 +42,12 @@ pub fn Sidebar(links: Element, children: Element) -> Element {
                     div { class: "min-w-0 flex-1", crate::search::SearchBox {} }
                     CurrencyPicker { compact: true }
                 }
-                nav { class: "-mx-4 mt-2 flex gap-1 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&>a]:shrink-0 [&>a]:py-1.5 [&>a]:text-sm [&>[data-nav-section]]:hidden",
-                    {links.clone()}
+                if has_tabs {
+                    div { class: "h-3" }
+                } else {
+                    nav { class: "-mx-4 mt-2 flex gap-1 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&>a]:shrink-0 [&>a]:py-1.5 [&>a]:text-sm [&>[data-nav-section]]:hidden",
+                        {links.clone()}
+                    }
                 }
             }
             // Only the link list scrolls (on short windows), so the search results
@@ -57,7 +72,39 @@ pub fn Sidebar(links: Element, children: Element) -> Element {
                     div { class: "mt-1 text-xs text-ctp-overlay1", {tr("Returns include recorded fees; not tax.")} }
                 }
             }
-            div { class: "min-w-0 flex-1", {children} }
+            div { class: if has_tabs { "min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0" } else { "min-w-0 flex-1" }, {children} }
+            if let Some(tabs) = tabs {
+                if more() {
+                    // "More": every page, as a sheet above the tab bar.
+                    div { class: "fixed inset-0 z-40 bg-ctp-crust/50 md:hidden", onclick: move |_| more.set(false) }
+                    nav {
+                        class: "fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-50 max-h-[70vh] overflow-y-auto rounded-t-3xl border-t border-ctp-surface0 bg-ctp-mantle p-3 shadow-2xl motion-safe:animate-rise md:hidden",
+                        onclick: move |_| more.set(false),
+                        {sheet_links}
+                    }
+                }
+                nav { class: "fixed inset-x-0 bottom-0 z-50 flex border-t border-ctp-surface0/70 bg-ctp-mantle pb-[env(safe-area-inset-bottom)] md:hidden print:hidden",
+                    {tabs}
+                    button {
+                        class: if more() { "{TAB_LINK} {TAB_LINK_ACTIVE} cursor-pointer" } else { "{TAB_LINK} cursor-pointer" },
+                        "aria-expanded": more(),
+                        onclick: move |_| more.toggle(),
+                        MoreIcon {}
+                        {tr("More")}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MoreIcon() -> Element {
+    rsx! {
+        svg { class: "h-4 w-4 shrink-0", view_box: "0 0 24 24", fill: "currentColor", "aria-hidden": "true",
+            circle { cx: "5", cy: "12", r: "2" }
+            circle { cx: "12", cy: "12", r: "2" }
+            circle { cx: "19", cy: "12", r: "2" }
         }
     }
 }

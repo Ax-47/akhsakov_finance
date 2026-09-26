@@ -34,6 +34,7 @@ pub fn AlertWatcher() -> Element {
                 if !unread.is_empty() {
                     for n in unread.iter().rev() {
                         toasts.show(n.title.clone(), n.body.clone());
+                        crate::notify::system_notify(&n.title, &n.body);
                     }
                     let _ = api::mark_notifications_read().await;
                     // Fired alerts change the alert list.
@@ -74,6 +75,35 @@ pub fn NotificationsCard() -> Element {
                     span { class: "shrink-0 text-xs tabular-nums text-ctp-overlay1", "{n.created_at} UTC" }
                 }
             }
+        }
+    }
+}
+
+/// Switch for system notifications on this device (phone or computer),
+/// shown while the app runs in the background.
+#[component]
+pub fn SystemNotificationsToggle() -> Element {
+    let mut state = use_resource(crate::notify::system_notifications);
+    let current = state.read().clone();
+    rsx! {
+        match current {
+            None => rsx! {},
+            Some(Err(_)) => rsx! {
+                p { class: "text-xs text-ctp-overlay1", {tr("This device can't show system notifications here; use ntfy or Telegram for your phone.")} }
+            },
+            Some(Ok(on)) => rsx! {
+                label { class: "flex items-center gap-2 text-sm text-ctp-text cursor-pointer",
+                    input {
+                        r#type: "checkbox",
+                        checked: on,
+                        onchange: move |e| async move {
+                            crate::notify::set_system_notifications(e.checked()).await;
+                            state.restart();
+                        },
+                    }
+                    {tr("Show alerts as system notifications on this device while the app is open in the background")}
+                }
+            },
         }
     }
 }

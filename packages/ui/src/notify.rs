@@ -77,7 +77,7 @@ impl Toasts {
 pub fn ToastHost() -> Element {
     let toasts = use_context::<Toasts>();
     rsx! {
-        div { class: "pointer-events-none fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2",
+        div { class: "pointer-events-none fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-80 md:bottom-4",
             for t in toasts.list.read().iter().cloned() {
                 div {
                     key: "{t.id}",
@@ -107,4 +107,55 @@ pub async fn today() -> Option<String> {
         .join::<String>()
         .await
         .ok()
+}
+
+/// Remembered on this device: show system notifications for alerts.
+const SYSTEM_KEY: &str = "akhsakov.system-notifications";
+
+/// Shows `title` as a notification of the operating system (phone or
+/// desktop), when you've turned that on for this device and allowed it.
+/// Only while the app is in the background: in front, a toast shows it.
+pub fn system_notify(title: &str, body: &str) {
+    document::eval(&format!(
+        "try {{
+             if (localStorage.getItem({SYSTEM_KEY:?}) === '1' && 'Notification' in window
+                 && Notification.permission === 'granted' && document.visibilityState !== 'visible') {{
+                 new Notification({title:?}, {{ body: {body:?}, tag: {title:?} }});
+             }}
+         }} catch (e) {{}}"
+    ));
+}
+
+/// Whether system notifications work here (`None`), are on, or are off.
+pub async fn system_notifications() -> Result<bool, String> {
+    let state = document::eval(&format!(
+        "if (!('Notification' in window)) return 'unsupported';
+         try {{ return localStorage.getItem({SYSTEM_KEY:?}) === '1' && Notification.permission === 'granted' ? 'on' : 'off'; }}
+         catch (e) {{ return 'off'; }}"
+    ))
+    .join::<String>()
+    .await
+    .unwrap_or_default();
+    match state.as_str() {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err("unsupported".into()),
+    }
+}
+
+/// Turns system notifications on (asking the system for permission) or
+/// off; resolves to whether they're on.
+pub async fn set_system_notifications(on: bool) -> bool {
+    document::eval(&format!(
+        "try {{
+             if (!{on}) {{ localStorage.setItem({SYSTEM_KEY:?}, '0'); return false; }}
+             if (!('Notification' in window)) return false;
+             const p = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+             localStorage.setItem({SYSTEM_KEY:?}, p === 'granted' ? '1' : '0');
+             return p === 'granted';
+         }} catch (e) {{ return false; }}"
+    ))
+    .join::<bool>()
+    .await
+    .unwrap_or(false)
 }
