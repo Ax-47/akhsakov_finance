@@ -140,7 +140,7 @@ function draw(el, id, cfg) {
       trigger: "axis", axisPointer: { type: "cross" },
       backgroundColor: col.base, borderColor: col.grid, textStyle: { color: col.text, fontSize: 12 },
       formatter: function (params) {
-        var lines = ["<b>" + params[0].axisValue + "</b>"];
+        var lines = ["<b>" + esc(params[0].axisValue) + "</b>"];
         params.forEach(function (p) {
           var v = p.value;
           if (v === null || v === undefined || v === "-") return;
@@ -150,7 +150,7 @@ function draw(el, id, cfg) {
           } else if (p.seriesName === "Volume") {
             lines.push("Volume " + compact(typeof v === "object" ? v.value : v));
           } else {
-            lines.push(p.marker + p.seriesName + " " + fmt(typeof v === "object" ? v.value : v));
+            lines.push(p.marker + esc(p.seriesName) + " " + fmt(typeof v === "object" ? v.value : v));
           }
         });
         return lines.join("<br/>");
@@ -168,6 +168,11 @@ function draw(el, id, cfg) {
   }, true);
 
   function fmt(v) { return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+  function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
   function compact(v) {
     var a = Math.abs(v);
     if (a >= 1e9) return (v / 1e9).toFixed(2) + "B";

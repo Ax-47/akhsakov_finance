@@ -48,6 +48,12 @@ pub fn LiveNumber(
     });
 
     let current = text();
+    // Lite: plain text, no per-character spans or roll.
+    if crate::perf::lite() {
+        return rsx! {
+            span { class: "tabular-nums {class}", "{current}" }
+        };
+    }
     let chars: Vec<char> = current.chars().collect();
     let gen = generation();
     // Right-align old vs new so "99.50" → "100.25" compares the right digits.
@@ -146,5 +152,16 @@ mod tests {
         // 99 → 100: shorter → longer text still aligns from the right.
         let html = set_value(&mut dom, 100);
         assert_eq!(html.matches("odo-cell roll-up").count(), 3, "{html}");
+    }
+
+    #[test]
+    fn lite_shows_plain_text() {
+        let mut dom = VirtualDom::new(Harness);
+        dom.rebuild_in_place();
+        dom.in_scope(ScopeId::APP, || crate::perf::set_effects(crate::perf::Effects::Lite));
+        settle(&mut dom);
+        let html = set_value(&mut dom, 105);
+        assert!(html.contains(">105<"), "{html}");
+        assert!(!html.contains("odo-"), "no per-character spans: {html}");
     }
 }

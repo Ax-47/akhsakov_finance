@@ -23,7 +23,7 @@ pub fn Page(children: Element) -> Element {
             // Soft colour glows as plain gradients: blur filters are costly
             // to repaint (notably in the desktop webview).
             div {
-                class: "pointer-events-none absolute inset-x-0 top-0 h-[28rem]",
+                class: "decor pointer-events-none absolute inset-x-0 top-0 h-[28rem]",
                 aria_hidden: "true",
                 style: "background:\
                     radial-gradient(22rem 16rem at 8% 0%, color-mix(in oklab, var(--catppuccin-color-mauve) 18%, transparent), transparent 70%),\

@@ -49,10 +49,39 @@ impl AppSettings {
                 ServerFnError::ServerError { message, .. } => message,
                 e => e.to_string(),
             })?;
+        if let Some(rate) = rate {
+            save_rate(&settings, rate);
+        }
         apply_currency(&settings, rate);
         self.0.set(settings);
         Ok(())
     }
+}
+
+const FX_KEY: &str = "akhsakov.fx.";
+
+/// The last rate this device saw for the display currency, so the app can
+/// open in that currency without waiting for Yahoo.
+async fn saved_rate(settings: &dtos::settings::Settings) -> Option<rust_decimal::Decimal> {
+    settings.fx_ticker()?;
+    let key = format!("{FX_KEY}{}", settings.currency);
+    let text = document::eval(&format!(
+        "try {{ return localStorage.getItem({key:?}) || ''; }} catch (e) {{ return ''; }}"
+    ))
+    .join::<String>()
+    .await
+    .ok()?;
+    text.parse::<rust_decimal::Decimal>()
+        .ok()
+        .filter(|r| *r > rust_decimal::Decimal::ZERO)
+}
+
+fn save_rate(settings: &dtos::settings::Settings, rate: rust_decimal::Decimal) {
+    let key = format!("{FX_KEY}{}", settings.currency);
+    document::eval(&format!(
+        "try {{ localStorage.setItem({key:?}, {:?}); }} catch (e) {{}}",
+        rate.to_string()
+    ));
 }
 
 /// Units of the display currency per USD; `None` for USD or when the rate
@@ -125,6 +154,7 @@ pub fn App(children: Element) -> Element {
         );
     });
     crate::theme::use_theme_init();
+    crate::perf::use_effects_init();
     crate::i18n::use_language_init();
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
@@ -148,20 +178,45 @@ fn AppInner(children: Element) -> Element {
     use_context_provider(crate::notify::Toasts::new);
     let mut settings = use_context_provider(|| AppSettings(Signal::new(Default::default()))).0;
     let mut ready = use_signal(|| false);
-    // Settings and the display currency's exchange rate. Amounts are shown
-    // in that currency; if the rate can't be fetched we stay in USD.
     let loaded = use_resource(move || async move {
         let _reload = refresh.0();
-        let s = api::get_settings().await.unwrap_or_default();
-        let rate = fx_rate(&s).await;
-        (s, rate)
+        api::get_settings().await.unwrap_or_default()
     });
+    // Amounts are shown in the display currency. The app opens as soon as
+    // the settings are in, at the last rate this device saw; today's rate
+    // replaces it once Yahoo answers. With no saved rate it waits for Yahoo
+    // a little, then shows USD until the rate arrives (or for good, if it
+    // can't be fetched).
     use_effect(move || {
-        if let Some((s, rate)) = loaded.read().clone() {
-            apply_currency(&s, rate);
-            settings.set(s);
+        let Some(s) = loaded.read().clone() else {
+            return;
+        };
+        settings.set(s.clone());
+        spawn(async move {
+            let saved = saved_rate(&s).await;
+            if s.fx_ticker().is_none() || saved.is_some() {
+                apply_currency(&s, saved);
+                ready.set(true);
+            } else {
+                spawn(async move {
+                    crate::notify::sleep_ms(3_000).await;
+                    ready.set(true);
+                });
+            }
+            if s.fx_ticker().is_some() {
+                let fresh = fx_rate(&s).await;
+                // Skip if the currency was switched meanwhile.
+                if settings.peek().currency == s.currency {
+                    if let Some(rate) = fresh {
+                        save_rate(&s, rate);
+                        apply_currency(&s, Some(rate));
+                    } else if saved.is_none() {
+                        apply_currency(&s, None);
+                    }
+                }
+            }
             ready.set(true);
-        }
+        });
     });
     let _ = use_resource(move || async move {
         let _reload = refresh.0();

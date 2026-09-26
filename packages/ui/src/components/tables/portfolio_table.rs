@@ -26,6 +26,19 @@ pub fn PortfoliosCard(
     change_map: HashMap<TickerSymbol, Decimal>,
     loaded: bool,
 ) -> Element {
+    // Realized gains don't depend on prices: worked out when the data
+    // changes, not on every price update.
+    let realized = use_memo(move || {
+        let data = data.read();
+        let mut by_portfolio: HashMap<Uuid, Vec<dtos::transaction::Transaction>> = HashMap::new();
+        for tx in &data.transactions {
+            by_portfolio.entry(tx.portfolio_id).or_default().push(tx.clone());
+        }
+        by_portfolio
+            .into_iter()
+            .map(|(id, txs)| (id, realized_pnl(&txs)))
+            .collect::<HashMap<Uuid, Decimal>>()
+    });
     let rows: Vec<PortfolioRow> = data
         .read()
         .portfolios
@@ -50,15 +63,7 @@ pub fn PortfoliosCard(
                 } else {
                     Decimal::ZERO
                 },
-                realized: realized_pnl(
-                    &data
-                        .read()
-                        .transactions
-                        .iter()
-                        .filter(|tx| tx.portfolio_id == port.id)
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                ),
+                realized: realized.read().get(&port.id).copied().unwrap_or_default(),
             }
         })
         .collect();

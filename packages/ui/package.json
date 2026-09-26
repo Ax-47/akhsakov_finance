@@ -1,9 +1,15 @@
 {
+  "scripts": {
+    "build:css": "tailwindcss -i ./input.css -o ./assets/tailwind.css --optimize",
+    "build:echarts": "esbuild js/echarts.entry.js --bundle --minify --format=iife --target=es2017 --define:process.env.NODE_ENV=\\\"production\\\" --legal-comments=none --banner:js=\"/*! Apache ECharts 5.6.0 (slim build: js/echarts.entry.js) | Apache License 2.0 | https://echarts.apache.org */\" --outfile=assets/js/echarts.min.js"
+  },
   "dependencies": {
     "@tailwindcss/cli": "^4.3.0",
     "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
-    "@catppuccin/tailwindcss": "^1.0.0"
+    "@catppuccin/tailwindcss": "^1.0.0",
+    "echarts": "5.6.0",
+    "esbuild": "0.25.12"
   }
 }

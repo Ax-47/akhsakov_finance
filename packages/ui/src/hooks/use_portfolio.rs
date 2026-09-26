@@ -45,15 +45,27 @@ pub struct PortfolioState {
 /// every render of every caller), and callers only re-render when the
 /// result actually changes.
 pub fn use_portfolio(scope: Option<String>) -> PortfolioState {
+    use_portfolio_memo(scope)()
+}
+
+/// [`use_portfolio`] without subscribing: reading the memo re-renders the
+/// caller on every price update, `peek` doesn't. For pages that only need
+/// the live state in a click handler, or derive a smaller memo from it.
+pub fn use_portfolio_memo(scope: Option<String>) -> Memo<PortfolioState> {
     let data = use_context::<Signal<GetDashBoardResponse>>();
     let LiveQuotes(quotes) = use_context::<LiveQuotes>();
-    let state = use_memo(use_reactive!(|scope| compute_portfolio(
-        &data.read(),
-        &quotes.read(),
-        scope.as_deref()
-    )));
-    state()
+    let AllHoldings(all) = use_context::<AllHoldings>();
+    // All holdings are computed once for the whole app, however many
+    // components show them.
+    use_memo(use_reactive!(|scope| match scope.as_deref() {
+        None => all(),
+        Some(id) => compute_portfolio(&data.read(), &quotes.read(), Some(id)),
+    }))
 }
+
+/// Live state of all holdings, shared app-wide (see [`use_portfolio_memo`]).
+#[derive(Clone, Copy)]
+struct AllHoldings(Memo<PortfolioState>);
 
 /// Shares held per ticker, ignoring prices: for pages that only need to
 /// know what you own, so they don't re-render on every price tick.
@@ -147,6 +159,8 @@ pub fn use_live_quotes_provider() {
     });
     let quotes = use_price_stream(tickers);
     use_context_provider(|| LiveQuotes(quotes));
+    let all = use_memo(move || compute_portfolio(&data.read(), &quotes.read(), None));
+    use_context_provider(|| AllHoldings(all));
 }
 
 /// Percent move from the previous close to the current price.

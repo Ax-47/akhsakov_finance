@@ -611,4 +611,16 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Keyboard shortcuts", "ปุ่มลัดคีย์บอร์ด"),
     ("Vim-style keys work anywhere except while typing, on any keyboard layout (Thai too).", "ปุ่มแบบ Vim ใช้ได้ทุกที่ยกเว้นตอนกำลังพิมพ์ และใช้ได้กับทุกแป้นพิมพ์ (รวมถึงภาษาไทย)"),
     ("Pages", "หน้า"),
+    // Effects (Lite mode) and long lists.
+    ("Effects", "เอฟเฟกต์"),
+    ("Auto", "อัตโนมัติ"),
+    ("Full effects", "เอฟเฟกต์เต็ม"),
+    ("Lite", "โหมดเบา"),
+    ("Lite turns off animations and rolling numbers, and updates live prices every 3 seconds instead of every second. For older or slower computers.", "โหมดเบาจะปิดแอนิเมชันและตัวเลขแบบหมุน และอัปเดตราคาสดทุก 3 วินาทีแทนทุกวินาที เหมาะกับคอมพิวเตอร์รุ่นเก่าหรือเครื่องที่ช้า"),
+    ("Auto is using Lite on this device.", "เครื่องนี้ใช้โหมดเบาอยู่ (อัตโนมัติ)"),
+    ("Auto is using full effects on this device.", "เครื่องนี้ใช้เอฟเฟกต์เต็มอยู่ (อัตโนมัติ)"),
+    ("Ticker…", "ชื่อหุ้น…"),
+    ("Filter by ticker", "กรองตามชื่อหุ้น"),
+    ("Show {} more", "แสดงเพิ่มอีก {}"),
+    ("Show all {}", "แสดงทั้งหมด {}"),
 ];

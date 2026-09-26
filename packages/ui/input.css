@@ -27,6 +27,22 @@ html.is-scrolling body {
   pointer-events: none;
 }
 
+/* Lite effects (Settings → Appearance, or Auto on slow devices): nothing
+   animates or fades and decorative glows are skipped, so older machines
+   only paint what changed. */
+html.lite *,
+html.lite *::before,
+html.lite *::after {
+  animation: none !important;
+  transition: none !important;
+}
+html.lite .decor {
+  display: none;
+}
+html.lite .backdrop-blur-sm {
+  backdrop-filter: none;
+}
+
 /* Printing / Save as PDF: hide controls and chrome, keep cards whole. */
 @media print {
   button,
