@@ -26,7 +26,7 @@ pub fn MptAnalysisCard(
             if let Some(analysis) = mpt {
                 MptBody { analysis, allocation }
             } else {
-                p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Waiting for live prices…")} }
+                p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Waiting for live prices…")} }
             }
         }
     }
@@ -118,7 +118,7 @@ fn ScoreRing(score: Decimal) -> Element {
                 }
                 div { class: "absolute inset-0 flex flex-col items-center justify-center",
                     span { class: "text-4xl font-semibold tabular-nums text-ctp-text", "{score:.0}" }
-                    span { class: "text-xs text-ctp-overlay1", "/ 100" }
+                    span { class: "text-xs text-ctp-subtext0", "/ 100" }
                 }
             }
             span { class: "mt-2 text-sm font-medium", style: "color:{color};", "{verdict}" }
@@ -151,8 +151,8 @@ fn WeightBar(
     rsx! {
         div { class: "mt-6",
             div { class: "flex items-center justify-between mb-2 text-xs",
-                span { class: "text-ctp-overlay1", {tr("Weights")} }
-                span { class: "text-ctp-overlay0", "Equal weight would be {equal:.1}% each" }
+                span { class: "text-ctp-subtext0", {tr("Weights")} }
+                span { class: "text-ctp-overlay1", "Equal weight would be {equal:.1}% each" }
             }
             div { class: "flex h-3 gap-0.5 overflow-hidden rounded-full",
                 for (ticker, pct) in weights.iter() {
@@ -169,7 +169,7 @@ fn WeightBar(
                     span { key: "{ticker}", class: "flex items-center gap-1.5",
                         span { class: "h-2 w-2 rounded-full {color_of(ticker)}" }
                         span { class: "font-medium text-ctp-subtext1", "{ticker}" }
-                        span { class: "tabular-nums text-ctp-overlay0", "{pct:.1}%" }
+                        span { class: "tabular-nums text-ctp-overlay1", "{pct:.1}%" }
                     }
                 }
             }

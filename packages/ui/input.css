@@ -12,6 +12,19 @@
   }
 }
 
+/* Keyboard users can always see where they are. */
+:focus-visible {
+  outline: 2px solid var(--catppuccin-color-mauve);
+  outline-offset: 2px;
+}
+
+/* While the page scrolls, hovering cards and rows under the cursor would
+   repaint and animate on every frame; ignore the pointer until it settles. */
+.is-scrolling,
+.is-scrolling * {
+  pointer-events: none !important;
+}
+
 /* Printing / Save as PDF: hide controls and chrome, keep cards whole. */
 @media print {
   button,

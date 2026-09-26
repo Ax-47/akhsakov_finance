@@ -52,7 +52,7 @@ pub fn BarChart(labels: Vec<String>, series: Vec<BarSeries>, unit: Unit) -> Elem
         .collect();
     if labels.is_empty() || values.is_empty() {
         return rsx! {
-            p { class: "py-10 text-center text-sm text-ctp-overlay0", {tr("No data reported")} }
+            p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("No data reported")} }
         };
     }
     let hi = values.iter().cloned().fold(0.0_f64, f64::max);
@@ -84,7 +84,7 @@ pub fn BarChart(labels: Vec<String>, series: Vec<BarSeries>, unit: Unit) -> Elem
             svg { class: "w-full", view_box: "0 0 {W} {H}",
                 for t in ticks {
                     line { x1: "{LEFT}", x2: "{W - RIGHT}", y1: "{y(t):.1}", y2: "{y(t):.1}", stroke: GRID_HEX, stroke_dasharray: "3 5" }
-                    text { x: "{LEFT - 8.0}", y: "{y(t) + 4.0:.1}", text_anchor: "end", font_size: "10", fill: LABEL_HEX, "{format(t)}" }
+                    text { x: "{LEFT - 8.0}", y: "{y(t) + 4.0:.1}", text_anchor: "end", font_size: "11", fill: LABEL_HEX, "{format(t)}" }
                 }
                 line { x1: "{LEFT}", x2: "{W - RIGHT}", y1: "{zero:.1}", y2: "{zero:.1}", stroke: "var(--catppuccin-color-surface2)" }
                 for (i, label) in labels.iter().enumerate() {
@@ -110,7 +110,7 @@ pub fn BarChart(labels: Vec<String>, series: Vec<BarSeries>, unit: Unit) -> Elem
                                     x: "{LEFT + group * (i as f64 + 0.5):.1}",
                                     y: "{H - 8.0}",
                                     text_anchor: "middle",
-                                    font_size: "10",
+                                    font_size: "11",
                                     fill: LABEL_HEX,
                                     "{label}"
                                 }
@@ -137,7 +137,7 @@ pub fn Sparkline(
         .filter_map(|(i, v)| Some((i, (*v)?)))
         .collect();
     if points.len() < 2 {
-        return rsx! { span { class: "text-ctp-overlay0", "—" } };
+        return rsx! { span { class: "text-ctp-overlay1", "—" } };
     }
     let lo = points.iter().map(|p| p.1).fold(f64::MAX, f64::min);
     let hi = points.iter().map(|p| p.1).fold(f64::MIN, f64::max);
@@ -184,7 +184,7 @@ pub fn DualLineChart(labels: Vec<String>, left: AxisLine, right: AxisLine) -> El
     const DH: f64 = 240.0;
     const PAD_X: f64 = 64.0;
     if labels.len() < 2 {
-        return rsx! { p { class: "py-10 text-center text-sm text-ctp-overlay0", {tr("Not enough periods reported")} } };
+        return rsx! { p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Not enough periods reported")} } };
     }
     let plot_w = DW - 2.0 * PAD_X;
     let plot_h = DH - TOP - BOTTOM;
@@ -238,10 +238,10 @@ pub fn DualLineChart(labels: Vec<String>, left: AxisLine, right: AxisLine) -> El
             svg { class: "w-full", view_box: "0 0 {DW} {DH}",
                 for (y, label) in lticks {
                     line { x1: "{PAD_X}", x2: "{DW - PAD_X}", y1: "{y:.1}", y2: "{y:.1}", stroke: GRID_HEX, stroke_dasharray: "3 5" }
-                    text { x: "{PAD_X - 8.0}", y: "{y + 4.0:.1}", text_anchor: "end", font_size: "10", fill: left.color, "{label}" }
+                    text { x: "{PAD_X - 8.0}", y: "{y + 4.0:.1}", text_anchor: "end", font_size: "11", fill: left.color, "{label}" }
                 }
                 for (y, label) in rticks {
-                    text { x: "{DW - PAD_X + 8.0}", y: "{y + 4.0:.1}", font_size: "10", fill: right.color, "{label}" }
+                    text { x: "{DW - PAD_X + 8.0}", y: "{y + 4.0:.1}", font_size: "11", fill: right.color, "{label}" }
                 }
                 polyline { points: "{lpath}", fill: "none", stroke: left.color, stroke_width: "2.2", stroke_linejoin: "round" }
                 polyline { points: "{rpath}", fill: "none", stroke: right.color, stroke_width: "2.2", stroke_linejoin: "round", stroke_dasharray: "6 4" }
@@ -252,7 +252,7 @@ pub fn DualLineChart(labels: Vec<String>, left: AxisLine, right: AxisLine) -> El
                     circle { cx: "{px:.1}", cy: "{py:.1}", r: "3.5", fill: "var(--catppuccin-color-base)", stroke: right.color, stroke_width: "2" }
                 }
                 for (i, label) in labels.iter().enumerate() {
-                    text { x: "{x(i):.1}", y: "{DH - 8.0}", text_anchor: "middle", font_size: "10", fill: LABEL_HEX, "{label}" }
+                    text { x: "{x(i):.1}", y: "{DH - 8.0}", text_anchor: "middle", font_size: "11", fill: LABEL_HEX, "{label}" }
                 }
             }
         }

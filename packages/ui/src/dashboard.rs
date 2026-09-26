@@ -86,7 +86,7 @@ pub fn Dashboard() -> Element {
                 title,
                 actions: rsx! {
                     div { class: "flex flex-wrap items-center gap-2",
-                        GhostButton { label: tr("＋ Transaction"), onclick: move |_| dialogs.open(Dialog::AddTransaction(scope_id)) }
+                        GhostButton { label: tr("＋ Transaction"), primary: true, onclick: move |_| dialogs.open(Dialog::AddTransaction(scope_id)) }
                         GhostButton { label: tr("Print"), onclick: move |_| print_report() }
                         ScopePicker { scope, portfolios: portfolios.clone() }
                     }
@@ -153,7 +153,7 @@ pub fn Dashboard() -> Element {
                             onclick: move |_| tab.set(Tab::Activity),
                         }
                     }
-                    span { class: "hidden sm:block text-xs text-ctp-overlay0",
+                    span { class: "hidden sm:block text-xs text-ctp-overlay1",
                         "{positions.len()} holdings · {transactions.len()} transactions"
                     }
                 }
@@ -255,7 +255,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
                               bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                     input {
                         class: "mb-1 w-full rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1.5 text-sm \
-                                text-ctp-text placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
+                                text-ctp-text placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
                         placeholder: "Search {portfolios.len()} portfolios…",
                         autofocus: true,
                         value: "{query}",
@@ -278,7 +278,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
                             }
                         }
                         if matches.is_empty() {
-                            p { class: "px-2.5 py-2 text-sm text-ctp-overlay0", "No portfolio matches “{query}”" }
+                            p { class: "px-2.5 py-2 text-sm text-ctp-overlay1", "No portfolio matches “{query}”" }
                         }
                     }
                 }
@@ -291,7 +291,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
 #[component]
 pub(crate) fn TabPanel(children: Element) -> Element {
     rsx! {
-        div { class: "grid gap-5 motion-safe:animate-rise", {children} }
+        div { class: "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 motion-safe:animate-rise", {children} }
     }
 }
 
@@ -381,13 +381,13 @@ fn InsightTile(
     rsx! {
         div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-3.5 \
                       transition-transform hover:-translate-y-0.5",
-            div { class: "text-xs text-ctp-overlay1", "{label}" }
+            div { class: "text-xs text-ctp-subtext0", "{label}" }
             div { class: "mt-1.5 flex items-baseline justify-between gap-2",
                 span { class: "text-lg font-semibold text-ctp-text", "{ticker}" }
                 span { class: "text-sm font-semibold tabular-nums {color}", "{value}" }
             }
             if !note.is_empty() {
-                div { class: "mt-1 text-[0.7rem] text-ctp-overlay0 truncate", "{note}" }
+                div { class: "mt-1 text-xs text-ctp-overlay1 truncate", "{note}" }
             }
         }
     }
@@ -458,7 +458,7 @@ pub(crate) fn HoldingsTable(
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
-                        tr { class: "text-xs text-ctp-overlay1",
+                        tr { class: "text-xs text-ctp-subtext0",
                             SortHeader {
                                 label: tr("Asset"),
                                 align_left: true,
@@ -549,7 +549,7 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
                 span { class: "flex items-center gap-2.5",
                     span { class: "h-2.5 w-2.5 rounded-full shrink-0 {color}" }
                     span { class: "font-semibold text-ctp-text", "{pos.ticker}" }
-                    span { class: "text-ctp-overlay0 opacity-0 transition-opacity group-hover:opacity-100", "→" }
+                    span { class: "text-ctp-overlay1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100", "→" }
                 }
             }
             if priced {
@@ -558,10 +558,10 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
                     "{pos.daily_change_pct:+.2}%"
                 }
             } else {
-                td { class: "{cell} text-ctp-overlay0", "—" }
-                td { class: "{cell} text-ctp-overlay0", "—" }
+                td { class: "{cell} text-ctp-overlay1", "—" }
+                td { class: "{cell} text-ctp-overlay1", "—" }
             }
-            td { class: "{cell} text-ctp-subtext0", "{pos.shares.normalize()}" }
+            td { class: "{cell} text-ctp-subtext0", {crate::format::fmt_shares(pos.shares)} }
             td { class: "{cell} text-ctp-subtext0", "{fmt_usd(pos.avg_cost, 2)}" }
             if priced {
                 td { class: "{cell} font-medium text-ctp-text", "{fmt_usd(pos.market_value(), 2)}" }
@@ -581,9 +581,9 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
                     div { class: "text-xs opacity-75", "{pos.unrealized_pnl_pct():+.2}%" }
                 }
             } else {
-                td { class: "{cell} text-ctp-overlay0", "—" }
-                td { class: "{cell} text-ctp-overlay0", "—" }
-                td { class: "{cell} pr-6 text-ctp-overlay0", "—" }
+                td { class: "{cell} text-ctp-overlay1", "—" }
+                td { class: "{cell} text-ctp-overlay1", "—" }
+                td { class: "{cell} pr-6 text-ctp-overlay1", "—" }
             }
         }
     }
@@ -653,7 +653,7 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
                 }
             },
             if shown.is_empty() {
-                div { class: "px-6 pb-8 pt-2 text-sm text-ctp-overlay0", {tr("Nothing here yet.")} }
+                div { class: "px-6 pb-8 pt-2 text-sm text-ctp-overlay1", {tr("Nothing here yet.")} }
             }
             for tx in shown {
                 TransactionRow { key: "{tx.id}", tx }
@@ -669,20 +669,20 @@ fn TransactionRow(tx: Transaction) -> Element {
     let (badge, title, detail, amount) = describe(&tx);
     rsx! {
         div { class: "group flex items-center gap-4 px-6 py-3.5 border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors",
-            span { class: "w-16 shrink-0 rounded-full px-2 py-0.5 text-center text-[0.68rem] font-semibold {badge}",
+            span { class: "min-w-20 shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-center text-xs font-semibold {badge}",
                 "{tx.transaction_type}"
             }
             div { class: "flex-1 min-w-0",
                 div { class: "font-semibold text-ctp-text", "{title}" }
-                div { class: "text-xs text-ctp-overlay1 truncate", "{detail}" }
+                div { class: "text-xs text-ctp-subtext0 truncate", "{detail}" }
             }
             div { class: "text-right shrink-0",
                 div { class: "text-sm font-medium tabular-nums text-ctp-text", "{amount}" }
-                div { class: "text-xs text-ctp-overlay0", "{tx.date}" }
+                div { class: "text-xs text-ctp-overlay1", "{tx.date}" }
             }
-            span { class: "flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
+            span { class: "flex shrink-0 gap-1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100",
                 button {
-                    class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
+                    class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
                     title: tr("Edit"),
                     onclick: move |_| dialogs.open(Dialog::EditTransaction(editing.clone())),
                     "✎"
@@ -717,7 +717,7 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
             tx.ticker.to_string(),
             format!(
                 "{} shares @ {}{fee}",
-                tx.shares.normalize(),
+                crate::format::fmt_shares(tx.shares),
                 native(tx.price)
             ),
             money("−", gross + fee_usd),
@@ -727,7 +727,7 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
             tx.ticker.to_string(),
             format!(
                 "{} shares @ {}{fee}",
-                tx.shares.normalize(),
+                crate::format::fmt_shares(tx.shares),
                 native(tx.price)
             ),
             money("+", gross - fee_usd),
@@ -770,7 +770,7 @@ fn EmptyState() -> Element {
     rsx! {
         div { class: "mt-10 rounded-3xl border border-dashed border-ctp-surface1 px-6 py-16 text-center",
             div { class: "text-lg font-semibold text-ctp-text", {tr("Nothing here yet")} }
-            p { class: "mt-1 text-sm text-ctp-overlay1",
+            p { class: "mt-1 text-sm text-ctp-subtext0",
                 {tr("Add your first transaction to start tracking.")}
             }
         }

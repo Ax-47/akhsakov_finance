@@ -271,10 +271,10 @@ pub fn TransactionDialog(
                     }
                 }
                 if let Some(total) = f.total() {
-                    p { class: "text-xs text-ctp-overlay1", "Total: {total}" }
+                    p { class: "text-xs text-ctp-subtext0", "Total: {total}" }
                 }
                 if f.currency != "USD" {
-                    p { class: "text-xs text-ctp-overlay1",
+                    p { class: "text-xs text-ctp-subtext0",
                         "Converted to USD at the {f.currency} rate on the trade date."
                     }
                 }
@@ -420,7 +420,7 @@ pub fn DeleteTransactionButton(id: Uuid) -> Element {
             class: if armed() {
                 "rounded-full bg-ctp-red/15 px-2.5 py-1 text-xs font-semibold text-ctp-red cursor-pointer"
             } else {
-                "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-red"
+                "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-red"
             },
             title: if failed() { tr("Couldn't delete — try again") } else { tr("Delete") },
             onclick: move |e| async move {
@@ -504,7 +504,7 @@ pub fn AlertDialog(
                 Field { label: value_label,
                     input { class: INPUT, inputmode: "decimal", value: "{value}", oninput: move |e| value.set(e.value()) }
                 }
-                p { class: "text-xs text-ctp-overlay1", {tr("Alerts are checked against live prices while the app is open, and fire once.")} }
+                p { class: "text-xs text-ctp-subtext0", {tr("Alerts are checked against live prices while the app is open, and fire once.")} }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
                     ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
@@ -662,7 +662,7 @@ pub fn ImportDialog(
             if let Some(r) = result() {
                 p { class: "text-sm text-ctp-text", "Imported {r.imported} transactions." }
                 if !r.errors.is_empty() {
-                    p { class: "mt-3 text-xs text-ctp-overlay1", "Skipped {r.errors.len()} lines:" }
+                    p { class: "mt-3 text-xs text-ctp-subtext0", "Skipped {r.errors.len()} lines:" }
                     ul { class: "mt-1 max-h-48 overflow-y-auto rounded-xl bg-ctp-crust/40 p-3 text-xs text-ctp-peach",
                         for err in r.errors {
                             li { "{err}" }

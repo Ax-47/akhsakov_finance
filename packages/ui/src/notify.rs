@@ -12,6 +12,24 @@ pub async fn sleep_ms(ms: u32) {
     .await;
 }
 
+/// Like [`sleep_ms`] for polling loops: waits `ms`, then, if the app is
+/// hidden (minimised, another tab), keeps waiting until it's visible again
+/// so background pages don't keep fetching.
+pub async fn poll_delay(ms: u32) {
+    let _ = document::eval(&format!(
+        "await new Promise(r => setTimeout(r, {ms}));
+         if (document.hidden) {{
+             await new Promise(r => {{
+                 const go = () => {{ if (!document.hidden) {{ document.removeEventListener('visibilitychange', go); r(); }} }};
+                 document.addEventListener('visibilitychange', go);
+             }});
+         }}
+         return 0;"
+    ))
+    .join::<i32>()
+    .await;
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toast {
     id: u32,
@@ -68,7 +86,7 @@ pub fn ToastHost() -> Element {
                     div { class: "flex items-start justify-between gap-3",
                         div { class: "text-sm font-semibold text-ctp-text", "{t.title}" }
                         button {
-                            class: "text-ctp-overlay1 cursor-pointer hover:text-ctp-text",
+                            class: "text-ctp-subtext0 cursor-pointer hover:text-ctp-text",
                             "aria-label": "Dismiss",
                             onclick: move |_| toasts.dismiss(t.id),
                             "×"

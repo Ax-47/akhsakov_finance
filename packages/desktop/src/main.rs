@@ -33,7 +33,18 @@ enum Route {
 fn main() {
     #[cfg(not(feature = "server"))]
     dioxus::fullstack::set_server_url("http://127.0.0.1:8080");
-    #[cfg(not(feature = "server"))]
+    #[cfg(all(feature = "desktop", not(feature = "server")))]
+    {
+        // On Wayland, WebKitGTK runs through XWayland without GPU buffer
+        // sharing: stable, but slower. The native path is faster yet can
+        // tear or go blank while the window is dragged on some setups, so
+        // it's opt-in with AKHSAKOV_FAST_RENDERING=1.
+        let fast = std::env::var("AKHSAKOV_FAST_RENDERING").is_ok_and(|v| v == "1");
+        dioxus::LaunchBuilder::new()
+            .with_cfg(dioxus::desktop::Config::new().with_disable_dma_buf_on_wayland(!fast))
+            .launch(App);
+    }
+    #[cfg(not(any(feature = "desktop", feature = "server")))]
     dioxus::launch(App);
     #[cfg(feature = "server")]
     dioxus::serve(|| async move {

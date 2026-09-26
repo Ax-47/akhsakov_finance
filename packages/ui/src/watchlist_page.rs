@@ -29,11 +29,11 @@ pub fn WatchlistPage() -> Element {
     let selected = use_signal(|| None::<Uuid>);
     let mut tag_filter = use_signal(|| None::<String>);
 
-    let lists = use_resource(move || async move {
+    let lists = crate::cache::use_cached(|| "watchlists".into(), move || async move {
         let _reload = refresh.0();
         api::get_watchlists().await.ok()
     });
-    let notes = use_resource(move || async move {
+    let notes = crate::cache::use_cached(|| "notes".into(), move || async move {
         let _reload = refresh.0();
         api::get_notes().await.unwrap_or_default()
     });
@@ -61,7 +61,7 @@ pub fn WatchlistPage() -> Element {
             None => items,
         }
     });
-    let alerts = use_resource(move || async move {
+    let alerts = crate::cache::use_cached(|| "alerts".into(), move || async move {
         let _reload = refresh.0();
         api::get_alerts().await.unwrap_or_default()
     });
@@ -69,7 +69,7 @@ pub fn WatchlistPage() -> Element {
     let quotes = use_price_stream(tickers);
     let mut by_cap = use_signal(|| true);
     // Names and market caps; the colour comes from the live price stream.
-    let snapshot = use_resource(move || async move {
+    let snapshot = crate::cache::use_cached(move || format!("tickers-heatmap/{:?}", tickers()), move || async move {
         let list = tickers();
         if list.is_empty() {
             return vec![];
@@ -145,7 +145,7 @@ pub fn WatchlistPage() -> Element {
                     h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                         {tr("Watchlist")}
                     }
-                    p { class: "mt-2 text-sm text-ctp-overlay1", {tr("Stocks you follow, and alerts on price moves.")} }
+                    p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Stocks you follow, and alerts on price moves.")} }
                 }
                 GhostButton { label: tr("🔔 New alert"), onclick: move |_| dialogs.open(Dialog::NewAlert(None)) }
             }
@@ -155,7 +155,7 @@ pub fn WatchlistPage() -> Element {
             }
             if !list_tags.is_empty() {
                 div { class: "mt-3 flex flex-wrap items-center gap-2 text-xs",
-                    span { class: "text-ctp-overlay1", {tr("Tags")} }
+                    span { class: "text-ctp-subtext0", {tr("Tags")} }
                     for tag in list_tags {
                         {
                             let on = tag_filter().as_deref() == Some(tag.as_str());
@@ -198,7 +198,7 @@ pub fn WatchlistPage() -> Element {
                             onsubmit: move |e| e.prevent_default(),
                             input {
                                 class: "w-40 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm uppercase text-ctp-text \
-                                        placeholder:normal-case placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
+                                        placeholder:normal-case placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
                                 placeholder: tr("Add ticker"),
                                 value: "{adding}",
                                 oninput: move |e| adding.set(e.value()),
@@ -207,10 +207,10 @@ pub fn WatchlistPage() -> Element {
                         }
                     },
                     match (lists.read().clone(), watchlist()) {
-                        (None, _) => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("Loading…")} } },
+                        (None, _) => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-subtext0", {tr("Loading…")} } },
                         (Some(None), _) => rsx! { p { class: "px-6 pb-8 text-sm text-ctp-red", {tr("Couldn't load your watchlists.")} } },
                         (_, items) if items.is_empty() => rsx! {
-                            p { class: "px-6 pb-8 text-sm text-ctp-overlay1",
+                            p { class: "px-6 pb-8 text-sm text-ctp-subtext0",
                                 if tag_filter().is_some() { {tr("No stocks here have that tag.")} } else { {tr("Nothing yet. Add a ticker above, use ☆ Watch on any stock page, or search in the sidebar.")} }
                             }
                         },
@@ -256,21 +256,21 @@ fn WatchRow(
             span { class: "w-24 font-semibold text-ctp-text", "{ticker}" }
             span { class: "hidden min-w-0 flex-1 gap-1 truncate sm:flex",
                 for tag in tags {
-                    span { key: "{tag}", class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-[0.65rem] text-ctp-subtext0", "#{tag}" }
+                    span { key: "{tag}", class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-xs text-ctp-subtext0", "#{tag}" }
                 }
             }
             span { class: "flex-1 text-right tabular-nums text-ctp-text",
                 {price.map(|p| fmt_usd(p, 2)).unwrap_or_else(|| "—".into())}
             }
-            span { class: "w-20 text-right text-sm tabular-nums {day.map(signed_color).unwrap_or(\"text-ctp-overlay0\")}",
+            span { class: "w-20 text-right text-sm tabular-nums {day.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
                 {day.map(|d| format!("{d:+.2}%")).unwrap_or_else(|| "—".into())}
             }
-            span { class: "w-20 text-right text-xs text-ctp-overlay1",
+            span { class: "w-20 text-right text-xs text-ctp-subtext0",
                 if alerts > 0 { "🔔 {alerts}" }
             }
-            span { class: "flex gap-1 opacity-0 transition-opacity group-hover:opacity-100",
+            span { class: "flex gap-1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
                 button {
-                    class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
+                    class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
                     title: tr("New alert"),
                     onclick: move |e| {
                         e.stop_propagation();
@@ -279,7 +279,7 @@ fn WatchRow(
                     "🔔"
                 }
                 button {
-                    class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
+                    class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
                     title: tr("Remove from this list"),
                     onclick: move |e| {
                         e.stop_propagation();
@@ -358,7 +358,7 @@ fn ListBar(lists: Vec<Watchlist>, current: Option<Uuid>, selected: Signal<Option
                     },
                     onclick: move |_| selected.set(Some(l.id)),
                     "{l.name} "
-                    span { class: "text-xs text-ctp-overlay0", "{l.items.len()}" }
+                    span { class: "text-xs text-ctp-overlay1", "{l.items.len()}" }
                 }
             }
             if let Some(name) = naming() {
@@ -406,24 +406,24 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
             subtitle: format!("{active} active · {} fired", alerts.len() - active),
             flush: true,
             if alerts.is_empty() {
-                p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("No alerts. Create one with 🔔 New alert.")} }
+                p { class: "px-6 pb-8 text-sm text-ctp-subtext0", {tr("No alerts. Create one with 🔔 New alert.")} }
             }
             for a in alerts {
                 div { key: "{a.id}", class: "group flex items-center gap-4 border-t border-ctp-surface0/60 px-6 py-3",
                     span {
                         class: if a.is_active() {
-                            "w-16 shrink-0 rounded-full bg-ctp-green/15 px-2 py-0.5 text-center text-[0.68rem] font-semibold text-ctp-green"
+                            "min-w-16 shrink-0 whitespace-nowrap rounded-full bg-ctp-green/15 px-2 py-0.5 text-center text-xs font-semibold text-ctp-green"
                         } else {
-                            "w-16 shrink-0 rounded-full bg-ctp-surface0 px-2 py-0.5 text-center text-[0.68rem] font-semibold text-ctp-overlay1"
+                            "min-w-16 shrink-0 whitespace-nowrap rounded-full bg-ctp-surface0 px-2 py-0.5 text-center text-xs font-semibold text-ctp-subtext0"
                         },
                         if a.is_active() { {tr("Active")} } else { {tr("Fired")} }
                     }
                     span { class: "flex-1 text-sm text-ctp-text", "{a.describe()}" }
                     if let Some(when) = &a.triggered_at {
-                        span { class: "text-xs text-ctp-overlay0", "{when}" }
+                        span { class: "text-xs text-ctp-overlay1", "{when}" }
                     }
                     button {
-                        class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 opacity-0 cursor-pointer transition-opacity group-hover:opacity-100 hover:bg-ctp-surface0 hover:text-ctp-red",
+                        class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 opacity-40 cursor-pointer transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-ctp-surface0 hover:text-ctp-red",
                         title: tr("Delete alert"),
                         onclick: move |_| async move {
                             if api::delete_alert(a.id).await.is_ok() {

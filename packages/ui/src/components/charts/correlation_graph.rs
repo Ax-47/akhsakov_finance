@@ -36,7 +36,7 @@ pub fn CorrelationGraph(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) ->
             .collect::<Vec<_>>()
     });
 
-    let history = use_resource(move || {
+    let history = crate::cache::use_cached(move || format!("correlation/{:?}/{:?}", tickers(), range()), move || {
         let tickers = tickers();
         let range = range();
         async move {
@@ -93,7 +93,7 @@ pub fn CorrelationGraph(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) ->
 #[component]
 fn GraphPlaceholder(text: String) -> Element {
     rsx! {
-        div { class: "flex items-center justify-center h-[300px] text-ctp-overlay0 text-xs", "{text}" }
+        div { class: "flex items-center justify-center h-[300px] text-ctp-overlay1 text-xs", "{text}" }
     }
 }
 
@@ -144,7 +144,7 @@ fn PairList(tickers: Vec<TickerSymbol>, corr: Vec<Vec<f64>>, hovered: Option<usi
 #[component]
 fn GraphLegend() -> Element {
     rsx! {
-        div { class: "flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[0.68rem] text-ctp-subtext0",
+        div { class: "flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-ctp-subtext0",
             span { class: "flex items-center gap-1.5",
                 span { class: "inline-block w-5 h-[3px] rounded bg-ctp-green" }
                 "move together"

@@ -10,7 +10,6 @@ use crate::{
         charts::{HeatItem, HeatmapLegend, Treemap, DAY_SATURATION},
     },
     format::{fmt_compact, fmt_usd},
-    notify::sleep_ms,
     page::{GhostButton, Page},
     stock_table::StockTable,
 };
@@ -33,7 +32,7 @@ pub fn MarketPage() -> Element {
                     h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                         {tr("Markets")}
                     }
-                    p { class: "mt-2 text-sm text-ctp-overlay1", {tr("Today's move across an index. Refreshes every minute.")} }
+                    p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Today's move across an index. Refreshes every minute.")} }
                 }
                 Segmented {
                     for i in MarketIndex::ALL {
@@ -49,24 +48,33 @@ pub fn MarketPage() -> Element {
 
 #[component]
 fn IndexView(index: MarketIndex) -> Element {
-    let mut data = use_signal(|| None::<Result<Vec<HeatmapItem>, String>>);
+    let cache_key = format!("index-heatmap/{}", index.key());
+    // The last map for this index shows at once; the loop refreshes it.
+    let mut data = use_signal({
+        let k = cache_key.clone();
+        move || crate::cache::get::<Vec<HeatmapItem>>(&k).map(Ok)
+    });
     // A sector to zoom the map into.
     let mut focus = use_signal(|| None::<String>);
 
-    use_future(move || async move {
-        loop {
+    use_future(move || {
+        let cache_key = cache_key.clone();
+        async move { loop {
             let result = api::get_index_heatmap(index).await.map_err(|e| match e {
                 ServerFnError::ServerError { message, .. } => message,
                 e => e.to_string(),
             });
+            if let Ok(items) = &result {
+                crate::cache::put(cache_key.clone(), items.clone());
+            }
             let ok = result.is_ok();
             // Keep showing the last good map if a refresh fails.
             if ok || !matches!(*data.peek(), Some(Ok(_))) {
                 data.set(Some(result));
             }
             // Failures are often a dropped connection: retry soon.
-            sleep_ms(if ok { REFRESH_MS } else { RETRY_MS }).await;
-        }
+            crate::notify::poll_delay(if ok { REFRESH_MS } else { RETRY_MS }).await;
+        } }
     });
 
     let items = use_memo(move || match &*data.read() {
@@ -124,7 +132,7 @@ fn IndexView(index: MarketIndex) -> Element {
                 None => rsx! {
                     div { class: "mt-10 motion-safe:animate-rise",
                         Card { title: tr(index.label()),
-                            div { class: "flex h-[560px] items-center justify-center text-sm text-ctp-overlay1", {tr("Loading prices…")} }
+                            div { class: "flex h-[560px] items-center justify-center text-sm text-ctp-subtext0", {tr("Loading prices…")} }
                         }
                     }
                 },
@@ -132,7 +140,7 @@ fn IndexView(index: MarketIndex) -> Element {
                     div { class: "mt-10 motion-safe:animate-rise",
                         Card { title: tr(index.label()),
                             p { class: "text-sm text-ctp-red", "Couldn't load prices: {message}" }
-                            p { class: "mt-1 text-xs text-ctp-overlay1", {tr("Retrying in a few seconds…")} }
+                            p { class: "mt-1 text-xs text-ctp-subtext0", {tr("Retrying in a few seconds…")} }
                         }
                     }
                 },
@@ -255,7 +263,7 @@ fn Movers(items: Vec<HeatmapItem>) -> Element {
 fn MoverList(title: String, items: Vec<HeatmapItem>) -> Element {
     rsx! {
         div {
-            div { class: "mb-2 text-xs text-ctp-overlay1", "{title}" }
+            div { class: "mb-2 text-xs text-ctp-subtext0", "{title}" }
             for i in items {
                 {
                     let change = i.change_pct.unwrap_or(0.0);
@@ -271,7 +279,7 @@ fn MoverList(title: String, items: Vec<HeatmapItem>) -> Element {
                                 }
                             },
                             span { class: "w-14 text-sm font-semibold text-ctp-text", "{i.ticker}" }
-                            span { class: "min-w-0 flex-1 truncate text-xs text-ctp-overlay1", "{i.name}" }
+                            span { class: "min-w-0 flex-1 truncate text-xs text-ctp-subtext0", "{i.name}" }
                             span { class: "text-sm tabular-nums {color}", "{change:+.2}%" }
                         }
                     }

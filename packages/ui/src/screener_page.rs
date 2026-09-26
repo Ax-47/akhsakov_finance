@@ -11,8 +11,9 @@ use dioxus::prelude::*;
 use dtos::market::{ScreenFilter, ScreenSort, REGIONS, SCREEN_PAGE_SIZE, SECTORS};
 
 /// Market-cap bands as (label, min, max) in USD.
-const SIZES: [(&str, Option<f64>, Option<f64>); 5] = [
+const SIZES: [(&str, Option<f64>, Option<f64>); 6] = [
     ("Any size", None, None),
+    ("$10B and up", Some(10e9), None),
     ("Mega · $200B+", Some(200e9), None),
     ("Large · $10–200B", Some(10e9), Some(200e9)),
     ("Mid · $2–10B", Some(2e9), Some(10e9)),
@@ -70,12 +71,15 @@ fn presets() -> Vec<(&'static str, ScreenFilter)> {
 #[component]
 pub fn ScreenerPage() -> Element {
     let mut filter = use_signal(ScreenFilter::default);
-    let result = use_resource(move || async move {
+    let result = crate::cache::use_cached(
+        move || format!("screen/{}", serde_json::to_string(&filter()).unwrap_or_default()),
+        move || async move {
         api::screen_stocks(filter()).await.map_err(|e| match e {
             ServerFnError::ServerError { message, .. } => message,
             e => e.to_string(),
         })
-    });
+    },
+    );
 
     let f = filter();
     let size = SIZES
@@ -98,7 +102,7 @@ pub fn ScreenerPage() -> Element {
                 h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                     {tr("Screener")}
                 }
-                p { class: "mt-2 text-sm text-ctp-overlay1", {tr("Find stocks by size, valuation, dividends and today's move. Amounts in USD.")} }
+                p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Find stocks by size, valuation, dividends and today's move. Amounts in USD.")} }
             }
 
             div { class: "mt-8 flex flex-wrap gap-2 motion-safe:animate-rise",
@@ -199,7 +203,7 @@ pub fn ScreenerPage() -> Element {
             div { class: "mt-5 motion-safe:animate-rise",
                 match &*result.read() {
                     None => rsx! {
-                        Card { title: tr("Results"), p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Screening…")} } }
+                        Card { title: tr("Results"), p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Screening…")} } }
                     },
                     Some(Err(message)) => rsx! {
                         Card { title: tr("Results"), p { class: "text-sm text-ctp-red", "{message}" } }
@@ -215,7 +219,7 @@ pub fn ScreenerPage() -> Element {
                                 flush: true,
                                 actions: rsx! {
                                     if pages > 1 {
-                                        div { class: "flex items-center gap-2 text-xs text-ctp-overlay1",
+                                        div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                                             GhostButton { label: tr("← Prev"), onclick: move |_| filter.with_mut(|f| f.page = f.page.saturating_sub(1)) }
                                             "Page {f.page + 1} of {pages}"
                                             GhostButton { label: tr("Next →"), onclick: move |_| filter.with_mut(|f| f.page = (f.page + 1).min(pages - 1)) }
@@ -223,7 +227,7 @@ pub fn ScreenerPage() -> Element {
                                     }
                                 },
                                 if r.rows.is_empty() {
-                                    p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("Try loosening a filter.")} }
+                                    p { class: "px-6 pb-8 text-sm text-ctp-subtext0", {tr("Try loosening a filter.")} }
                                 } else {
                                     StockTable { rows: r.rows.clone() }
                                     div { class: "h-3" }
@@ -249,7 +253,7 @@ fn RangeField(
         Field { label,
             div { class: "flex items-center gap-2",
                 NumberInput { value: min, placeholder: tr("Min"), onchange: move |v| onchange.call((v, max)) }
-                span { class: "text-ctp-overlay0", "–" }
+                span { class: "text-ctp-overlay1", "–" }
                 NumberInput { value: max, placeholder: tr("Max"), onchange: move |v| onchange.call((min, v)) }
             }
         }

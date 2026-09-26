@@ -86,7 +86,7 @@ pub fn SettingsPage() -> Element {
                 h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                     {tr("Settings")}
                 }
-                p { class: "mt-2 text-sm text-ctp-overlay1", {tr("How amounts are shown, and the assumptions behind the analysis.")} }
+                p { class: "mt-2 text-sm text-ctp-subtext0", {tr("How amounts are shown, and the assumptions behind the analysis.")} }
             }
             div { class: "mt-10 grid gap-5 motion-safe:animate-rise",
                 Card { title: tr("Display currency"), subtitle: tr("Applies instantly, converted at today's rate. What you enter and store stays in USD.").to_string(),
@@ -116,12 +116,12 @@ pub fn SettingsPage() -> Element {
                 Card { title: tr("Analysis"),
                     div { class: "grid gap-5 md:grid-cols-3",
                         div {
-                            div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Risk-free rate")} }
+                            div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Risk-free rate")} }
                             Stepper { aria_label: "Risk-free rate", value: risk_free(), step: 0.25, suffix: "%", width: "w-14", on_change: move |v| risk_free.set(v) }
-                            p { class: "mt-2 text-[0.7rem] text-ctp-overlay0", {tr("Used for Sharpe, alpha and CAPM. Roughly the 3-month T-bill yield.")} }
+                            p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Used for Sharpe, alpha and CAPM. Roughly the 3-month T-bill yield.")} }
                         }
                         div {
-                            div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Benchmark")} }
+                            div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Benchmark")} }
                             Segmented {
                                 for (ticker, name) in BENCHMARKS {
                                     ToggleButton {
@@ -145,18 +145,18 @@ pub fn SettingsPage() -> Element {
                                     }
                                 },
                                 input {
-                                    class: "w-full rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm uppercase text-ctp-text placeholder:normal-case placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
+                                    class: "w-full rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm uppercase text-ctp-text placeholder:normal-case placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
                                     placeholder: if is_preset { "…or any ticker, e.g. VT ↵".to_string() } else { format!("Using {benchmark}") },
                                     value: "{custom_benchmark}",
                                     oninput: move |e| custom_benchmark.set(e.value()),
                                 }
                             }
-                            p { class: "mt-2 text-[0.7rem] text-ctp-overlay0", {tr("What your portfolio is compared against in Performance and Risk.")} }
+                            p { class: "mt-2 text-xs text-ctp-overlay1", {tr("What your portfolio is compared against in Performance and Risk.")} }
                         }
                         div {
-                            div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Assumed yearly return")} }
+                            div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Assumed yearly return")} }
                             Stepper { aria_label: "Assumed return", value: assumed(), step: 0.5, suffix: "%", width: "w-14", on_change: move |v| assumed.set(v) }
-                            p { class: "mt-2 text-[0.7rem] text-ctp-overlay0", {tr("Used to project your goals.")} }
+                            p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Used to project your goals.")} }
                         }
                     }
                 }
@@ -188,7 +188,7 @@ pub fn SettingsPage() -> Element {
                         DataRow { label: tr("Report"), hint: tr("Print the current page, or save it as a PDF from the print dialog."),
                             GhostButton { label: tr("Print / PDF"), onclick: move |_| print_report() }
                         }
-                        p { class: "text-xs text-ctp-overlay0",
+                        p { class: "text-xs text-ctp-overlay1",
                             {tr("Your data is stored in akhsakov_finance.db where the app runs (set AKHSAKOV_DB to keep it elsewhere). Point the phone app at the same server to see the same data everywhere.")}
                         }
                     }
@@ -204,7 +204,7 @@ fn DataRow(label: String, hint: String, children: Element) -> Element {
         div { class: "flex flex-wrap items-center justify-between gap-3 border-t border-ctp-surface0/60 pt-4 first:border-t-0 first:pt-0",
             div {
                 div { class: "font-medium text-ctp-text", "{label}" }
-                div { class: "text-xs text-ctp-overlay1", "{hint}" }
+                div { class: "text-xs text-ctp-subtext0", "{hint}" }
             }
             {children}
         }
@@ -263,7 +263,7 @@ fn NotificationSettings() -> Element {
             title: tr("Alert notifications"),
             subtitle: tr("Alerts are checked on the server every minute, even when the app is closed. Get them on your phone or in chat.").to_string(),
             if !loaded() {
-                p { class: "text-sm text-ctp-overlay1", {tr("Loading…")} }
+                p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
             } else {
                 div { class: "grid gap-4 md:grid-cols-2",
                     {field("ntfy topic", "Install the ntfy app and subscribe to this topic. Pick something hard to guess.", c.ntfy_topic.clone(), "e.g. akhsakov-7f3k2", |c, v| c.ntfy_topic = v)}
@@ -290,7 +290,7 @@ fn NotificationSettings() -> Element {
                         }
                     }
                 }
-                p { class: "mt-3 text-xs text-ctp-overlay0",
+                p { class: "mt-3 text-xs text-ctp-overlay1",
                     {tr("Tokens are stored in your database file, on the machine the app runs on.")}
                 }
             }
@@ -381,7 +381,7 @@ fn Appearance() -> Element {
         Card { title: tr("Appearance"), subtitle: tr("Saved on this device.").to_string(),
             div { class: "grid gap-5 md:grid-cols-2",
                 div {
-                    div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Theme")} }
+                    div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Theme")} }
                     div { class: "flex flex-wrap gap-2",
                         for th in Theme::ALL {
                             button { key: "{th:?}", class: chip(theme::current() == th), onclick: move |_| theme::set_theme(th), {tr(th.label())} }
@@ -389,7 +389,7 @@ fn Appearance() -> Element {
                     }
                 }
                 div {
-                    div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Language")} }
+                    div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Language")} }
                     div { class: "flex flex-wrap gap-2",
                         for lang in Lang::ALL {
                             button { key: "{lang:?}", class: chip(i18n::current() == lang), onclick: move |_| i18n::set_language(lang), "{lang.label()}" }

@@ -72,7 +72,13 @@ pub fn ChartSection(
     });
     let open_menu = use_signal(|| None::<usize>);
 
-    let history = use_resource(move || {
+    let history = crate::cache::use_cached(
+        move || {
+            let txs = transactions.read();
+            let fingerprint = txs.iter().fold(0u128, |a, t| a.wrapping_mul(31).wrapping_add(t.id.as_u128()));
+            format!("performance/{:?}/{:?}/{}/{fingerprint}", picks(), period(), txs.len())
+        },
+        move || {
         let txs = transactions.read().clone();
         let picks = picks();
         let range = period();
@@ -108,7 +114,8 @@ pub fn ChartSection(
                 range == Range::D1,
             ))
         }
-    });
+    },
+    );
 
     // Outer None: loading. Inner None: request failed.
     let comparison = use_memo(move || history.read().clone());
@@ -235,7 +242,7 @@ fn AddLineButton(
     rsx! {
         button {
             class: "flex h-9 w-9 items-center justify-center rounded-full border border-ctp-surface1 \
-                    text-lg text-ctp-overlay1 cursor-pointer transition-colors hover:border-ctp-mauve hover:text-ctp-text",
+                    text-lg text-ctp-subtext0 cursor-pointer transition-colors hover:border-ctp-mauve hover:text-ctp-text",
             "aria-label": "Compare another line",
             title: tr("Compare another line"),
             onclick: move |_| {
@@ -307,7 +314,7 @@ fn PickMenu(
                       border border-ctp-surface0 bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
             for (title, options) in [("Portfolios", holdings), ("Indexes", indexes), ("Your stocks", stocks)] {
                 if !options.is_empty() {
-                    div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay0", "{title}" }
+                    div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay1", "{title}" }
                     for (pick, label) in options {
                         MenuItem {
                             label,
@@ -330,7 +337,7 @@ fn PickMenu(
                 },
                 input {
                     class: "w-full rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1.5 text-sm \
-                            text-ctp-text placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
+                            text-ctp-text placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
                     placeholder: tr("Other ticker, e.g. AAPL ↵"),
                     value: "{custom}",
                     oninput: move |e| custom.set(e.value()),
@@ -355,7 +362,7 @@ fn PickMenu(
 fn ChartPlaceholder(height: Decimal, text: String) -> Element {
     rsx! {
         div {
-            class: "flex items-center justify-center text-ctp-overlay1 text-sm",
+            class: "flex items-center justify-center text-ctp-subtext0 text-sm",
             style: "height:{height}px;",
             "{text}"
         }

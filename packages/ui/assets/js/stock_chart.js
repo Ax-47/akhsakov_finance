@@ -43,20 +43,20 @@ function draw(el, id, cfg) {
     return {
       type: "category", gridIndex: i, data: cfg.dates, boundaryGap: true,
       axisLine: { lineStyle: { color: col.grid } }, axisTick: { show: false },
-      axisLabel: { show: i === grids.length - 1, color: col.faint, fontSize: 10 },
+      axisLabel: { show: i === grids.length - 1, color: col.faint, fontSize: 12 },
       axisPointer: { label: { show: i === grids.length - 1 } },
     };
   }
   function yAxis(i, opts) {
     return Object.assign({
       gridIndex: i, scale: true, splitNumber: 3,
-      axisLabel: { color: col.faint, fontSize: 10 },
+      axisLabel: { color: col.faint, fontSize: 12 },
       splitLine: { lineStyle: { color: col.grid, type: "dashed" } },
     }, opts || {});
   }
   var xAxes = grids.map(function (_, i) { return xAxis(i); });
   var yAxes = [
-    yAxis(0, { axisLabel: { color: col.faint, fontSize: 10, formatter: function (v) { return cfg.symbol + v.toLocaleString(undefined, { maximumFractionDigits: 2 }); } } }),
+    yAxis(0, { axisLabel: { color: col.faint, fontSize: 12, formatter: function (v) { return cfg.symbol + v.toLocaleString(undefined, { maximumFractionDigits: 2 }); } } }),
     yAxis(1, { splitNumber: 1, axisLabel: { show: false }, splitLine: { show: false } }),
   ];
   if (hasLower) {
@@ -143,7 +143,9 @@ function draw(el, id, cfg) {
       },
     },
     dataZoom: [
-      { type: "inside", xAxisIndex: allAxes, start: cfg.zoomStart, end: 100 },
+      // The wheel scrolls the page; Ctrl+wheel (or pinch) zooms, drag pans.
+      { type: "inside", xAxisIndex: allAxes, start: cfg.zoomStart, end: 100,
+        zoomOnMouseWheel: "ctrl", moveOnMouseWheel: false, moveOnMouseMove: true },
       { type: "slider", xAxisIndex: allAxes, start: cfg.zoomStart, end: 100, bottom: 4, height: 18,
         borderColor: col.grid, fillerColor: col.mauve + "22", handleStyle: { color: col.mauve },
         textStyle: { color: col.faint }, dataBackground: { lineStyle: { color: col.faint }, areaStyle: { color: col.grid } } },

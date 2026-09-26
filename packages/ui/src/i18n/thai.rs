@@ -1,6 +1,10 @@
 //! English → Thai. Keys must match the English text passed to `tr`.
 
 pub const PAIRS: &[(&str, &str)] = &[
+    ("Your money", "เงินของคุณ"),
+    ("Research", "ค้นคว้า"),
+    ("Tools", "เครื่องมือ"),
+    ("$10B and up", "$10B ขึ้นไป"),
     ("A year", "ต่อปี"),
     ("About", "เกี่ยวกับบริษัท"),
     ("Above market", "สูงกว่าตลาด"),
@@ -368,6 +372,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Screening…", "กำลังคัดกรอง…"),
     ("Search is unavailable right now. Press Enter to open the symbol.", "ค้นหาไม่ได้ในขณะนี้ กด Enter เพื่อเปิดหุ้นตัวนี้"),
     ("Search stocks…", "ค้นหาหุ้น…"),
+    ("Search stocks…  ( / )", "ค้นหาหุ้น…  ( / )"),
     ("Searching…", "กำลังค้นหา…"),
     ("Sector", "กลุ่มอุตสาหกรรม"),
     ("Sectors", "กลุ่มอุตสาหกรรม"),

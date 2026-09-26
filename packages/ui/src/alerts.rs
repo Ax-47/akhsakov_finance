@@ -6,7 +6,7 @@ use crate::i18n::tr;
 use crate::{
     app::DataRefresh,
     components::card::Card,
-    notify::{sleep_ms, Toasts},
+    notify::Toasts,
 };
 use dioxus::prelude::*;
 use dtos::notifications::Notification;
@@ -40,7 +40,7 @@ pub fn AlertWatcher() -> Element {
                     refresh.reload();
                 }
             }
-            sleep_ms(POLL_MS).await;
+            crate::notify::poll_delay(POLL_MS).await;
         }
     });
     rsx! {}
@@ -61,17 +61,17 @@ pub fn NotificationsCard() -> Element {
             subtitle: tr("Alerts are checked on the server every minute. Push them to your phone in Settings.").to_string(),
             flush: true,
             if items.is_empty() {
-                p { class: "px-6 pb-8 text-sm text-ctp-overlay1", {tr("Nothing yet.")} }
+                p { class: "px-6 pb-8 text-sm text-ctp-subtext0", {tr("Nothing yet.")} }
             }
             for n in items.into_iter().take(10) {
                 div { key: "{n.id}", class: "flex items-start gap-4 border-t border-ctp-surface0/60 px-6 py-3",
                     div { class: "min-w-0 flex-1",
                         div { class: "text-sm text-ctp-text", "{n.title}" }
                         if !n.body.is_empty() {
-                            div { class: "text-xs text-ctp-overlay1", "{n.body}" }
+                            div { class: "text-xs text-ctp-subtext0", "{n.body}" }
                         }
                     }
-                    span { class: "shrink-0 text-xs tabular-nums text-ctp-overlay0", "{n.created_at} UTC" }
+                    span { class: "shrink-0 text-xs tabular-nums text-ctp-overlay1", "{n.created_at} UTC" }
                 }
             }
         }

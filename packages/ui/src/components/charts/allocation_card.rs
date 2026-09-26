@@ -29,7 +29,7 @@ pub fn AllocationCard(allocation: ReadSignal<Vec<(TickerSymbol, Decimal)>>) -> E
     rsx! {
         Card { title: tr("Allocation"),
             if slices.is_empty() {
-                div { class: "flex items-center justify-center h-24 text-ctp-overlay0", {tr("No data")} }
+                div { class: "flex items-center justify-center h-24 text-ctp-overlay1", {tr("No data")} }
             } else {
                 Donut { slices: slices.clone(), hovered }
                 div { class: "mt-5 flex flex-col gap-0.5",
@@ -90,7 +90,7 @@ fn Donut(slices: Vec<(String, f64)>, mut hovered: Signal<Option<usize>>) -> Elem
             }
             div { class: "pointer-events-none absolute inset-0 flex flex-col items-center justify-center",
                 span { class: "text-3xl font-semibold tabular-nums text-ctp-text", "{big}" }
-                span { class: "text-xs text-ctp-overlay1", "{small}" }
+                span { class: "text-xs text-ctp-subtext0", "{small}" }
             }
         }
     }

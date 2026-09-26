@@ -190,13 +190,17 @@ impl QuoteService {
         interval: Interval,
         is_prepost_market: bool,
     ) -> Result<Vec<Candle>, QuoteGateWayError> {
-        let mut candles = self
-            .fetch_chart(ticker.clone(), range, interval, is_prepost_market)
-            .await?;
         if !is_convertible(&ticker) {
-            return Ok(candles);
+            return self
+                .fetch_chart(ticker, range, interval, is_prepost_market)
+                .await;
         }
-        let code = self.currency_of(&ticker).await?;
+        // The currency is cached after the first lookup; fetch both at once.
+        let (candles, code) = tokio::join!(
+            self.fetch_chart(ticker.clone(), range, interval, is_prepost_market),
+            self.currency_of(&ticker)
+        );
+        let (mut candles, code) = (candles?, code?);
         if code == "USD" {
             return Ok(candles);
         }

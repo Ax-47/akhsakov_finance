@@ -70,7 +70,7 @@ pub fn Home() -> Element {
                 day_pct,
                 actions: rsx! {
                     div { class: "flex flex-wrap gap-2",
-                        GhostButton { label: tr("＋ Transaction"), onclick: move |_| dialogs.open(Dialog::AddTransaction(None)) }
+                        GhostButton { label: tr("＋ Transaction"), primary: true, onclick: move |_| dialogs.open(Dialog::AddTransaction(None)) }
                         GhostButton { label: tr("Import CSV"), onclick: move |_| dialogs.open(Dialog::Import(None)) }
                         GhostButton { label: tr("＋ Portfolio"), onclick: move |_| dialogs.open(Dialog::NewPortfolio) }
                     }
@@ -108,7 +108,7 @@ pub fn Home() -> Element {
                     ToggleButton { label: tr("Portfolios"), active: view() == View::Portfolios, onclick: move |_| view.set(View::Portfolios) }
                     ToggleButton { label: tr("Holdings"), active: view() == View::Holdings, onclick: move |_| view.set(View::Holdings) }
                 }
-                span { class: "hidden sm:block text-xs text-ctp-overlay0",
+                span { class: "hidden sm:block text-xs text-ctp-overlay1",
                     "{portfolio_count} portfolios · {positions.len()} holdings"
                 }
             }

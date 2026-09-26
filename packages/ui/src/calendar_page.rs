@@ -28,7 +28,7 @@ enum Show {
 /// Holdings and watchlist tickers, and the calendar for them. Also returns
 /// shares held per ticker.
 fn use_my_calendar() -> (
-    Resource<Result<Vec<CalendarEvent>, String>>,
+    Memo<Option<Result<Vec<CalendarEvent>, String>>>,
     HashMap<String, Decimal>,
 ) {
     let refresh = use_context::<DataRefresh>();
@@ -40,7 +40,7 @@ fn use_my_calendar() -> (
     let mut held_tickers: Vec<String> = held.keys().cloned().collect();
     held_tickers.sort();
     let held_sig = use_memo(use_reactive!(|held_tickers| held_tickers));
-    let watchlist = use_resource(move || async move {
+    let watchlist = crate::cache::use_cached(|| "watchlist".into(), move || async move {
         let _reload = refresh.0();
         api::get_watchlist().await.unwrap_or_default()
     });
@@ -53,7 +53,7 @@ fn use_my_calendar() -> (
         all.dedup();
         all
     });
-    let events = use_resource(move || async move {
+    let events = crate::cache::use_cached(move || format!("calendar/{}", tickers().join(",")), move || async move {
         let list: Vec<TickerSymbol> = tickers()
             .iter()
             .filter_map(|t| TickerSymbol::new(t).ok())
@@ -76,10 +76,10 @@ pub fn CalendarPage() -> Element {
     let today = use_today();
 
     let body = match &*events.read() {
-        None => rsx! { p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Loading dates…")} } },
+        None => rsx! { p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Loading dates…")} } },
         Some(Err(message)) => rsx! { p { class: "text-sm text-ctp-red", "Couldn't load the calendar: {message}" } },
         Some(Ok(list)) if list.is_empty() => rsx! {
-            p { class: "py-6 text-sm text-ctp-overlay1",
+            p { class: "py-6 text-sm text-ctp-subtext0",
                 {tr("No upcoming earnings or dividends. Add stocks to your portfolio or watchlist to see their dates here.")}
             }
         },
@@ -106,7 +106,7 @@ pub fn CalendarPage() -> Element {
             rsx! {
                 for (month, days) in months {
                     div { key: "{month}", class: "mb-6 last:mb-0",
-                        h3 { class: "mb-2 text-xs font-semibold uppercase tracking-wide text-ctp-overlay1", {month_label(&month)} }
+                        h3 { class: "mb-2 text-xs font-semibold uppercase tracking-wide text-ctp-subtext0", {month_label(&month)} }
                         div { class: "grid gap-2",
                             for (date, day_events) in days {
                                 DayRow { key: "{date}", date: date.clone(), events: day_events, held: held.clone(), today }
@@ -124,7 +124,7 @@ pub fn CalendarPage() -> Element {
                 h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                     {tr("Calendar")}
                 }
-                p { class: "mt-2 text-sm text-ctp-overlay1",
+                p { class: "mt-2 text-sm text-ctp-subtext0",
                     {tr("Earnings reports and dividend dates for the stocks you hold and watch, from two weeks ago to four months ahead.")}
                 }
             }
@@ -165,7 +165,7 @@ pub fn UpcomingEvents(limit: usize) -> Element {
             subtitle: tr("Earnings and dividends for your stocks").to_string(),
             actions: rsx! {
                 button {
-                    class: "text-xs text-ctp-overlay1 cursor-pointer hover:text-ctp-text",
+                    class: "text-xs text-ctp-subtext0 cursor-pointer hover:text-ctp-text",
                     onclick: move |_| {
                         navigator().push("/calendar");
                     },
@@ -173,7 +173,7 @@ pub fn UpcomingEvents(limit: usize) -> Element {
                 }
             },
             if upcoming.is_empty() {
-                p { class: "text-sm text-ctp-overlay1",
+                p { class: "text-sm text-ctp-subtext0",
                     if events.read().is_none() { {tr("Loading…")} } else { {tr("Nothing in the next four months.")} }
                 }
             }
@@ -202,7 +202,7 @@ fn DayRow(date: String, events: Vec<CalendarEvent>, held: HashMap<String, Decima
                 } else {
                     "flex w-12 shrink-0 flex-col items-center rounded-xl bg-ctp-surface0/50 py-1.5 text-ctp-subtext1"
                 },
-                span { class: "text-[0.65rem] uppercase", "{weekday}" }
+                span { class: "text-xs uppercase", "{weekday}" }
                 span { class: "text-lg font-semibold leading-none", "{number}" }
             }
             div { class: "grid flex-1 gap-1.5",
@@ -233,7 +233,7 @@ fn EventRow(event: CalendarEvent, shares: Option<Decimal>, show_date: bool, past
         match shares {
             Some(s) => {
                 let total = Decimal::try_from(annual).unwrap_or_default() * s;
-                format!("{per_share}/share a year · ≈ {} a year on your {} shares", fmt_usd(total, 2), s.normalize())
+                format!("{per_share}/share a year · ≈ {} a year on your {} shares", fmt_usd(total, 2), crate::format::fmt_shares(s))
             }
             None => format!("{per_share}/share a year"),
         }
@@ -248,16 +248,16 @@ fn EventRow(event: CalendarEvent, shares: Option<Decimal>, show_date: bool, past
                     open_stock(t);
                 }
             },
-            span { class: "w-24 shrink-0 rounded-full px-2 py-0.5 text-center text-[0.68rem] font-semibold {badge}", {tr(event.kind.label())} }
+            span { class: "w-28 shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-center text-xs font-semibold {badge}", {tr(event.kind.label())} }
             div { class: "min-w-0 flex-1",
                 div { class: "flex items-baseline gap-2",
                     span { class: "font-semibold text-ctp-text", "{event.ticker}" }
-                    span { class: "truncate text-xs text-ctp-overlay1", "{event.name}" }
+                    span { class: "truncate text-xs text-ctp-subtext0", "{event.name}" }
                     if shares.is_some() {
-                        span { class: "rounded-full bg-ctp-surface0 px-1.5 text-[0.6rem] text-ctp-subtext0", "held" }
+                        span { class: "rounded-full bg-ctp-surface0 px-1.5 text-xs text-ctp-subtext0", "held" }
                     }
                 }
-                div { class: "text-xs text-ctp-overlay1", {dividend.unwrap_or(detail)} }
+                div { class: "text-xs text-ctp-subtext0", {dividend.unwrap_or(detail)} }
             }
             if show_date {
                 span { class: "shrink-0 text-xs tabular-nums text-ctp-subtext0", "{date}" }

@@ -418,7 +418,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
                         class: if (a(), b()) == (x, y) {
                             "rounded-full bg-ctp-mauve/15 px-3 py-1 text-xs font-medium text-ctp-mauve cursor-pointer"
                         } else {
-                            "rounded-full px-3 py-1 text-xs text-ctp-overlay1 cursor-pointer transition-colors hover:bg-ctp-surface0/60 hover:text-ctp-text"
+                            "rounded-full px-3 py-1 text-xs text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0/60 hover:text-ctp-text"
                         },
                         onclick: move |_| {
                             a.set(x);
@@ -432,7 +432,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
             div { class: "mt-4 flex flex-wrap items-center gap-2",
                 MeasurePicker { options: options.clone(), value: a(), color: LEFT_HEX, onchange: move |i| a.set(i) }
                 button {
-                    class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-overlay1 cursor-pointer \
+                    class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer \
                             transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
                     title: tr("Swap"),
                     "aria-label": "Swap measures",
@@ -476,7 +476,7 @@ fn MeasureSummary(
 ) -> Element {
     rsx! {
         div { class: "px-4 py-3",
-            div { class: "flex items-center gap-2 text-xs text-ctp-overlay1",
+            div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                 span { class: "h-2 w-2 rounded-full", style: "background:{color};" }
                 "{label}"
             }
@@ -487,7 +487,7 @@ fn MeasureSummary(
                         class: if c >= 0.0 { "rounded-full bg-ctp-green/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-ctp-green" } else { "rounded-full bg-ctp-red/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-ctp-red" },
                         "{c:+.1}%"
                     }
-                    span { class: "text-xs text-ctp-overlay0", "over the period" }
+                    span { class: "text-xs text-ctp-overlay1", "over the period" }
                 }
             }
         }
@@ -524,7 +524,7 @@ fn MeasurePicker(
                               bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                     for (group, items) in group_measures(&options) {
                         div { key: "{group}",
-                            div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay0", "{group}" }
+                            div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay1", "{group}" }
                             for (i, label) in items {
                                 MenuItem {
                                     key: "{i}",
@@ -582,7 +582,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
     let mut custom = use_signal(String::new);
     let mut selected = use_signal(|| 1usize); // Trailing P/E
 
-    let data = use_resource(move || {
+    let data = crate::cache::use_cached(move || format!("compare/{:?}", tickers()), move || {
         let list = tickers();
         async move {
             let fetched =
@@ -631,7 +631,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                             },
                             input {
                                 class: "w-48 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm \
-                                        text-ctp-text placeholder:text-ctp-overlay0 outline-none focus:border-ctp-mauve",
+                                        text-ctp-text placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
                                 placeholder: tr("Add a ticker ↵"),
                                 value: "{custom}",
                                 oninput: move |e| custom.set(e.value()),
@@ -648,7 +648,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                             span { class: "font-semibold text-ctp-text", "{t}" }
                             if i > 0 {
                                 button {
-                                    class: "flex h-5 w-5 items-center justify-center rounded-full text-ctp-overlay1 cursor-pointer \
+                                    class: "flex h-5 w-5 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer \
                                             transition-colors hover:bg-ctp-surface0 hover:text-ctp-red",
                                     "aria-label": "Remove {t}",
                                     onclick: move |_| {
@@ -657,7 +657,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                                     "×"
                                 }
                             } else {
-                                span { class: "pr-1.5 text-xs text-ctp-overlay0", "this stock" }
+                                span { class: "pr-1.5 text-xs text-ctp-overlay1", "this stock" }
                             }
                         }
                     }
@@ -665,7 +665,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
             }
 
             if data.read().is_none() {
-                Card { title: tr("Measures"), p { class: "py-12 text-center text-sm text-ctp-overlay1", "Loading fundamentals for {names.len()} stocks…" } }
+                Card { title: tr("Measures"), p { class: "py-12 text-center text-sm text-ctp-subtext0", "Loading fundamentals for {names.len()} stocks…" } }
             } else {
                 Card { title: "{chosen.label}", subtitle: better_hint(chosen.better).to_string(),
                     BarChart {
@@ -678,7 +678,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                     div { class: "overflow-x-auto",
                         table { class: "w-full text-sm whitespace-nowrap",
                             thead {
-                                tr { class: "text-xs text-ctp-overlay1",
+                                tr { class: "text-xs text-ctp-subtext0",
                                     th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "" }
                                     for (i, name) in names.iter().enumerate() {
                                         th { class: "px-4 py-2.5 text-right font-medium",
@@ -752,7 +752,7 @@ fn MeasureRow(
             onclick: move |e| onclick.call(e),
             td { class: "pl-6 pr-4 py-2.5",
                 span { class: "text-ctp-subtext1", "{label}" }
-                span { class: "ml-2 text-[0.7rem] text-ctp-overlay0",
+                span { class: "ml-2 text-xs text-ctp-overlay1",
                     match better {
                         Better::Higher => "↑",
                         Better::Lower => "↓",

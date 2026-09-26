@@ -77,7 +77,7 @@ pub fn AuthGate(children: Element) -> Element {
     let current = status.read().clone();
     match current {
         None => rsx! {
-            div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-overlay1", {tr("Loading…")} }
+            div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-subtext0", {tr("Loading…")} }
         },
         Some(Err(e)) => rsx! {
             div { class: "{crate::theme::theme_class()} flex h-screen flex-col items-center justify-center gap-3 bg-ctp-base text-sm",
@@ -128,7 +128,7 @@ fn SignInScreen(setup: bool) -> Element {
                     span { class: "flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-ctp-pink via-ctp-mauve to-ctp-sky text-base font-bold text-ctp-crust", {tr("A")} }
                     div {
                         div { class: "text-lg font-semibold", "{title}" }
-                        div { class: "text-xs text-ctp-overlay1", {tr("Akhsakov Finance")} }
+                        div { class: "text-xs text-ctp-subtext0", {tr("Akhsakov Finance")} }
                     }
                 }
                 div { class: "grid gap-4",
@@ -223,7 +223,7 @@ pub fn SecurityCard() -> Element {
                                     "{u.username}"
                                     if !me {
                                         button {
-                                            class: "text-ctp-overlay1 cursor-pointer hover:text-ctp-red",
+                                            class: "text-ctp-subtext0 cursor-pointer hover:text-ctp-red",
                                             title: tr("Remove account"),
                                             onclick: move |_| {
                                                 let name = name.clone();
@@ -264,7 +264,7 @@ pub fn SecurityCard() -> Element {
                 Some(Err(m)) => rsx! { p { class: "mt-4 text-sm text-ctp-red", "{m}" } },
                 None => rsx! {},
             }
-            p { class: "mt-4 text-xs text-ctp-overlay0",
+            p { class: "mt-4 text-xs text-ctp-overlay1",
                 {tr("Reaching the app over the internet? Put it behind HTTPS (e.g. Caddy or nginx) so passwords aren't sent in the clear.")}
             }
         }

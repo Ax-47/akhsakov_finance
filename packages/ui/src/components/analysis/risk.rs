@@ -81,7 +81,9 @@ pub fn RiskTab(
     });
 
     let app_settings = use_context::<crate::app::AppSettings>();
-    let history = use_resource(move || {
+    let history = crate::cache::use_cached(
+        move || format!("risk/{:?}/{:?}/{}", tickers(), range(), app_settings.benchmark()),
+        move || {
         let tickers = tickers();
         let range = range();
         async move {
@@ -95,7 +97,8 @@ pub fn RiskTab(
                 .collect::<Vec<_>>();
             Some((holdings, daily_returns(charts.get(&market)?)))
         }
-    });
+    },
+    );
 
     let report = use_memo(move || {
         let weights: Vec<f64> = allocation
@@ -139,12 +142,12 @@ pub fn RiskTab(
     let risk = match report() {
         None => rsx! {
             Card { title: tr("Risk overview"), actions: range_toggle,
-                p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Crunching price history…")} }
+                p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Crunching price history…")} }
             }
         },
         Some(None) => rsx! {
             Card { title: tr("Risk overview"), actions: range_toggle,
-                p { class: "py-10 text-center text-sm text-ctp-overlay1",
+                p { class: "py-10 text-center text-sm text-ctp-subtext0",
                     {tr("Not enough shared price history yet to measure risk.")}
                 }
             }
@@ -251,7 +254,7 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
                     tone: tone(r.diversification_ratio >= 1.2),
                 }
             }
-            p { class: "mt-4 text-[0.7rem] text-ctp-overlay0",
+            p { class: "mt-4 text-xs text-ctp-overlay1",
                 "Based on today's weights applied to past daily returns. Risk-free rate {pct(r.risk_free):.1}% (change it in Settings)."
             }
         }
@@ -348,14 +351,14 @@ fn PerformanceChart(report: RiskReport) -> Element {
                     stroke_width: "2", stroke_linejoin: "round", vector_effect: "non-scaling-stroke",
                 }
             }
-            div { class: "mt-4 mb-1 flex justify-between text-[0.7rem] text-ctp-overlay1",
+            div { class: "mt-4 mb-1 flex justify-between text-xs text-ctp-subtext0",
                 span { {tr("Drawdown")} }
                 span { class: "text-ctp-red", "worst −{-dd_floor * 100.0:.1}%" }
             }
             svg { class: "w-full h-12", view_box: "0 0 {CHART_W} {DD_H}", preserve_aspect_ratio: "none",
                 polygon { points: "{dd_area}", fill: LOSS_HEX, fill_opacity: "0.25" }
             }
-            div { class: "mt-2 flex justify-between text-[0.7rem] text-ctp-overlay0",
+            div { class: "mt-2 flex justify-between text-xs text-ctp-overlay1",
                 span { "{day_label(report.first_day)}" }
                 span { "{day_label(report.last_day)}" }
             }
@@ -420,11 +423,11 @@ fn StressRow(label: String, note: String, change: f64, value: f64) -> Element {
         div { class: "flex items-center justify-between gap-3 py-2.5 border-t border-ctp-surface0/60 first:border-t-0",
             div { class: "min-w-0",
                 div { class: "text-sm text-ctp-text", "{label}" }
-                div { class: "text-[0.7rem] text-ctp-overlay0 truncate", "{note}" }
+                div { class: "text-xs text-ctp-overlay1 truncate", "{note}" }
             }
             div { class: "text-right shrink-0 tabular-nums",
                 div { class: "text-sm font-semibold text-ctp-red", "{fmt_usd(loss, 0)}" }
-                div { class: "text-[0.7rem] text-ctp-overlay1", "{change * 100.0:+.1}%" }
+                div { class: "text-xs text-ctp-subtext0", "{change * 100.0:+.1}%" }
             }
         }
     }
@@ -446,7 +449,7 @@ fn RiskContribution(report: RiskReport, tickers: Vec<TickerSymbol>) -> Element {
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
-                        tr { class: "text-xs text-ctp-overlay1",
+                        tr { class: "text-xs text-ctp-subtext0",
                             th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Asset")} }
                             th { class: "px-4 py-2.5 text-left font-medium", {tr("Weight → risk share")} }
                             th { class: "px-4 py-2.5 text-right font-medium", {tr("Volatility")} }
@@ -502,7 +505,7 @@ fn ContributionRow(
                         span { class: "h-1 rounded-full bg-ctp-surface2", style: "width:{weight.clamp(2.0, 100.0):.0}%;" }
                         span { class: "h-1 rounded-full {color}", style: "width:{share.clamp(2.0, 100.0):.0}%;" }
                     }
-                    span { class: "text-xs tabular-nums text-ctp-overlay1",
+                    span { class: "text-xs tabular-nums text-ctp-subtext0",
                         "{weight:.0}% → "
                         span { class: "font-semibold text-ctp-text", "{share:.0}%" }
                     }
@@ -513,7 +516,7 @@ fn ContributionRow(
             td { class: cell, "−{h.max_drawdown * 100.0:.1}%" }
             td { class: "pl-4 pr-6 py-3.5 text-right",
                 if let Some((label, style)) = flag {
-                    span { class: "rounded-full px-2.5 py-0.5 text-[0.7rem] font-semibold {style}", "{label}" }
+                    span { class: "rounded-full px-2.5 py-0.5 text-xs font-semibold {style}", "{label}" }
                 }
             }
         }

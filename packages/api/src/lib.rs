@@ -54,6 +54,9 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         portfolio.clone(),
         quotes.clone(),
     );
+    let market = market::market_services_setup(db.clone(), fx.clone());
+    let economy = economy::economy_services_setup();
+    warm_up(market.clone(), economy.clone());
     let auth = auth::auth_services_setup(db.clone());
     // Layers wrap what's added before them: the sign-in check runs first,
     // then the services are attached.
@@ -61,13 +64,32 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         .layer(Extension(auth.clone()))
         .layer(Extension(quotes))
         .layer(Extension(research::research_services_setup(fx.clone())))
-        .layer(Extension(economy::economy_services_setup()))
+        .layer(Extension(economy.clone()))
         .layer(Extension(backup::backup_services_setup(db.clone())))
-        .layer(Extension(market::market_services_setup(db.clone(), fx)))
+        .layer(Extension(market.clone()))
         .layer(Extension(portfolio))
         .layer(Extension(watchlist))
         .layer(Extension(notifications))
         .layer(Extension(planning::planning_services_setup(db.clone())))
         .layer(Extension(settings::settings_services_setup(db)));
     auth::protect(router, auth)
+}
+
+/// Fills the slow caches in the background right after start-up, so the
+/// first visit to Markets or Economy is instant: index members (Wikipedia)
+/// and prices, then the economic series. Spaced out to be gentle on the
+/// providers; failures just mean the page loads them on demand.
+#[cfg(feature = "server")]
+fn warm_up(market: market::MarketService, economy: economy::EconomyService) {
+    tokio::spawn(async move {
+        for index in dtos::market::MarketIndex::ALL {
+            if let Err(e) = market.index_heatmap(index).await {
+                tracing::debug!("warm-up {}: {e}", index.label());
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        if let Err(e) = economy.snapshot().await {
+            tracing::debug!("warm-up economy: {e}");
+        }
+    });
 }

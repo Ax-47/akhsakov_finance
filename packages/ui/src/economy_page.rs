@@ -1,7 +1,7 @@
 //! Economy: market gauges, US macro indicators and the Treasury yield curve.
 
 use crate::i18n::tr;
-use crate::{components::card::Card, notify::sleep_ms, page::Page};
+use crate::{components::card::Card, page::Page};
 use dioxus::prelude::*;
 use dtos::economy::{value_on_or_before, CurvePoint, EconomySnapshot, Gauge, Indicator};
 
@@ -10,24 +10,28 @@ const RETRY_MS: u32 = 5_000;
 
 #[component]
 pub fn EconomyPage() -> Element {
-    let mut data = use_signal(|| None::<Result<EconomySnapshot, String>>);
+    const KEY: &str = "economy";
+    let mut data = use_signal(|| crate::cache::get::<EconomySnapshot>(KEY).map(Ok));
     use_future(move || async move {
         loop {
             let result = api::get_economy().await.map_err(|e| match e {
                 ServerFnError::ServerError { message, .. } => message,
                 e => e.to_string(),
             });
+            if let Ok(snapshot) = &result {
+                crate::cache::put(KEY.to_string(), snapshot.clone());
+            }
             let ok = result.is_ok();
             // Keep the last good snapshot if a refresh fails.
             if ok || !matches!(*data.peek(), Some(Ok(_))) {
                 data.set(Some(result));
             }
-            sleep_ms(if ok { REFRESH_MS } else { RETRY_MS }).await;
+            crate::notify::poll_delay(if ok { REFRESH_MS } else { RETRY_MS }).await;
         }
     });
 
     let body = match data() {
-        None => rsx! { p { class: "mt-10 text-sm text-ctp-overlay1", {tr("Loading economic data…")} } },
+        None => rsx! { p { class: "mt-10 text-sm text-ctp-subtext0", {tr("Loading economic data…")} } },
         Some(Err(message)) => rsx! {
             p { class: "mt-10 text-sm text-ctp-red", "Couldn't load economic data: {message}. Retrying…" }
         },
@@ -47,7 +51,7 @@ pub fn EconomyPage() -> Element {
                     IndicatorCard { key: "{i.id}", indicator: i }
                 }
             }
-            p { class: "mt-6 text-xs text-ctp-overlay0",
+            p { class: "mt-6 text-xs text-ctp-overlay1",
                 {tr("Macro data from FRED (Federal Reserve Bank of St. Louis); market levels from Yahoo Finance.")}
             }
         },
@@ -59,7 +63,7 @@ pub fn EconomyPage() -> Element {
                 h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                     {tr("Economy")}
                 }
-                p { class: "mt-2 text-sm text-ctp-overlay1", {tr("Rates, inflation, jobs and the markets' mood.")} }
+                p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Rates, inflation, jobs and the markets' mood.")} }
             }
             {body}
         }
@@ -80,7 +84,7 @@ fn GaugeTile(gauge: Gauge) -> Element {
     };
     rsx! {
         div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-3",
-            div { class: "truncate text-xs text-ctp-overlay1", "{gauge.label}" }
+            div { class: "truncate text-xs text-ctp-subtext0", "{gauge.label}" }
             div { class: "mt-1 flex items-baseline justify-between gap-2",
                 span { class: "text-lg font-semibold tabular-nums text-ctp-text", "{value}" }
                 span { class: "text-xs tabular-nums {tone}", "{change}" }
@@ -124,7 +128,7 @@ fn YieldCurve(points: Vec<CurvePoint>) -> Element {
     rsx! {
         Card { title: tr("Treasury yield curve"), subtitle: summary.to_string(),
             actions: rsx! {
-                div { class: "flex gap-4 text-xs text-ctp-overlay1",
+                div { class: "flex gap-4 text-xs text-ctp-subtext0",
                     span { class: "flex items-center gap-1.5", span { class: "h-0.5 w-4 bg-ctp-mauve" } "Today" }
                     span { class: "flex items-center gap-1.5", span { class: "h-0.5 w-4 border-t border-dashed border-ctp-overlay1" } "A year ago" }
                 }
@@ -136,7 +140,7 @@ fn YieldCurve(points: Vec<CurvePoint>) -> Element {
                         rsx! {
                             g { key: "{step}",
                                 line { x1: "{PAD}", x2: "{W - PAD}", y1: "{y(v):.1}", y2: "{y(v):.1}", stroke: "var(--catppuccin-color-surface0)", stroke_width: "1" }
-                                text { x: "2", y: "{y(v) + 3.0:.1}", font_size: "9", fill: "var(--catppuccin-color-overlay0)", "{v:.0}%" }
+                                text { x: "2", y: "{y(v) + 3.0:.1}", font_size: "11", fill: "var(--catppuccin-color-overlay0)", "{v:.0}%" }
                             }
                         }
                     }
@@ -150,7 +154,7 @@ fn YieldCurve(points: Vec<CurvePoint>) -> Element {
                                 title { "{p.label}: {v:.2}%" }
                             }
                         }
-                        text { x: "{x(i):.1}", y: "{H - 6.0}", font_size: "10", text_anchor: "middle", fill: "var(--catppuccin-color-overlay1)", "{p.label}" }
+                        text { x: "{x(i):.1}", y: "{H - 6.0}", font_size: "11", text_anchor: "middle", fill: "var(--catppuccin-color-overlay1)", "{p.label}" }
                     }
                 }
             }
@@ -171,7 +175,7 @@ fn IndicatorCard(indicator: Indicator) -> Element {
             div { class: "flex items-end justify-between gap-4",
                 div {
                     div { class: "text-3xl font-semibold tabular-nums text-ctp-text", "{latest:.2}{indicator.unit}" }
-                    div { class: "mt-1 text-xs text-ctp-overlay1",
+                    div { class: "mt-1 text-xs text-ctp-subtext0",
                         {month_year(&date)}
                         if let Some(c) = change {
                             " · "
@@ -182,7 +186,7 @@ fn IndicatorCard(indicator: Indicator) -> Element {
                 }
             }
             Sparkline { values, zero_line: values_cross_zero(&indicator.history) }
-            div { class: "mt-1 flex justify-between text-[0.65rem] text-ctp-overlay0",
+            div { class: "mt-1 flex justify-between text-xs text-ctp-overlay1",
                 span { {indicator.history.first().map(|(d, _)| month_year(d)).unwrap_or_default()} }
                 span { {month_year(&date)} }
             }

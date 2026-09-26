@@ -99,7 +99,7 @@ pub fn Treemap(items: ReadSignal<Vec<HeatItem>>, saturation: f64, height: u32) -
     if layout.read().tiles.is_empty() {
         return rsx! {
             div {
-                class: "flex items-center justify-center text-ctp-overlay0 text-xs",
+                class: "flex items-center justify-center text-ctp-overlay1 text-xs",
                 style: "height:{height}px;",
                 {tr("Waiting for prices…")}
             }
@@ -139,7 +139,7 @@ fn GroupFrame(group: GroupLabel) -> Element {
             style: "left:{left:.3}%;top:{top:.3}%;width:{width:.3}%;height:{height:.3}%;",
             if group.show_label {
                 div {
-                    class: "flex items-center justify-between gap-2 px-2 text-[0.62rem] font-semibold uppercase tracking-wide text-ctp-subtext0",
+                    class: "flex items-center justify-between gap-2 px-2 text-xs font-semibold uppercase tracking-wide text-ctp-subtext0",
                     style: "height:{GROUP_LABEL_PX}px;",
                     span { class: "truncate", "{group.name}" }
                     span { class: "tabular-nums {change_class}", "{change}" }
@@ -166,9 +166,9 @@ fn HeatmapTile(tile: Tile, saturation: f64, dense: bool) -> Element {
     let (ticker_class, change_class, show_change) = if width > 12.0 && height > 18.0 {
         ("text-base", "text-sm", true)
     } else if width > 6.0 && height > 10.0 {
-        ("text-xs", "text-[0.65rem]", true)
+        ("text-xs", "text-xs", true)
     } else if width > 3.2 && height > 5.0 {
-        ("text-[0.6rem]", "", false)
+        ("text-xs", "", false)
     } else {
         ("hidden", "", false)
     };
@@ -181,9 +181,9 @@ fn HeatmapTile(tile: Tile, saturation: f64, dense: bool) -> Element {
     let ticker = TickerSymbol::new(&item.ticker).ok();
     rsx! {
         div {
+            // No per-tile filters or transitions: an index map has 500 tiles.
             class: "absolute flex flex-col items-center justify-center overflow-hidden cursor-pointer \
-                    {shape} border-transparent bg-clip-padding \
-                    transition-[background-color] duration-500 hover:brightness-110",
+                    {shape} border-transparent bg-clip-padding hover:border-ctp-text/40",
             onclick: move |_| {
                 if let Some(t) = &ticker {
                     open_stock(t);
@@ -204,7 +204,7 @@ fn HeatmapTile(tile: Tile, saturation: f64, dense: bool) -> Element {
 pub fn HeatmapLegend(saturation: f64) -> Element {
     let stops: Vec<f64> = (-2..=2).map(|i| i as f64 * saturation / 2.0).collect();
     rsx! {
-        div { class: "flex items-center justify-end gap-1 mt-3 text-[0.68rem] text-ctp-subtext0 tabular-nums",
+        div { class: "flex items-center justify-end gap-1 mt-3 text-xs text-ctp-subtext0 tabular-nums",
             for stop in stops {
                 div { class: "flex flex-col items-center gap-1",
                     div { class: "w-10 h-2 rounded-sm", style: "background:{change_color(stop, saturation)};" }

@@ -45,7 +45,7 @@ pub fn StockPage(ticker: String) -> Element {
     match TickerSymbol::new(&ticker.replace("%5E", "^")) {
         Ok(ticker) => rsx! { StockView { key: "{ticker}", ticker } },
         Err(_) => rsx! {
-            Page { p { class: "text-ctp-overlay1", "“{ticker}” isn't a valid ticker." } }
+            Page { p { class: "text-ctp-subtext0", "“{ticker}” isn't a valid ticker." } }
         },
     }
 }
@@ -64,12 +64,14 @@ fn StockView(ticker: TickerSymbol) -> Element {
     let mut compare_over_time = use_signal(|| false);
 
     let symbol = ticker.clone();
-    let fundamentals = use_resource(move || {
+    let key = ticker.clone();
+    let fundamentals = crate::cache::use_cached(move || format!("fundamentals/{key}"), move || {
         let t = symbol.clone();
         async move { api::get_fundamentals(t).await.ok() }
     });
     let symbol = ticker.clone();
-    let quote = use_resource(move || {
+    let key = ticker.clone();
+    let quote = crate::cache::use_cached(move || format!("quote/{key}"), move || {
         let t = symbol.clone();
         async move { get_quote(t).await.ok() }
     });
@@ -109,7 +111,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
         Page {
             header { class: "motion-safe:animate-rise",
                 div { class: "flex items-center justify-between gap-4 mb-4",
-                    div { class: "flex flex-wrap items-center gap-2 text-xs text-ctp-overlay1",
+                    div { class: "flex flex-wrap items-center gap-2 text-xs text-ctp-subtext0",
                         span { class: "rounded-lg bg-ctp-surface0 px-2 py-0.5 font-mono font-semibold text-ctp-text", "{ticker}" }
                         for t in tags {
                             span { class: "rounded-full border border-ctp-surface0 px-2.5 py-0.5", "{t}" }
@@ -156,7 +158,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                 }
                 if let Some(p) = &position {
                     div { class: "mt-4 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-2 text-sm",
-                        span { class: "text-ctp-overlay1", {tr("You own")} }
+                        span { class: "text-ctp-subtext0", {tr("You own")} }
                         span { class: "font-medium tabular-nums text-ctp-text", "{p.shares.normalize()} shares · {fmt_usd(p.market_value(), 2)}" }
                         span { class: "font-medium tabular-nums {signed_color(p.unrealized_pnl())}",
                             "{fmt_signed(p.unrealized_pnl(), 2)} ({p.unrealized_pnl_pct():+.2}%)"
@@ -257,7 +259,7 @@ fn WatchButton(ticker: TickerSymbol) -> Element {
             if open() {
                 div { class: "fixed inset-0 z-20", onclick: move |_| open.set(false) }
                 div { class: "absolute right-0 top-full z-30 mt-2 w-56 rounded-2xl border border-ctp-surface0 bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60",
-                    div { class: "px-2.5 pt-1.5 pb-1 text-xs text-ctp-overlay0", {tr("Watchlists")} }
+                    div { class: "px-2.5 pt-1.5 pb-1 text-xs text-ctp-overlay1", {tr("Watchlists")} }
                     for l in lists {
                         {
                             let has = l.items.iter().any(|i| i.ticker == ticker);
@@ -365,7 +367,7 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
 #[component]
 fn Unavailable(text: String) -> Element {
     rsx! {
-        Card { title: tr("Fundamentals"), p { class: "py-12 text-center text-sm text-ctp-overlay1", "{text}" } }
+        Card { title: tr("Fundamentals"), p { class: "py-12 text-center text-sm text-ctp-subtext0", "{text}" } }
     }
 }
 
@@ -375,8 +377,8 @@ fn Unavailable(text: String) -> Element {
 /// this stock; nothing if no index does.
 #[component]
 fn Peers(ticker: TickerSymbol) -> Element {
-    let t = ticker.clone();
-    let group = use_resource(move || {
+    let (t, key) = (ticker.clone(), ticker.clone());
+    let group = crate::cache::use_cached(move || format!("peers/{key}"), move || {
         let t = t.clone();
         async move { api::get_peers(t).await.ok().flatten() }
     });
@@ -411,7 +413,7 @@ fn About(fundamentals: StockFundamentals) -> Element {
                     if expanded() { {tr("Show less")} } else { {tr("Read more")} }
                 }
                 if let Some(site) = &fundamentals.profile.website {
-                    span { class: "text-ctp-overlay1", "{site}" }
+                    span { class: "text-ctp-subtext0", "{site}" }
                 }
             }
         }
@@ -448,7 +450,7 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-sm whitespace-nowrap",
                         thead {
-                            tr { class: "text-xs text-ctp-overlay1",
+                            tr { class: "text-xs text-ctp-subtext0",
                                 th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "" }
                                 for c in columns.iter() {
                                     th { class: "px-4 py-2.5 text-right font-medium", "{short_date(&c.date)}" }
@@ -476,7 +478,7 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
                                 td { class: "px-4 py-3 text-right tabular-nums font-semibold text-ctp-text",
                                     {or_dash(f.stats.forward_pe, |v| format!("{v:.2}"))}
                                 }
-                                td { class: "px-4 py-3 text-xs text-ctp-overlay0", colspan: "{columns.len()}",
+                                td { class: "px-4 py-3 text-xs text-ctp-overlay1", colspan: "{columns.len()}",
                                     {tr("Price ÷ analysts' next-year EPS")}
                                 }
                             }
@@ -742,7 +744,7 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
                 div { class: "overflow-x-auto",
                     table { class: "w-full text-sm whitespace-nowrap",
                         thead {
-                            tr { class: "text-xs text-ctp-overlay1",
+                            tr { class: "text-xs text-ctp-subtext0",
                                 th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "" }
                                 for p in rows.iter() {
                                     th { class: "px-4 py-2.5 text-right font-medium", "{period_label(p, quarterly())}" }
@@ -779,7 +781,7 @@ fn AnalysisTab(fundamentals: StockFundamentals, price: Option<f64>) -> Element {
                     Ratings { analysts: a.clone() }
                     PriceTarget { analysts: a, price }
                 } else {
-                    Card { title: tr("Analysts"), p { class: "py-8 text-center text-sm text-ctp-overlay1", {tr("No analyst coverage.")} } }
+                    Card { title: tr("Analysts"), p { class: "py-8 text-center text-sm text-ctp-subtext0", {tr("No analyst coverage.")} } }
                 }
             }
             EpsChart { surprises: fundamentals.eps_surprises.clone() }
@@ -809,14 +811,14 @@ fn Ratings(analysts: Analysts) -> Element {
             div { class: "flex items-baseline gap-3",
                 span { class: "text-3xl font-semibold capitalize text-ctp-text", "{rating}" }
                 if let Some(m) = a.mean {
-                    span { class: "text-sm text-ctp-overlay1", "{m:.1} on a 1–5 scale" }
+                    span { class: "text-sm text-ctp-subtext0", "{m:.1} on a 1–5 scale" }
                 }
             }
             if let Some(pos) = marker {
                 div { class: "relative mt-4 h-2 rounded-full bg-gradient-to-r from-ctp-green via-ctp-yellow to-ctp-red",
                     span { class: "absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ctp-base bg-ctp-text", style: "left:{pos:.1}%;" }
                 }
-                div { class: "mt-1.5 flex justify-between text-[0.7rem] text-ctp-overlay0",
+                div { class: "mt-1.5 flex justify-between text-xs text-ctp-overlay1",
                     span { {tr("Strong buy")} }
                     span { {tr("Hold")} }
                     span { {tr("Strong sell")} }
@@ -838,7 +840,7 @@ fn Ratings(analysts: Analysts) -> Element {
                     for (i, n) in counts.iter().enumerate() {
                         div {
                             div { class: "font-semibold tabular-nums text-ctp-text", "{n}" }
-                            div { class: "text-ctp-overlay1", style: "color:{RATING_COLORS[i].1};", "{RATING_COLORS[i].0}" }
+                            div { class: "text-ctp-subtext0", style: "color:{RATING_COLORS[i].1};", "{RATING_COLORS[i].0}" }
                         }
                     }
                 }
@@ -852,7 +854,7 @@ fn PriceTarget(analysts: Analysts, price: Option<f64>) -> Element {
     let a = &analysts;
     let (Some(low), Some(high)) = (a.target_low, a.target_high) else {
         return rsx! {
-            Card { title: tr("Price target"), p { class: "py-8 text-center text-sm text-ctp-overlay1", {tr("No price targets.")} } }
+            Card { title: tr("Price target"), p { class: "py-8 text-center text-sm text-ctp-subtext0", {tr("No price targets.")} } }
         };
     };
     let lo = low.min(price.unwrap_or(low));
@@ -890,7 +892,7 @@ fn PriceTarget(analysts: Analysts, price: Option<f64>) -> Element {
                     span { class: "absolute top-4 -translate-x-1/2 text-xs text-ctp-subtext0", style: "left:{at(p):.1}%;", "Now ${p:.0}" }
                 }
             }
-            div { class: "flex justify-between text-xs tabular-nums text-ctp-overlay1",
+            div { class: "flex justify-between text-xs tabular-nums text-ctp-subtext0",
                 span { "Low ${low:.0}" }
                 span { "High ${high:.0}" }
             }
@@ -909,7 +911,7 @@ fn EpsChart(surprises: Vec<EpsSurprise>) -> Element {
         .collect();
     if points.is_empty() {
         return rsx! {
-            Card { title: tr("Earnings per share"), p { class: "py-8 text-center text-sm text-ctp-overlay1", {tr("No earnings history.")} } }
+            Card { title: tr("Earnings per share"), p { class: "py-8 text-center text-sm text-ctp-subtext0", {tr("No earnings history.")} } }
         };
     }
     let values: Vec<f64> = points
@@ -949,7 +951,7 @@ fn EpsChart(surprises: Vec<EpsSurprise>) -> Element {
                                 if let Some(pct) = surprise {
                                     text { x: "{x(i):.1}", y: "{H - 26.0}", text_anchor: "middle", font_size: "11", font_weight: "600", fill: color, "{pct:+.1}%" }
                                 }
-                                text { x: "{x(i):.1}", y: "{H - 8.0}", text_anchor: "middle", font_size: "10", fill: "var(--catppuccin-color-overlay1)", "{s.period}" }
+                                text { x: "{x(i):.1}", y: "{H - 8.0}", text_anchor: "middle", font_size: "11", fill: "var(--catppuccin-color-overlay1)", "{s.period}" }
                             }
                         }
                     }

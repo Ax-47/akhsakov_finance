@@ -19,12 +19,13 @@ mod stock_page;
 mod stock_research;
 mod watchlist_page;
 pub use sidebar::{
-    BacktestIcon, CalendarIcon, DashboardIcon, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
 };
 pub use stock_page::StockPage;
 pub use watchlist_page::WatchlistPage;
 
 mod app;
+mod cache;
 pub mod i18n;
 mod theme;
 mod auth;

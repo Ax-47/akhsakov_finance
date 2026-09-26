@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
 };
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -49,6 +49,7 @@ fn Navbar() -> Element {
     rsx! {
         Sidebar {
             links: rsx! {
+                NavSection { label: ui::i18n::tr("Your money") }
                 Link { to: Route::Home {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     DashboardIcon {}
                     {ui::i18n::tr("Dashboard")}
@@ -57,6 +58,11 @@ fn Navbar() -> Element {
                     PortfolioIcon {}
                     {ui::i18n::tr("Portfolio")}
                 }
+                Link { to: Route::Watchlist {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    WatchlistIcon {}
+                    {ui::i18n::tr("Watchlist")}
+                }
+                NavSection { label: ui::i18n::tr("Research") }
                 Link { to: Route::Market {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     MarketIcon {}
                     {ui::i18n::tr("Markets")}
@@ -73,13 +79,10 @@ fn Navbar() -> Element {
                     EconomyIcon {}
                     {ui::i18n::tr("Economy")}
                 }
+                NavSection { label: ui::i18n::tr("Tools") }
                 Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     BacktestIcon {}
                     {ui::i18n::tr("Backtest")}
-                }
-                Link { to: Route::Watchlist {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
-                    WatchlistIcon {}
-                    {ui::i18n::tr("Watchlist")}
                 }
                 Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     SettingsIcon {}

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ticker_symbol::TickerSymbol;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Quote {
     pub ticker_symbol: TickerSymbol,
     pub current_price: Decimal,

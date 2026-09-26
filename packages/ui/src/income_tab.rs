@@ -32,12 +32,14 @@ fn pct(v: Option<f64>) -> String {
 #[component]
 pub fn IncomeTab(positions: Vec<Position>, transactions: Vec<Transaction>, total_value: Decimal) -> Element {
     let tickers: Vec<TickerSymbol> = positions.iter().map(|p| p.ticker.clone()).collect();
-    let infos = use_resource(use_reactive!(|tickers| async move {
+    let tickers = use_memo(use_reactive!(|tickers| tickers));
+    let infos = crate::cache::use_cached(move || format!("dividends/{:?}", tickers()), move || async move {
+        let tickers = tickers();
         if tickers.is_empty() {
             return Ok(vec![]);
         }
         api::get_dividends(tickers).await.map_err(|e| e.to_string())
-    }));
+    });
 
     let received = dividends_by_month(&transactions);
     let last_year: f64 = received.iter().rev().take(12).map(|(_, v)| v).sum();
@@ -79,7 +81,7 @@ pub fn IncomeTab(positions: Vec<Position>, transactions: Vec<Transaction>, total
 
         Card { title: tr("Dividends received"), subtitle: tr("Net of tax withheld, per month").to_string(),
             if shown.is_empty() {
-                p { class: "text-sm text-ctp-overlay1",
+                p { class: "text-sm text-ctp-subtext0",
                     {tr("No dividends recorded yet. Add them with ＋ Transaction → Dividend, or import them from your broker's CSV.")}
                 }
             } else {
@@ -94,13 +96,13 @@ pub fn IncomeTab(positions: Vec<Position>, transactions: Vec<Transaction>, total
         Card { title: tr("Expected income by holding"), subtitle: tr("From each company's current dividend rate").to_string(), flush: true,
             match (&forecast, &*infos.read()) {
                 (_, Some(Err(e))) => rsx! { p { class: "px-6 pb-6 text-sm text-ctp-red", "Couldn't load dividend rates: {e}" } },
-                (None, _) => rsx! { p { class: "px-6 pb-6 text-sm text-ctp-overlay1", {tr("Loading dividend rates…")} } },
-                (Some(rows), _) if rows.is_empty() => rsx! { p { class: "px-6 pb-6 text-sm text-ctp-overlay1", {tr("None of your holdings pay a dividend.")} } },
+                (None, _) => rsx! { p { class: "px-6 pb-6 text-sm text-ctp-subtext0", {tr("Loading dividend rates…")} } },
+                (Some(rows), _) if rows.is_empty() => rsx! { p { class: "px-6 pb-6 text-sm text-ctp-subtext0", {tr("None of your holdings pay a dividend.")} } },
                 (Some(rows), _) => rsx! {
                     div { class: "overflow-x-auto",
                         table { class: "w-full min-w-[36rem] text-sm",
                             thead {
-                                tr { class: "text-left text-xs text-ctp-overlay1",
+                                tr { class: "text-left text-xs text-ctp-subtext0",
                                     th { class: "px-6 py-2 font-normal", {tr("Stock")} }
                                     th { class: "px-3 py-2 text-right font-normal", {tr("Shares")} }
                                     th { class: "px-3 py-2 text-right font-normal", {tr("A year")} }
@@ -121,12 +123,12 @@ pub fn IncomeTab(positions: Vec<Position>, transactions: Vec<Transaction>, total
                                                 class: "cursor-pointer border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30",
                                                 onclick: move |_| if let Some(t) = &t { open_stock(t) },
                                                 td { class: "px-6 py-2.5 font-semibold text-ctp-text", "{r.ticker}" }
-                                                td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-subtext1", "{r.shares}" }
+                                                td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-subtext1", {crate::format::fmt_shares(Decimal::try_from(r.shares).unwrap_or_default())} }
                                                 td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-green", {money(r.annual_income)} }
                                                 td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-subtext1", "{share:.1}%" }
                                                 td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-subtext1", {pct(r.yield_on_cost)} }
                                                 td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-subtext1", {pct(r.current_yield)} }
-                                                td { class: "px-6 py-2.5 text-right tabular-nums text-ctp-overlay1", {r.next_payment.clone().unwrap_or("—".into())} }
+                                                td { class: "px-6 py-2.5 text-right tabular-nums text-ctp-subtext0", {r.next_payment.clone().unwrap_or("—".into())} }
                                             }
                                         }
                                     }
@@ -206,7 +208,7 @@ pub fn ReturnDrivers(
                 }
             },
             if rows.is_empty() {
-                p { class: "text-sm text-ctp-overlay1", {tr("Nothing yet.")} }
+                p { class: "text-sm text-ctp-subtext0", {tr("Nothing yet.")} }
             }
             div { class: "grid gap-1.5",
                 for (ticker, amount, detail) in rows {

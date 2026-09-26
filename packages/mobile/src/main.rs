@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
 };
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -60,15 +60,45 @@ fn Shell() -> Element {
     rsx! {
         Sidebar {
             links: rsx! {
-                Link { to: Route::Home {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, DashboardIcon {} {ui::i18n::tr("Dashboard")} }
-                Link { to: Route::Portfolio {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, PortfolioIcon {} {ui::i18n::tr("Portfolio")} }
-                Link { to: Route::Market {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, MarketIcon {} {ui::i18n::tr("Markets")} }
-                Link { to: Route::Screener {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, ScreenerIcon {} {ui::i18n::tr("Screener")} }
-                Link { to: Route::Calendar {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, CalendarIcon {} {ui::i18n::tr("Calendar")} }
-                Link { to: Route::Economy {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, EconomyIcon {} {ui::i18n::tr("Economy")} }
-                Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, BacktestIcon {} {ui::i18n::tr("Backtest")} }
-                Link { to: Route::Watchlist {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, WatchlistIcon {} {ui::i18n::tr("Watchlist")} }
-                Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE, SettingsIcon {} {ui::i18n::tr("Settings")} }
+                NavSection { label: ui::i18n::tr("Your money") }
+                Link { to: Route::Home {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    DashboardIcon {}
+                    {ui::i18n::tr("Dashboard")}
+                }
+                Link { to: Route::Portfolio {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    PortfolioIcon {}
+                    {ui::i18n::tr("Portfolio")}
+                }
+                Link { to: Route::Watchlist {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    WatchlistIcon {}
+                    {ui::i18n::tr("Watchlist")}
+                }
+                NavSection { label: ui::i18n::tr("Research") }
+                Link { to: Route::Market {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    MarketIcon {}
+                    {ui::i18n::tr("Markets")}
+                }
+                Link { to: Route::Screener {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    ScreenerIcon {}
+                    {ui::i18n::tr("Screener")}
+                }
+                Link { to: Route::Calendar {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    CalendarIcon {}
+                    {ui::i18n::tr("Calendar")}
+                }
+                Link { to: Route::Economy {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    EconomyIcon {}
+                    {ui::i18n::tr("Economy")}
+                }
+                NavSection { label: ui::i18n::tr("Tools") }
+                Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    BacktestIcon {}
+                    {ui::i18n::tr("Backtest")}
+                }
+                Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    SettingsIcon {}
+                    {ui::i18n::tr("Settings")}
+                }
             },
             Outlet::<Route> {}
         }

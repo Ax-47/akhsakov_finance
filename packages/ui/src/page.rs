@@ -13,13 +13,22 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 /// Mocha background with soft colour glows and a centred content column.
 #[component]
 pub fn Page(children: Element) -> Element {
+    // A newly opened page starts at the top.
+    use_hook(|| {
+        document::eval("window.scrollTo(0, 0);");
+    });
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         div { class: "{crate::theme::theme_class()} relative min-h-screen overflow-hidden bg-ctp-base text-ctp-text",
-            div { class: "pointer-events-none absolute inset-x-0 top-0 h-[28rem] overflow-hidden", aria_hidden: "true",
-                div { class: "absolute -top-32 -left-24 h-80 w-80 rounded-full bg-ctp-mauve/20 blur-3xl" }
-                div { class: "absolute -top-20 left-1/3 h-72 w-72 rounded-full bg-ctp-pink/15 blur-3xl" }
-                div { class: "absolute -top-28 right-0 h-80 w-80 rounded-full bg-ctp-sky/15 blur-3xl" }
+            // Soft colour glows as plain gradients: blur filters are costly
+            // to repaint (notably in the desktop webview).
+            div {
+                class: "pointer-events-none absolute inset-x-0 top-0 h-[28rem]",
+                aria_hidden: "true",
+                style: "background:\
+                    radial-gradient(22rem 16rem at 8% 0%, color-mix(in oklab, var(--catppuccin-color-mauve) 18%, transparent), transparent 70%),\
+                    radial-gradient(20rem 14rem at 45% 0%, color-mix(in oklab, var(--catppuccin-color-pink) 13%, transparent), transparent 70%),\
+                    radial-gradient(22rem 16rem at 95% 0%, color-mix(in oklab, var(--catppuccin-color-sky) 13%, transparent), transparent 70%);",
             }
             main { class: "relative mx-auto max-w-6xl px-4 sm:px-8 py-10 sm:py-14", {children} }
         }
@@ -44,10 +53,10 @@ pub fn PageHero(
     rsx! {
         header { class: "motion-safe:animate-rise",
             div { class: "flex items-center justify-between gap-4 mb-4",
-                div { class: "flex items-center gap-2 text-xs text-ctp-overlay1",
+                div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                     if loaded {
                         span { class: "relative flex h-2 w-2",
-                            span { class: "absolute inline-flex h-full w-full rounded-full bg-ctp-green opacity-60 motion-safe:animate-ping" }
+                            span { class: "absolute inline-flex h-full w-full rounded-full bg-ctp-green opacity-60 motion-safe:animate-[ping_1s_cubic-bezier(0,0,0.2,1)_3]" }
                             span { class: "relative inline-flex h-2 w-2 rounded-full bg-ctp-green" }
                         }
                         {tr("Live prices")}
@@ -92,7 +101,7 @@ pub fn HeroStat(
 ) -> Element {
     rsx! {
         span { class: "flex items-baseline gap-2",
-            span { class: "text-ctp-overlay1", "{label}" }
+            span { class: "text-ctp-subtext0", "{label}" }
             span { class: "font-medium tabular-nums {color}", "{value}" }
         }
     }
@@ -100,11 +109,22 @@ pub fn HeroStat(
 
 /// Pill-shaped secondary button for page headers.
 #[component]
-pub fn GhostButton(label: String, #[props(default)] onclick: EventHandler<MouseEvent>) -> Element {
+///
+/// `primary` marks the page's main action (filled) so it stands out from
+/// the secondary ones.
+pub fn GhostButton(
+    label: String,
+    #[props(default)] onclick: EventHandler<MouseEvent>,
+    #[props(default)] primary: bool,
+) -> Element {
+    let style = if primary {
+        "border-ctp-mauve bg-ctp-mauve text-ctp-crust font-semibold hover:brightness-110"
+    } else {
+        "border-ctp-surface1 text-ctp-subtext1 font-medium hover:border-ctp-mauve hover:text-ctp-text"
+    };
     rsx! {
         button {
-            class: "rounded-full border border-ctp-surface1 px-3.5 py-1.5 text-xs font-medium text-ctp-subtext1 \
-                    cursor-pointer transition-colors hover:border-ctp-mauve hover:text-ctp-text",
+            class: "min-h-9 rounded-full border px-4 py-1.5 text-sm cursor-pointer transition-colors {style}",
             onclick: move |e| onclick.call(e),
             "{label}"
         }

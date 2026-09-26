@@ -2,28 +2,41 @@ window.GrowthChart = window.GrowthChart || {};
 // Newest config per chart id: an older draw that finishes late is skipped.
 window.GrowthChart.latest = window.GrowthChart.latest || {};
 
-// ECharts ships with the app (assets/js/echarts.min.js, loaded by the App
-// root) so charts work offline. Wait for it briefly; fall back to the CDN.
+// ECharts ships with the app (assets/js/echarts.min.js; the App root sets
+// window.ECHARTS_URL). It's loaded the first time a chart draws, falling
+// back to the CDN if the bundled copy can't be loaded.
 window.GrowthChart.ready =
   window.GrowthChart.ready ||
   function () {
     if (typeof echarts !== "undefined") return Promise.resolve();
     if (!window.GrowthChart.loading) {
-      window.GrowthChart.loading = new Promise(function (resolve, reject) {
-        var waited = 0;
-        (function poll() {
-          if (typeof echarts !== "undefined") return resolve();
-          if ((waited += 100) < 5000) return setTimeout(poll, 100);
+      var load = function (src) {
+        return new Promise(function (resolve, reject) {
           var s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js";
+          s.src = src;
           s.onload = resolve;
-          s.onerror = function () {
-            window.GrowthChart.loading = null;
-            reject(new Error("[GrowthChart] ECharts unavailable"));
-          };
+          s.onerror = reject;
           document.head.appendChild(s);
+        });
+      };
+      window.GrowthChart.loading = new Promise(function (resolve) {
+        // The URL is set as the app starts; give it a moment if needed.
+        var waited = 0;
+        (function wait() {
+          if (window.ECHARTS_URL || (waited += 50) > 2000) return resolve();
+          setTimeout(wait, 50);
         })();
-      });
+      })
+        .then(function () {
+          return window.ECHARTS_URL ? load(window.ECHARTS_URL) : Promise.reject();
+        })
+        .catch(function () {
+          return load("https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js");
+        })
+        .catch(function (e) {
+          window.GrowthChart.loading = null;
+          throw new Error("[GrowthChart] ECharts unavailable");
+        });
     }
     return window.GrowthChart.loading;
   };
@@ -68,7 +81,7 @@ window.GrowthChart.init = function (id, cfg) {
 
   function buildTooltip(params) {
     var header =
-      '<span style="font-size:11px;color:' +
+      '<span style="font-size:12px;color:' +
       colors.subtext0 +
       '">' +
       params[0].name +
@@ -89,7 +102,7 @@ window.GrowthChart.init = function (id, cfg) {
         ';margin-right:6px"></span>' +
         '<span style="color:' +
         colors.subtext0 +
-        ';font-size:11px">' +
+        ';font-size:12px">' +
         p.seriesName +
         ": </span>" +
         '<span style="color:' +
@@ -189,7 +202,7 @@ window.GrowthChart.init = function (id, cfg) {
           return s.name;
         }),
         bottom: 0,
-        textStyle: { color: colors.subtext0, fontSize: 11 },
+        textStyle: { color: colors.subtext0, fontSize: 12 },
         icon: "circle",
         itemWidth: 8,
         itemHeight: 8,
@@ -221,7 +234,7 @@ window.GrowthChart.init = function (id, cfg) {
         axisTick: { show: false },
         axisLabel: {
           color: colors.overlay0,
-          fontSize: 11,
+          fontSize: 12,
           interval: "auto",
           hideOverlap: true,
         },
@@ -253,6 +266,9 @@ window.GrowthChart.init = function (id, cfg) {
         if (el.__chart) el.__chart.resize();
       };
       window.addEventListener("resize", el.__onresize);
+      // Also when the element itself changes size, e.g. an off-screen card
+      // being laid out for the first time as it scrolls into view.
+      if (window.ResizeObserver) new ResizeObserver(el.__onresize).observe(el);
     }
   }
 

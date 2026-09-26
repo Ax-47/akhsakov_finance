@@ -95,8 +95,8 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
     });
     let chart_id = use_hook(|| format!("stock-chart-{}", CHART_CTR.fetch_add(1, Ordering::Relaxed)));
 
-    let t = ticker.clone();
-    let history = use_resource(move || {
+    let (t, key) = (ticker.clone(), ticker.clone());
+    let history = crate::cache::use_cached(move || format!("technical/{key}/{:?}", span()), move || {
         let t = t.clone();
         async move {
             let (range, interval) = span().fetch();
@@ -110,7 +110,14 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
             return;
         };
         let cfg = chart_config(candles, span(), candles_style(), overlays(), lower());
-        let script = format!("window.StockChart.init({}, {});", json!(id), cfg);
+        // The chart scripts may still be loading the first time.
+        let script = format!(
+            "for (let i = 0; i < 200 && !(window.StockChart && window.StockChart.init && window.GrowthChart); i++)
+                 await new Promise(r => setTimeout(r, 25));
+             window.StockChart.init({}, {});",
+            json!(id),
+            cfg
+        );
         spawn(async move {
             let _ = document::eval(&script).await;
         });
@@ -130,7 +137,7 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
         document::Script { src: asset!("/assets/js/stock_chart.js") }
         Card {
             title: tr("Chart"),
-            subtitle: format!("Scroll or drag to zoom · averages in {unit}"),
+            subtitle: format!("Drag to pan, Ctrl + scroll to zoom · averages in {unit}"),
             actions: rsx! {
                 div { class: "flex flex-wrap items-center gap-2",
                     Segmented {
@@ -145,23 +152,23 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
                 }
             },
             div { class: "mb-3 flex flex-wrap items-center gap-2 text-xs",
-                span { class: "text-ctp-overlay1", {tr("Overlays")} }
+                span { class: "text-ctp-subtext0", {tr("Overlays")} }
                 Chip { label: tr("SMA 20"), color: "yellow", on: o.sma20, onclick: move |_| overlays.with_mut(|o| o.sma20 = !o.sma20) }
                 Chip { label: tr("SMA 50"), color: "sky", on: o.sma50, onclick: move |_| overlays.with_mut(|o| o.sma50 = !o.sma50) }
                 Chip { label: tr("SMA 200"), color: "peach", on: o.sma200, onclick: move |_| overlays.with_mut(|o| o.sma200 = !o.sma200) }
                 Chip { label: tr("EMA 20"), color: "pink", on: o.ema20, onclick: move |_| overlays.with_mut(|o| o.ema20 = !o.ema20) }
                 Chip { label: tr("Bollinger"), color: "lavender", on: o.bollinger, onclick: move |_| overlays.with_mut(|o| o.bollinger = !o.bollinger) }
-                span { class: "ml-3 text-ctp-overlay1", {tr("Lower pane")} }
+                span { class: "ml-3 text-ctp-subtext0", {tr("Lower pane")} }
                 Chip { label: tr("RSI"), color: "teal", on: lower() == Lower::Rsi, onclick: move |_| lower.set(if lower() == Lower::Rsi { Lower::None } else { Lower::Rsi }) }
                 Chip { label: tr("MACD"), color: "blue", on: lower() == Lower::Macd, onclick: move |_| lower.set(if lower() == Lower::Macd { Lower::None } else { Lower::Macd }) }
             }
             div { class: "relative",
                 div { id: "{chart_id}", style: "width:100%;height:460px;" }
                 if let Some(status) = status {
-                    div { class: "absolute inset-0 flex items-center justify-center text-sm text-ctp-overlay1", "{status}" }
+                    div { class: "absolute inset-0 flex items-center justify-center text-sm text-ctp-subtext0", "{status}" }
                 }
             }
-            p { class: "mt-2 text-[0.7rem] text-ctp-overlay0",
+            p { class: "mt-2 text-xs text-ctp-overlay1",
                 {tr("RSI above 70 is often read as overbought and below 30 as oversold; a MACD line crossing above its signal as momentum turning up. Signals, not predictions.")}
             }
         }
@@ -177,7 +184,7 @@ fn Chip(label: String, color: &'static str, on: bool, onclick: EventHandler<Mous
             class: if on {
                 "inline-flex items-center gap-1.5 rounded-full border border-ctp-surface1 bg-ctp-surface0 px-2.5 py-1 text-ctp-text cursor-pointer"
             } else {
-                "inline-flex items-center gap-1.5 rounded-full border border-ctp-surface0 px-2.5 py-1 text-ctp-overlay1 cursor-pointer hover:text-ctp-text"
+                "inline-flex items-center gap-1.5 rounded-full border border-ctp-surface0 px-2.5 py-1 text-ctp-subtext0 cursor-pointer hover:text-ctp-text"
             },
             onclick: move |e| onclick.call(e),
             span { class: "h-2 w-2 rounded-full", style: "background:var(--catppuccin-color-{color});opacity:{opacity};" }

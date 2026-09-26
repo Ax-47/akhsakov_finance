@@ -18,14 +18,14 @@ use types::ticker_symbol::TickerSymbol;
 #[component]
 fn Loading(title: String) -> Element {
     rsx! {
-        Card { title, p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Loading…")} } }
+        Card { title, p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Loading…")} } }
     }
 }
 
 #[component]
 fn Empty(title: String, text: String) -> Element {
     rsx! {
-        Card { title, p { class: "py-10 text-center text-sm text-ctp-overlay1", "{text}" } }
+        Card { title, p { class: "py-10 text-center text-sm text-ctp-subtext0", "{text}" } }
     }
 }
 
@@ -36,7 +36,8 @@ const UNAVAILABLE: &str =
 
 #[component]
 pub fn NewsTab(ticker: TickerSymbol) -> Element {
-    let news = use_resource(move || {
+    let key_ticker = ticker.clone();
+    let news = crate::cache::use_cached(move || format!("news/{key_ticker}"), move || {
         let t = ticker.clone();
         async move { api::get_news(t).await.ok() }
     });
@@ -57,7 +58,7 @@ pub fn NewsTab(ticker: TickerSymbol) -> Element {
                         target: "_blank",
                         rel: "noopener noreferrer",
                         div { class: "text-sm font-medium text-ctp-text group-hover:text-ctp-mauve", "{n.title}" }
-                        div { class: "mt-1 text-xs text-ctp-overlay1",
+                        div { class: "mt-1 text-xs text-ctp-subtext0",
                             {[n.publisher.clone().unwrap_or_default(), n.published_at.clone()].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ")}
                         }
                     }
@@ -71,7 +72,8 @@ pub fn NewsTab(ticker: TickerSymbol) -> Element {
 
 #[component]
 pub fn RatingChanges(ticker: TickerSymbol) -> Element {
-    let rows = use_resource(move || {
+    let key_ticker = ticker.clone();
+    let rows = crate::cache::use_cached(move || format!("ratings/{key_ticker}"), move || {
         let t = ticker.clone();
         async move { api::get_rating_changes(t).await.ok() }
     });
@@ -98,7 +100,7 @@ pub fn RatingChanges(ticker: TickerSymbol) -> Element {
                                     };
                                     rsx! {
                                         tr { key: "{i}", class: "border-t border-ctp-surface0/60 first:border-t-0",
-                                            td { class: "pl-6 pr-4 py-2.5 text-xs text-ctp-overlay1", "{r.date}" }
+                                            td { class: "pl-6 pr-4 py-2.5 text-xs text-ctp-subtext0", "{r.date}" }
                                             td { class: "px-4 py-2.5 text-ctp-text", {r.firm.clone().unwrap_or_default()} }
                                             td { class: "px-4 py-2.5 text-ctp-subtext0",
                                                 {match (&r.from, &r.to) {
@@ -128,7 +130,8 @@ pub fn RatingChanges(ticker: TickerSymbol) -> Element {
 
 #[component]
 pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
-    let actions = use_resource(move || {
+    let key_ticker = ticker.clone();
+    let actions = crate::cache::use_cached(move || format!("actions/{key_ticker}"), move || {
         let t = ticker.clone();
         async move { api::get_corporate_actions(t).await.ok() }
     });
@@ -173,7 +176,7 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
     rsx! {
         Card { title, subtitle: tr("Dividends per share, by year").to_string(),
             if years.is_empty() {
-                p { class: "text-sm text-ctp-overlay1", {tr("This stock hasn't paid dividends.")} }
+                p { class: "text-sm text-ctp-subtext0", {tr("This stock hasn't paid dividends.")} }
             } else {
                 BarChart {
                     labels: years.iter().map(|y| y.0.clone()).collect::<Vec<_>>(),
@@ -183,7 +186,7 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
             }
             if !splits.is_empty() {
                 div { class: "mt-5",
-                    div { class: "mb-2 text-xs text-ctp-overlay1", {tr("Splits")} }
+                    div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Splits")} }
                     div { class: "flex flex-wrap gap-2",
                         for (date, n, d) in splits {
                             span { class: "rounded-full border border-ctp-surface0 px-3 py-1 text-xs text-ctp-subtext1",
@@ -202,7 +205,8 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
 
 #[component]
 pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
-    let holders = use_resource(move || {
+    let key_ticker = ticker.clone();
+    let holders = crate::cache::use_cached(move || format!("holders/{key_ticker}"), move || {
         let t = ticker.clone();
         async move { api::get_holders(t).await.ok() }
     });
@@ -221,7 +225,7 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                 div { class: "grid grid-cols-2 lg:grid-cols-4 gap-3",
                     for (category, value) in h.breakdown.clone() {
                         div { key: "{category}", class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-3",
-                            div { class: "text-xs text-ctp-overlay1", "{holder_label(&category)}" }
+                            div { class: "text-xs text-ctp-subtext0", "{holder_label(&category)}" }
                             div { class: "mt-1 text-xl font-semibold tabular-nums text-ctp-text",
                                 {if value <= 1.0 { pct(value) } else { shares(value) }}
                             }
@@ -231,12 +235,12 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
             }
             Card { title: tr("Top institutions"), flush: true,
                 if h.institutions.is_empty() {
-                    p { class: "px-6 pb-6 text-sm text-ctp-overlay1", {tr("No institutional holders reported.")} }
+                    p { class: "px-6 pb-6 text-sm text-ctp-subtext0", {tr("No institutional holders reported.")} }
                 } else {
                     div { class: "overflow-x-auto",
                         table { class: "w-full text-sm whitespace-nowrap",
                             thead {
-                                tr { class: "text-xs text-ctp-overlay1",
+                                tr { class: "text-xs text-ctp-subtext0",
                                     th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Holder")} }
                                     th { class: "px-4 py-2.5 text-right font-medium", {tr("Shares")} }
                                     th { class: "px-4 py-2.5 text-right font-medium", "% held" }
@@ -251,7 +255,7 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                                         td { class: "px-4 py-2.5 text-right tabular-nums text-ctp-subtext0", {or_dash(i.shares, shares)} }
                                         td { class: "px-4 py-2.5 text-right tabular-nums text-ctp-subtext0", {or_dash(i.pct_held, pct)} }
                                         td { class: "px-4 py-2.5 text-right tabular-nums text-ctp-subtext0", {or_dash(i.value, fmt_compact)} }
-                                        td { class: "pl-4 pr-6 py-2.5 text-right text-xs text-ctp-overlay1", "{i.date}" }
+                                        td { class: "pl-4 pr-6 py-2.5 text-right text-xs text-ctp-subtext0", "{i.date}" }
                                     }
                                 }
                             }
@@ -261,7 +265,7 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
             }
             Card { title: tr("Insider trades"), subtitle: tr("Executives and directors buying or selling").to_string(), flush: true,
                 if h.insider_trades.is_empty() {
-                    p { class: "px-6 pb-6 text-sm text-ctp-overlay1", {tr("No recent insider trades.")} }
+                    p { class: "px-6 pb-6 text-sm text-ctp-subtext0", {tr("No recent insider trades.")} }
                 } else {
                     div { class: "overflow-x-auto",
                         table { class: "w-full text-sm whitespace-nowrap",
@@ -275,10 +279,10 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                                         };
                                         rsx! {
                                             tr { key: "{n}", class: "border-t border-ctp-surface0/60 first:border-t-0",
-                                                td { class: "pl-6 pr-4 py-2.5 text-xs text-ctp-overlay1", "{t.date}" }
+                                                td { class: "pl-6 pr-4 py-2.5 text-xs text-ctp-subtext0", "{t.date}" }
                                                 td { class: "px-4 py-2.5",
                                                     div { class: "text-ctp-text", "{t.name}" }
-                                                    div { class: "text-xs text-ctp-overlay1", "{t.position}" }
+                                                    div { class: "text-xs text-ctp-subtext0", "{t.position}" }
                                                 }
                                                 td { class: "px-4 py-2.5", span { class: "rounded-full px-2.5 py-0.5 text-xs font-semibold {tone}", "{t.kind}" } }
                                                 td { class: "px-4 py-2.5 text-right tabular-nums text-ctp-subtext0", {or_dash(t.shares, shares)} }
@@ -313,7 +317,8 @@ fn holder_label(key: &str) -> String {
 pub fn OptionsTab(ticker: TickerSymbol) -> Element {
     let mut expiration = use_signal(|| None::<i64>);
     let mut side = use_signal(|| true); // calls
-    let chain = use_resource(move || {
+    let key_ticker = ticker.clone();
+    let chain = crate::cache::use_cached(move || format!("options/{key_ticker}/{:?}", expiration()), move || {
         let t = ticker.clone();
         let e = expiration();
         async move { api::get_option_chain(t, e).await.ok() }
@@ -351,7 +356,7 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
                         class: if view.expiration == Some(e) {
                             "shrink-0 rounded-full bg-ctp-mauve/15 px-3 py-1 text-xs font-medium text-ctp-mauve cursor-pointer"
                         } else {
-                            "shrink-0 rounded-full px-3 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0/60 hover:text-ctp-text"
+                            "shrink-0 rounded-full px-3 py-1 text-xs text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0/60 hover:text-ctp-text"
                         },
                         onclick: move |_| expiration.set(Some(e)),
                         {day_label(e.div_euclid(86_400))}
@@ -359,7 +364,7 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
                 }
             }
             OptionTable { rows }
-            p { class: "px-6 py-3 text-[0.7rem] text-ctp-overlay0", {tr("Highlighted rows are in the money.")} }
+            p { class: "px-6 py-3 text-xs text-ctp-overlay1", {tr("Highlighted rows are in the money.")} }
         }
     }
 }
@@ -371,7 +376,7 @@ fn OptionTable(rows: Vec<OptionQuote>) -> Element {
         div { class: "overflow-x-auto",
             table { class: "w-full text-sm whitespace-nowrap",
                 thead {
-                    tr { class: "text-xs text-ctp-overlay1",
+                    tr { class: "text-xs text-ctp-subtext0",
                         for h in ["Strike", "Last", "Bid", "Ask", "Volume", "Open interest", "Implied vol."] {
                             th { class: "px-4 py-2.5 text-right font-medium first:pl-6 last:pr-6", "{h}" }
                         }

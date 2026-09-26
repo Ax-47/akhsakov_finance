@@ -150,8 +150,8 @@ pub(crate) fn StockReport(
 ) -> Element {
     let app_settings = use_context::<crate::app::AppSettings>();
     let (benchmark, risk_free) = (app_settings.benchmark(), app_settings.risk_free());
-    let symbol = ticker.clone();
-    let data = use_resource(move || {
+    let (symbol, key) = (ticker.clone(), format!("stock-report/{ticker}/{benchmark}"));
+    let data = crate::cache::use_cached(move || key.clone(), move || {
         let ticker = symbol.clone();
         let benchmark = benchmark.clone();
         async move {
@@ -178,10 +178,10 @@ pub(crate) fn StockReport(
     let result = data.read().clone();
     match result {
         None => rsx! {
-            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-overlay1", {tr("Loading a year of prices…")} } }
+            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-subtext0", {tr("Loading a year of prices…")} } }
         },
         Some(None) => rsx! {
-            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-overlay1", "No price history for {ticker}." } }
+            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-subtext0", "No price history for {ticker}." } }
         },
         Some(Some((stats, cmp))) => {
             let series = vec![
@@ -290,7 +290,7 @@ fn ReportHeader(stats: StockStats) -> Element {
             div { class: "mt-5 grid grid-cols-5 gap-2",
                 for (label, change) in s.returns.clone() {
                     div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-base/50 px-3 py-2 text-center",
-                        div { class: "text-xs text-ctp-overlay1", "{label}" }
+                        div { class: "text-xs text-ctp-subtext0", "{label}" }
                         div {
                             class: if change >= 0.0 { "mt-0.5 text-sm font-semibold tabular-nums text-ctp-green" } else { "mt-0.5 text-sm font-semibold tabular-nums text-ctp-red" },
                             "{change:+.1}%"
@@ -371,7 +371,7 @@ fn RangeAndTrend(stats: StockStats) -> Element {
     };
     rsx! {
         Card { title: tr("Range & trend"),
-            div { class: "flex justify-between text-xs text-ctp-overlay1",
+            div { class: "flex justify-between text-xs text-ctp-subtext0",
                 span { "52-week low" }
                 span { "52-week high" }
             }
@@ -389,20 +389,20 @@ fn RangeAndTrend(stats: StockStats) -> Element {
             div { class: "mt-5 grid gap-2 text-sm",
                 for (label, value) in [("50-day average", vs(s.sma50)), ("200-day average", vs(s.sma200))] {
                     div { class: "flex items-center justify-between",
-                        span { class: "text-ctp-overlay1", "{label}" }
+                        span { class: "text-ctp-subtext0", "{label}" }
                         if let Some((avg, diff, color)) = value {
                             span { class: "tabular-nums",
                                 span { class: "text-ctp-subtext1", "{avg} " }
                                 span { class: "{color}", "({diff})" }
                             }
                         } else {
-                            span { class: "text-ctp-overlay0", "not enough history" }
+                            span { class: "text-ctp-overlay1", "not enough history" }
                         }
                     }
                 }
                 if let Some(rsi) = s.rsi14 {
                     div { class: "flex items-center justify-between",
-                        span { class: "text-ctp-overlay1", {tr("RSI (14)")} }
+                        span { class: "text-ctp-subtext0", {tr("RSI (14)")} }
                         span { class: "tabular-nums text-ctp-subtext1", "{rsi:.0}" }
                     }
                 }
@@ -418,7 +418,7 @@ fn PositionCard(position: Position, total_value: Decimal) -> Element {
     rsx! {
         Card { title: tr("Your position"),
             div { class: "grid gap-2 text-sm",
-                Row { label: tr("Shares"), value: p.shares.normalize().to_string() }
+                Row { label: tr("Shares"), value: crate::format::fmt_shares(p.shares) }
                 Row { label: tr("Average cost"), value: fmt_usd(p.avg_cost, 2) }
                 Row { label: tr("Market value"), value: fmt_usd(p.market_value(), 2) }
                 Row { label: tr("Weight"), value: format!("{weight:.1}%") }
@@ -440,7 +440,7 @@ fn Row(
 ) -> Element {
     rsx! {
         div { class: "flex items-center justify-between",
-            span { class: "text-ctp-overlay1", "{label}" }
+            span { class: "text-ctp-subtext0", "{label}" }
             span { class: "font-medium tabular-nums {color}", "{value}" }
         }
     }

@@ -72,7 +72,7 @@ pub fn PortfoliosCard(
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
                     thead {
-                        tr { class: "text-xs text-ctp-overlay1",
+                        tr { class: "text-xs text-ctp-subtext0",
                             th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Portfolio")} }
                             th { class: "px-4 py-2.5 text-right font-medium", {tr("Value")} }
                             th { class: "px-4 py-2.5 text-right font-medium", {tr("Today")} }
@@ -106,9 +106,9 @@ fn RowActions(id: String, name: String) -> Element {
     };
     let rename_name = name.clone();
     rsx! {
-        span { class: "ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100",
+        span { class: "ml-auto flex gap-1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
             button {
-                class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
+                class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
                 title: tr("Rename"),
                 onclick: move |e| {
                     e.stop_propagation();
@@ -117,7 +117,7 @@ fn RowActions(id: String, name: String) -> Element {
                 "✎"
             }
             button {
-                class: "rounded-full px-2 py-1 text-xs text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
+                class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
                 title: tr("Delete"),
                 onclick: move |e| {
                     e.stop_propagation();
@@ -174,9 +174,9 @@ fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element 
                     div {
                         div { class: "flex items-center gap-1.5 font-semibold text-ctp-text",
                             "{row.name}"
-                            span { class: "text-ctp-overlay0 opacity-0 transition-opacity group-hover:opacity-100", "→" }
+                            span { class: "text-ctp-overlay1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100", "→" }
                         }
-                        div { class: "text-xs text-ctp-overlay1", "{row.count} holdings" }
+                        div { class: "text-xs text-ctp-subtext0", "{row.count} holdings" }
                     }
                     RowActions { id: row.id.clone(), name: row.name.clone() }
                 }
@@ -195,11 +195,11 @@ fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element 
                 }
             } else {
                 for _ in 0..3 {
-                    td { class: "{cell} text-ctp-overlay0", "—" }
+                    td { class: "{cell} text-ctp-overlay1", "—" }
                 }
             }
             td { class: "{cell} {signed_color(row.realized)}",
-                if row.realized.abs() > dec!(0.01) { "{fmt_signed(row.realized, 2)}" } else { span { class: "text-ctp-overlay0", "—" } }
+                if row.realized.abs() > dec!(0.01) { "{fmt_signed(row.realized, 2)}" } else { span { class: "text-ctp-overlay1", "—" } }
             }
             td { class: "pl-4 pr-6 py-3.5 text-right",
                 span { class: "inline-flex items-center justify-end gap-2",

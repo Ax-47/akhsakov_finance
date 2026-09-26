@@ -93,6 +93,27 @@ pub fn fmt_compact(value: f64) -> String {
     format!("{sign}{symbol}{n:.2}{unit}")
 }
 
+/// A share count people can read: at most 4 decimals, no trailing zeros,
+/// thousands grouped — `1.405399` → `1.4054`, `1500` → `1,500`.
+pub fn fmt_shares(shares: Decimal) -> String {
+    let rounded = shares.round_dp(4).normalize();
+    let text = rounded.abs().to_string();
+    let (whole, frac) = text.split_once('.').unwrap_or((&text, ""));
+    let mut grouped = String::new();
+    for (i, c) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    let sign = if rounded.is_sign_negative() && !rounded.is_zero() { "-" } else { "" };
+    if frac.is_empty() {
+        format!("{sign}{grouped}")
+    } else {
+        format!("{sign}{grouped}.{frac}")
+    }
+}
+
 /// `—` for missing values, otherwise the formatted value.
 pub fn or_dash<T>(value: Option<T>, fmt: impl Fn(T) -> String) -> String {
     value.map_or_else(|| "—".to_string(), fmt)
@@ -123,6 +144,9 @@ mod tests {
         assert_eq!(fmt_compact(-12_400_000.0), "-$12.40M");
         assert_eq!(fmt_compact(950.0), "$950.00");
         assert_eq!(or_dash(None::<f64>, |v| v.to_string()), "—");
+        assert_eq!(fmt_shares(dec!(1.405399)), "1.4054");
+        assert_eq!(fmt_shares(dec!(1500)), "1,500");
+        assert_eq!(fmt_shares(dec!(0.5000)), "0.5");
     }
 
     #[test]

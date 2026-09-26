@@ -86,9 +86,9 @@ pub fn CAPMCard(
                         },
                     }
                 }
-                p { class: "mt-3 text-[0.7rem] text-ctp-overlay0", "{beta_note}. Actual return is since purchase." }
+                p { class: "mt-3 text-xs text-ctp-overlay1", "{beta_note}. Actual return is since purchase." }
             } else {
-                p { class: "py-10 text-center text-sm text-ctp-overlay1", {tr("Waiting for live prices…")} }
+                p { class: "py-10 text-center text-sm text-ctp-subtext0", {tr("Waiting for live prices…")} }
             }
         }
     }
@@ -219,8 +219,8 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
     rsx! {
         div { class: "mt-6",
             div { class: "flex flex-wrap items-center justify-between gap-2 mb-2 text-xs",
-                span { class: "text-ctp-overlay1", {tr("Return vs beta")} }
-                span { class: "flex gap-4 text-ctp-overlay0",
+                span { class: "text-ctp-subtext0", {tr("Return vs beta")} }
+                span { class: "flex gap-4 text-ctp-overlay1",
                     span { class: "flex items-center gap-1.5",
                         span { class: "h-2 w-2 rounded-full", style: "background:{GAIN_HEX};" }
                         "beat the line"
@@ -238,19 +238,19 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
 
                 for y in y_ticks {
                     line { x1: "{LEFT}", x2: "{W - RIGHT}", y1: "{py(y):.1}", y2: "{py(y):.1}", stroke: GRID_HEX, stroke_dasharray: "3 5" }
-                    text { x: "{LEFT - 8.0}", y: "{py(y) + 4.0:.1}", text_anchor: "end", font_size: "10", fill: LABEL_HEX, "{y:.0}%" }
+                    text { x: "{LEFT - 8.0}", y: "{py(y) + 4.0:.1}", text_anchor: "end", font_size: "11", fill: LABEL_HEX, "{y:.0}%" }
                 }
                 for b in x_ticks {
-                    text { x: "{px(b):.1}", y: "{H - 10.0}", text_anchor: "middle", font_size: "10", fill: LABEL_HEX, "β {b:.1}" }
+                    text { x: "{px(b):.1}", y: "{H - 10.0}", text_anchor: "middle", font_size: "11", fill: LABEL_HEX, "β {b:.1}" }
                 }
 
                 // Security Market Line.
                 line { x1: "{x0:.1}", y1: "{y0:.1}", x2: "{x1:.1}", y2: "{y1:.1}", stroke: LINE_HEX, stroke_width: "2", stroke_linecap: "round" }
-                text { x: "{x1 - 4.0:.1}", y: "{y1 - 8.0:.1}", text_anchor: "end", font_size: "10", fill: LINE_HEX, {tr("Security market line")} }
+                text { x: "{x1 - 4.0:.1}", y: "{y1 - 8.0:.1}", text_anchor: "end", font_size: "11", fill: LINE_HEX, {tr("Security market line")} }
 
                 // Market reference point.
                 circle { cx: "{mkt_x:.1}", cy: "{mkt_y:.1}", r: "4", fill: "var(--catppuccin-color-base)", stroke: LINE_HEX, stroke_width: "2" }
-                text { x: "{mkt_x:.1}", y: "{mkt_y + 16.0:.1}", text_anchor: "middle", font_size: "10", fill: LABEL_HEX, {tr("Market")} }
+                text { x: "{mkt_x:.1}", y: "{mkt_y + 16.0:.1}", text_anchor: "middle", font_size: "11", fill: LABEL_HEX, {tr("Market")} }
 
                 // Holdings, with a stem to the line showing alpha.
                 for (ticker, beta, x, y, y_line, weight) in dots {
@@ -294,7 +294,7 @@ fn PositionTable(
         div { class: "overflow-x-auto",
             table { class: "w-full text-sm whitespace-nowrap",
                 thead {
-                    tr { class: "text-xs text-ctp-overlay1",
+                    tr { class: "text-xs text-ctp-subtext0",
                         th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Asset")} }
                         th { class: "px-4 py-2.5 text-right font-medium", {tr("Weight")} }
                         th { class: "px-4 py-2.5 text-right font-medium", {tr("Beta")} }

@@ -124,7 +124,7 @@ pub fn BacktestPage() -> Element {
                 h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                     {tr("Backtest")}
                 }
-                p { class: "mt-2 text-sm text-ctp-overlay1",
+                p { class: "mt-2 text-sm text-ctp-subtext0",
                     {tr("How a mix of stocks or funds would have done, investing a lump sum and a monthly amount. Uses monthly prices; dividends aren't reinvested.")}
                 }
             }
@@ -156,9 +156,9 @@ pub fn BacktestPage() -> Element {
                                     value: "{a.weight}",
                                     oninput: move |e| assets.write()[i].weight = e.value(),
                                 }
-                                span { class: "text-sm text-ctp-overlay1", "%" }
+                                span { class: "text-sm text-ctp-subtext0", "%" }
                                 button {
-                                    class: "rounded-full px-2 py-1 text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
+                                    class: "rounded-full px-2 py-1 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
                                     title: tr("Remove"),
                                     onclick: move |_| { assets.write().remove(i); },
                                     "×"

@@ -20,7 +20,7 @@ pub fn StockTable(rows: Vec<StockRow>, #[props(default)] highlight: Option<Strin
         div { class: "overflow-x-auto",
             table { class: "w-full min-w-[46rem] text-sm",
                 thead {
-                    tr { class: "text-left text-xs text-ctp-overlay1",
+                    tr { class: "text-left text-xs text-ctp-subtext0",
                         th { class: "px-6 py-2 font-normal", {tr("Stock")} }
                         th { class: "px-3 py-2 text-right font-normal", {tr("Price")} }
                         th { class: "px-3 py-2 text-right font-normal", {tr("Today")} }
@@ -55,7 +55,7 @@ fn StockTableRow(row: StockRow, highlighted: bool) -> Element {
     let change_class = match row.change_pct {
         Some(c) if c >= 0.0 => "text-ctp-green",
         Some(_) => "text-ctp-red",
-        None => "text-ctp-overlay0",
+        None => "text-ctp-overlay1",
     };
     let ratio = |v: Option<f64>| v.filter(|v| *v > 0.0).map_or("—".into(), |v| format!("{v:.1}"));
     let range = match (row.low_52w, row.high_52w) {
@@ -77,7 +77,7 @@ fn StockTableRow(row: StockRow, highlighted: bool) -> Element {
             },
             td { class: "px-6 py-2.5",
                 div { class: "font-semibold text-ctp-text", "{row.ticker}" }
-                div { class: "max-w-[14rem] truncate text-xs text-ctp-overlay1", "{row.name}" }
+                div { class: "max-w-[14rem] truncate text-xs text-ctp-subtext0", "{row.name}" }
             }
             td { class: "px-3 py-2.5 text-right tabular-nums text-ctp-text",
                 {fmt_usd(Decimal::try_from(row.price).unwrap_or_default(), 2)}
@@ -103,7 +103,7 @@ fn StockTableRow(row: StockRow, highlighted: bool) -> Element {
             }
             td { class: "pr-4 text-right",
                 button {
-                    class: "rounded-full px-2 py-1 text-sm text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-yellow",
+                    class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-yellow",
                     title: tr("Add to watchlist"),
                     onclick: move |e| {
                         e.stop_propagation();

@@ -19,20 +19,28 @@ pub const NAV_LINK_ACTIVE: &str = "bg-ctp-surface0! text-ctp-text! [&_svg]:text-
 #[component]
 pub fn Sidebar(links: Element, children: Element) -> Element {
     rsx! {
-        div { class: "{crate::theme::theme_class()} flex h-screen flex-col overflow-hidden bg-ctp-base text-ctp-text md:flex-row print:block print:h-auto print:overflow-visible",
-            // Narrow screens: brand + links in a top bar.
-            header { class: "flex items-center gap-4 border-b border-ctp-surface0/70 bg-ctp-mantle px-4 py-3 md:hidden print:hidden",
-                Brand {}
-                div { class: "min-w-0 flex-1", crate::search::SearchBox {} }
-                CurrencyPicker { compact: true }
-                nav { class: "flex gap-1", {links.clone()} }
+        // The page itself scrolls (with a sticky sidebar): browsers scroll the
+        // document much more smoothly than a scrolling box inside it.
+        div { class: "{crate::theme::theme_class()} flex min-h-screen flex-col bg-ctp-base text-ctp-text md:flex-row print:block",
+            // Narrow screens: brand, search and currency, then the links on
+            // their own row that scrolls sideways.
+            header { class: "sticky top-0 z-40 border-b border-ctp-surface0/70 bg-ctp-mantle px-4 pt-3 md:hidden print:hidden",
+                div { class: "flex items-center gap-3",
+                    Brand {}
+                    div { class: "min-w-0 flex-1", crate::search::SearchBox {} }
+                    CurrencyPicker { compact: true }
+                }
+                nav { class: "-mx-4 mt-2 flex gap-1 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&>a]:shrink-0 [&>a]:py-1.5 [&>a]:text-sm [&>[data-nav-section]]:hidden",
+                    {links.clone()}
+                }
             }
-            aside { class: "hidden w-60 shrink-0 flex-col border-r border-ctp-surface0/70 bg-ctp-mantle px-4 py-6 md:flex print:hidden",
+            // Only the link list scrolls (on short windows), so the search results
+            // and the currency menu can overflow the sidebar.
+            aside { class: "hidden w-60 shrink-0 flex-col border-r border-ctp-surface0/70 bg-ctp-mantle px-4 py-6 md:sticky md:top-0 md:z-30 md:flex md:h-screen print:hidden",
                 div { class: "px-2", Brand {} }
                 div { class: "mt-6", crate::search::SearchBox {} }
-                div { class: "mt-6 mb-2 px-3 text-xs text-ctp-overlay0", {tr("Menu")} }
-                nav { class: "flex flex-col gap-1", {links} }
-                div { class: "mt-auto mb-3", CurrencyPicker { compact: false } }
+                nav { class: "-mx-1 mt-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1", {links} }
+                div { class: "mt-3 mb-3", CurrencyPicker { compact: false } }
                 div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-base/50 p-3",
                     if crate::hooks::use_price_stream::OFFLINE() {
                         div { class: "flex items-center gap-2 text-xs text-ctp-peach",
@@ -45,10 +53,10 @@ pub fn Sidebar(links: Element, children: Element) -> Element {
                             {tr("Prices from Yahoo Finance")}
                         }
                     }
-                    div { class: "mt-1 text-[0.7rem] text-ctp-overlay0", {tr("Returns include recorded fees; not tax.")} }
+                    div { class: "mt-1 text-xs text-ctp-overlay1", {tr("Returns include recorded fees; not tax.")} }
                 }
             }
-            div { class: "flex-1 overflow-auto print:overflow-visible", {children} }
+            div { class: "min-w-0 flex-1", {children} }
         }
     }
 }
@@ -90,7 +98,7 @@ fn CurrencyPicker(compact: bool) -> Element {
                 "aria-expanded": open(),
                 onclick: move |_| open.toggle(),
                 if !compact {
-                    span { class: "text-xs text-ctp-overlay1", {tr("Currency")} }
+                    span { class: "text-xs text-ctp-subtext0", {tr("Currency")} }
                 }
                 span { class: "flex items-center gap-2 font-medium tabular-nums", "{value}" Chevron { open: open() } }
             }
@@ -132,7 +140,7 @@ fn Brand() -> Element {
             }
             div { class: "leading-tight",
                 div { class: "text-sm font-semibold text-ctp-text", {tr("Akhsakov")} }
-                div { class: "text-xs text-ctp-overlay1", {tr("Finance")} }
+                div { class: "text-xs text-ctp-subtext0", {tr("Finance")} }
             }
         }
     }
@@ -142,7 +150,7 @@ fn Brand() -> Element {
 #[component]
 pub fn DashboardIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6", stroke_linejoin: "round",
             rect { x: "3", y: "3", width: "6", height: "6", rx: "1.5" }
             rect { x: "11", y: "3", width: "6", height: "6", rx: "1.5" }
@@ -156,7 +164,7 @@ pub fn DashboardIcon() -> Element {
 #[component]
 pub fn PortfolioIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
             stroke_linecap: "round", stroke_linejoin: "round",
             path { d: "M10 3a7 7 0 1 0 7 7h-7z" }
@@ -165,11 +173,23 @@ pub fn PortfolioIcon() -> Element {
     }
 }
 
+/// A labelled group in the sidebar menu (hidden in the narrow top bar).
+#[component]
+pub fn NavSection(label: String) -> Element {
+    rsx! {
+        div {
+            "data-nav-section": "true",
+            class: "px-3 pt-4 pb-1 text-xs font-semibold uppercase tracking-wide text-ctp-subtext0 first:pt-0",
+            "{label}"
+        }
+    }
+}
+
 /// Rising-bars "markets" icon.
 #[component]
 pub fn MarketIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
             stroke_linecap: "round", stroke_linejoin: "round",
             path { d: "M3 16.5h14" }
@@ -182,7 +202,7 @@ pub fn MarketIcon() -> Element {
 #[component]
 pub fn ScreenerIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6", stroke_linejoin: "round",
             path { d: "M3 4h14l-5.5 6.5V16l-3 1.5v-7z" }
         }
@@ -193,7 +213,7 @@ pub fn ScreenerIcon() -> Element {
 #[component]
 pub fn BacktestIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
             stroke_linecap: "round", stroke_linejoin: "round",
             path { d: "M3.5 10a6.5 6.5 0 1 0 2-4.7" }
@@ -207,7 +227,7 @@ pub fn BacktestIcon() -> Element {
 #[component]
 pub fn CalendarIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6", stroke_linecap: "round",
             rect { x: "3", y: "4.5", width: "14", height: "12.5", rx: "2" }
             path { d: "M3 8.5h14M7 2.5v4M13 2.5v4" }
@@ -219,7 +239,7 @@ pub fn CalendarIcon() -> Element {
 #[component]
 pub fn EconomyIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
             circle { cx: "10", cy: "10", r: "7" }
             path { d: "M3 10h14M10 3c2 2.2 2.8 4.5 2.8 7s-.8 4.8-2.8 7c-2-2.2-2.8-4.5-2.8-7s.8-4.8 2.8-7z" }
@@ -231,7 +251,7 @@ pub fn EconomyIcon() -> Element {
 #[component]
 pub fn WatchlistIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6", stroke_linejoin: "round",
             path { d: "M10 2.8l2.2 4.6 5 .6-3.7 3.4 1 5-4.5-2.6-4.5 2.6 1-5L2.8 8l5-.6z" }
         }
@@ -242,7 +262,7 @@ pub fn WatchlistIcon() -> Element {
 #[component]
 pub fn SettingsIcon() -> Element {
     rsx! {
-        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-overlay1 transition-colors group-hover:text-ctp-text",
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
             view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6", stroke_linecap: "round",
             circle { cx: "10", cy: "10", r: "2.6" }
             path { d: "M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" }

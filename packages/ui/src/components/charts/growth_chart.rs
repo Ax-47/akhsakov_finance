@@ -47,7 +47,10 @@ pub fn GrowthChart(
         let title_json = title.as_deref().map_or("null".into(), js_str);
 
         let script = format!(
-            r#"window.GrowthChart.init("{id}", {{
+            // The chart script may still be loading the first time.
+            r#"for (let i = 0; i < 200 && !(window.GrowthChart && window.GrowthChart.init); i++)
+                   await new Promise(r => setTimeout(r, 25));
+               window.GrowthChart.init("{id}", {{
                 labels:     [{labels_json}],
                 series:     [{series_json}],
                 title:      {title_json},

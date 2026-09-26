@@ -34,7 +34,7 @@ pub fn SectionHeader(
                                 border border-ctp-green/35
                                 px-2 py-0.5
                                 rounded
-                                text-[0.68rem]
+                                text-xs
                                 font-bold
                                 tracking-[0.04em]
                             ",

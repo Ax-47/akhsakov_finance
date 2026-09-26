@@ -4,7 +4,9 @@ use crate::i18n::tr;
 use dioxus::prelude::*;
 
 /// Rounded, hairline-bordered, slightly translucent surface.
-pub const CARD: &str = "rounded-3xl border border-ctp-surface0/70 bg-ctp-mantle/60 \
+/// `min-w-0`: inside grids and flex rows a card must be allowed to shrink,
+/// so wide tables scroll within it instead of widening the page.
+pub const CARD: &str = "min-w-0 rounded-3xl border border-ctp-surface0/70 bg-ctp-mantle/60 \
                         transition-colors hover:border-ctp-surface1/80";
 
 #[component]
@@ -25,7 +27,7 @@ pub fn Card(
                 div {
                     h2 { class: "text-base font-semibold text-ctp-text", "{title}" }
                     if let Some(subtitle) = subtitle {
-                        p { class: "text-xs text-ctp-overlay1 mt-0.5", "{subtitle}" }
+                        p { class: "text-xs text-ctp-subtext0 mt-0.5", "{subtitle}" }
                     }
                 }
                 if let Some(actions) = actions {
@@ -52,9 +54,9 @@ pub fn ToggleButton(label: String, active: bool, onclick: EventHandler<MouseEven
     rsx! {
         button {
             class: if active {
-                "px-3.5 py-1 rounded-full text-xs font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
+                "min-h-8 px-3.5 py-1.5 rounded-full text-sm font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
             } else {
-                "px-3.5 py-1 rounded-full text-xs font-medium text-ctp-overlay1 hover:text-ctp-text cursor-pointer transition-colors"
+                "min-h-8 px-3.5 py-1.5 rounded-full text-sm font-medium text-ctp-subtext0 hover:text-ctp-text cursor-pointer transition-colors"
             },
             aria_pressed: active,
             onclick: move |e| onclick.call(e),
@@ -73,10 +75,10 @@ pub fn MetricTile(
 ) -> Element {
     rsx! {
         div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-base/50 px-4 py-3",
-            div { class: "text-xs text-ctp-overlay1", "{label}" }
+            div { class: "text-xs text-ctp-subtext0", "{label}" }
             div { class: "mt-1 text-xl font-semibold tabular-nums {tone}", "{value}" }
             if !hint.is_empty() {
-                div { class: "mt-0.5 text-[0.7rem] text-ctp-overlay0 leading-snug", "{hint}" }
+                div { class: "mt-0.5 text-xs text-ctp-overlay1 leading-snug", "{hint}" }
             }
         }
     }
@@ -113,7 +115,7 @@ pub fn Stepper(
 
     rsx! {
         div { class: "inline-flex items-center gap-1.5 rounded-full border border-ctp-surface0 bg-ctp-crust/40 \
-                      pl-3 pr-1 py-0.5 text-xs text-ctp-overlay1 transition-colors \
+                      pl-3 pr-1 py-0.5 text-xs text-ctp-subtext0 transition-colors \
                       hover:border-ctp-surface1 focus-within:border-ctp-mauve",
             if !label.is_empty() {
                 span { "{label}" }
@@ -158,7 +160,7 @@ fn StepButton(up: bool, onclick: EventHandler<MouseEvent>) -> Element {
             tabindex: "-1",
             "aria-label": if up { tr("Increase") } else { tr("Decrease") },
             class: "flex h-3 w-5 items-center justify-center rounded-full cursor-pointer \
-                    text-ctp-overlay1 transition-colors hover:bg-ctp-surface0 hover:text-ctp-mauve \
+                    text-ctp-subtext0 transition-colors hover:bg-ctp-surface0 hover:text-ctp-mauve \
                     active:text-ctp-pink",
             onclick: move |e| onclick.call(e),
             svg {
@@ -188,7 +190,7 @@ pub fn MenuItem(
             class: if selected {
                 "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-sm bg-ctp-surface0 text-ctp-text cursor-pointer"
             } else if taken {
-                "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-sm text-ctp-overlay0 cursor-pointer hover:bg-ctp-surface0/60"
+                "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-sm text-ctp-overlay1 cursor-pointer hover:bg-ctp-surface0/60"
             } else {
                 "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-sm text-ctp-subtext1 cursor-pointer hover:bg-ctp-surface0/60 hover:text-ctp-text"
             },
@@ -208,7 +210,7 @@ pub fn MenuItem(
 pub fn Chevron(open: bool) -> Element {
     rsx! {
         svg {
-            class: if open { "h-3 w-3 text-ctp-overlay1 rotate-180 transition-transform" } else { "h-3 w-3 text-ctp-overlay1 transition-transform" },
+            class: if open { "h-3 w-3 text-ctp-subtext0 rotate-180 transition-transform" } else { "h-3 w-3 text-ctp-subtext0 transition-transform" },
             view_box: "0 0 12 8",
             fill: "none",
             stroke: "currentColor",
@@ -248,7 +250,7 @@ pub fn Select(
                 onclick: move |_| open.toggle(),
                 span { class: "truncate",
                     if !prefix.is_empty() {
-                        span { class: "text-ctp-overlay1", "{prefix} " }
+                        span { class: "text-ctp-subtext0", "{prefix} " }
                     }
                     span { class: "font-medium text-ctp-text", "{current}" }
                 }
@@ -290,7 +292,7 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
                 div { class: "mb-5 flex items-center justify-between",
                     h2 { class: "text-lg font-semibold text-ctp-text", "{title}" }
                     button {
-                        class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-overlay1 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
+                        class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
                         "aria-label": "Close",
                         onclick: move |_| on_close.call(()),
                         "×"
@@ -304,17 +306,17 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
 
 /// Text input styling shared by forms.
 pub const INPUT: &str = "w-full rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-2 text-sm text-ctp-text \
-                         placeholder:text-ctp-overlay0 outline-none transition-colors focus:border-ctp-mauve";
+                         placeholder:text-ctp-overlay1 outline-none transition-colors focus:border-ctp-mauve";
 
 /// Labelled form row.
 #[component]
 pub fn Field(label: String, #[props(default)] hint: String, children: Element) -> Element {
     rsx! {
         label { class: "block",
-            span { class: "mb-1.5 block text-xs text-ctp-overlay1", "{label}" }
+            span { class: "mb-1.5 block text-xs text-ctp-subtext0", "{label}" }
             {children}
             if !hint.is_empty() {
-                span { class: "mt-1 block text-[0.7rem] text-ctp-overlay0", "{hint}" }
+                span { class: "mt-1 block text-xs text-ctp-overlay1", "{hint}" }
             }
         }
     }
@@ -342,7 +344,7 @@ pub fn ActionButton(
     };
     rsx! {
         button {
-            class: "rounded-full px-4 py-2 text-sm font-semibold transition cursor-pointer disabled:cursor-wait disabled:opacity-60 {style}",
+            class: "min-h-10 rounded-full px-5 py-2 text-sm font-semibold transition cursor-pointer disabled:cursor-wait disabled:opacity-60 {style}",
             disabled,
             onclick: move |e| onclick.call(e),
             "{label}"

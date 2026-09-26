@@ -3,7 +3,8 @@ use dioxus::prelude::*;
 use dtos::portfolio::GetDashBoardResponse;
 
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-/// Bundled so charts work offline; see `growth_chart.js`.
+/// Bundled so charts work offline. Loaded on demand by `growth_chart.js`
+/// the first time a chart draws, not on every page.
 const ECHARTS_JS: Asset = asset!("/assets/js/echarts.min.js");
 
 /// Which portfolio the portfolio page shows: an id, or `None` for all
@@ -87,11 +88,44 @@ impl DataRefresh {
 /// Use this in any platform's `App` root to get Tailwind styles globally.
 #[component]
 pub fn App(children: Element) -> Element {
+    use_hook(|| {
+        document::eval(&format!("window.ECHARTS_URL = {:?};", ECHARTS_JS.to_string()));
+        // "/" or Ctrl/⌘+K jumps to stock search (unless you're typing).
+        document::eval(
+            "if (!window.__searchKey) {
+                 window.__searchKey = true;
+                 window.addEventListener('keydown', e => {
+                     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
+                         || document.activeElement?.isContentEditable;
+                     const combo = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
+                     if (!combo && (typing || e.key !== '/')) return;
+                     const box = [...document.querySelectorAll('[data-global-search]')].find(el => el.offsetParent);
+                     if (box) { e.preventDefault(); box.focus(); box.select(); }
+                 });
+             }",
+        );
+        // Tag the page while it scrolls (see `.is-scrolling` in input.css).
+        document::eval(
+            "if (!window.__scrollTag) {
+                 window.__scrollTag = true;
+                 // Only the user's own scrolling (wheel, touch, keys) pauses
+                 // hovers; programmatic scrolls like going to the top don't.
+                 let t, userScroll = 0;
+                 const intent = () => { userScroll = Date.now(); };
+                 ['wheel', 'touchmove', 'keydown'].forEach(e => window.addEventListener(e, intent, { passive: true, capture: true }));
+                 window.addEventListener('scroll', () => {
+                     if (Date.now() - userScroll > 300) return;
+                     document.documentElement.classList.add('is-scrolling');
+                     clearTimeout(t);
+                     t = setTimeout(() => document.documentElement.classList.remove('is-scrolling'), 150);
+                 }, { passive: true, capture: true });
+             }",
+        );
+    });
     crate::theme::use_theme_init();
     crate::i18n::use_language_init();
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
-        document::Script { src: ECHARTS_JS }
         crate::MotionStyles {}
         crate::auth::AuthGate {
             AppInner { {children} }
@@ -138,7 +172,7 @@ fn AppInner(children: Element) -> Element {
         if ready() {
             {children}
         } else {
-            div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-overlay1", {tr("Loading…")} }
+            div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-subtext0", {tr("Loading…")} }
         }
         crate::editors::EditorHost {}
         crate::alerts::AlertWatcher {}

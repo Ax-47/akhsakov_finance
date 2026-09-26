@@ -72,6 +72,20 @@ const CURVE: [(&str, f64, &str); 8] = [
 
 type Macro = (Vec<Indicator>, Vec<CurvePoint>);
 
+/// One FRED series, retried once after a pause.
+async fn fetch_series(
+    source: Arc<dyn MacroSource>,
+    id: &'static str,
+    start: String,
+) -> (&'static str, Result<Vec<(String, f64)>, String>) {
+    let mut result = source.series(id, &start).await;
+    if result.is_err() {
+        tokio::time::sleep(FRED_RETRY_DELAY).await;
+        result = source.series(id, &start).await;
+    }
+    (id, result)
+}
+
 #[derive(Clone)]
 pub struct EconomyService {
     source: Arc<dyn MacroSource>,
@@ -149,27 +163,23 @@ impl EconomyService {
         // A year more than shown, for year-over-year changes.
         let start = (today - Days::days(365 * (HISTORY_YEARS + 1))).to_string();
         let history_from = (today - Days::days(365 * HISTORY_YEARS)).to_string();
-        let ids: Vec<&str> = INDICATORS
+        let ids: Vec<&'static str> = INDICATORS
             .iter()
             .map(|(id, ..)| *id)
             .chain(CURVE.iter().map(|(_, _, id)| *id))
             .collect();
-        // FRED drops connections when many requests arrive at once.
+        // FRED drops connections when many requests arrive at once. The
+        // futures are built up front (owning their inputs) so no closure is
+        // held across an await, which keeps this future `Send`.
+        let requests: Vec<_> = ids
+            .iter()
+            .map(|&id| fetch_series(self.source.clone(), id, start.clone()))
+            .collect();
         let fetched: Vec<(&str, Result<Vec<(String, f64)>, String>)> =
-            futures::stream::iter(ids.iter().map(|id| {
-                let start = start.clone();
-                async move {
-                    let mut result = self.source.series(id, &start).await;
-                    if result.is_err() {
-                        tokio::time::sleep(FRED_RETRY_DELAY).await;
-                        result = self.source.series(id, &start).await;
-                    }
-                    (*id, result)
-                }
-            }))
-            .buffer_unordered(FRED_CONCURRENCY)
-            .collect()
-            .await;
+            futures::stream::iter(requests)
+                .buffer_unordered(FRED_CONCURRENCY)
+                .collect()
+                .await;
         let series = |id: &str| -> Option<Vec<(String, f64)>> {
             match fetched.iter().find(|(i, _)| *i == id)?.1.as_ref() {
                 Ok(s) if !s.is_empty() => Some(s.clone()),
