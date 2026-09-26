@@ -27,6 +27,7 @@ pub use watchlist_page::WatchlistPage;
 mod app;
 mod cache;
 pub mod i18n;
+mod perf;
 mod theme;
 pub use theme::base_color as theme_base_color;
 mod vim;

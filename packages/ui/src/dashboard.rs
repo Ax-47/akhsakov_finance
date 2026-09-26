@@ -1,4 +1,4 @@
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use crate::{
     income_tab::{IncomeTab, ReturnDrivers},
     app::PortfolioScope,
@@ -63,13 +63,17 @@ pub fn Dashboard() -> Element {
     let dialogs = use_context::<Dialogs>();
     let scope_id = scope().and_then(|id| Uuid::parse_str(&id).ok());
 
-    let transactions = scoped_data(&data.read(), scope().as_deref()).transactions;
-    let portfolios: Vec<(String, String)> = data
-        .read()
-        .portfolios
-        .iter()
-        .map(|p| (p.id.to_string(), p.name.clone()))
-        .collect();
+    // Price-independent: worked out when the data or scope changes, not on
+    // every price update.
+    let transactions = use_memo(move || scoped_data(&data.read(), scope().as_deref()).transactions);
+    let portfolios = use_memo(move || {
+        data.read()
+            .portfolios
+            .iter()
+            .map(|p| (p.id.to_string(), p.name.clone()))
+            .collect::<Vec<(String, String)>>()
+    });
+    let (transactions, portfolios) = (transactions(), portfolios());
     let title = scope()
         .and_then(|id| {
             portfolios
@@ -453,7 +457,7 @@ pub(crate) fn HoldingsTable(
             subtitle: tr("Click a column to sort").to_string(),
             flush: true,
             actions: rsx! {
-                ExportButtons { filename: "akhsakov-holdings.csv", csv: holdings_csv(&positions) }
+                ExportButtons { filename: "akhsakov-holdings.csv", csv: move || holdings_csv(&positions) }
             },
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",
@@ -598,11 +602,19 @@ enum TxFilter {
     Sell,
 }
 
+/// Rows shown at first and added by "Show more", so a long history opens
+/// and scrolls quickly.
+const TX_PAGE: usize = 50;
+
 #[component]
 fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> Element {
     let mut filter = use_signal(|| TxFilter::All);
+    let mut query = use_signal(String::new);
+    let mut limit = use_signal(|| TX_PAGE);
     let dialogs = use_context::<Dialogs>();
+    let data = use_context::<Signal<GetDashBoardResponse>>();
 
+    let needle = query().trim().to_uppercase();
     let mut shown: Vec<Transaction> = transactions
         .into_iter()
         .filter(|tx| match filter() {
@@ -610,44 +622,66 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
             TxFilter::Buy => tx.transaction_type == TransactionType::Buy,
             TxFilter::Sell => tx.transaction_type == TransactionType::Sell,
         })
+        .filter(|tx| needle.is_empty() || tx.ticker.as_str().contains(&needle))
         .collect();
     shown.sort_by(|a, b| b.date.cmp(&a.date));
-    let data = use_context::<Signal<GetDashBoardResponse>>();
-    let csv_text = transactions_csv(&shown, |t| {
-        data.read()
-            .portfolios
-            .iter()
-            .find(|p| p.id == t.portfolio_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_default()
-    });
     let total: Decimal = shown.iter().map(|tx| tx.shares * tx.usd_price()).sum();
+    let count = shown.len();
+    let hidden = count.saturating_sub(limit());
+    // The export has every matching row, not just the ones on screen.
+    let for_csv = shown.clone();
+    let csv = move || {
+        transactions_csv(&for_csv, |t| {
+            data.peek()
+                .portfolios
+                .iter()
+                .find(|p| p.id == t.portfolio_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_default()
+        })
+    };
+    let mut set_filter = move |f: TxFilter| {
+        filter.set(f);
+        limit.set(TX_PAGE);
+    };
 
     rsx! {
         Card {
             title: tr("Transactions"),
-            subtitle: format!("{} shown · {} total", shown.len(), fmt_usd(total, 2)),
+            subtitle: format!("{count} shown · {} total", fmt_usd(total, 2)),
             flush: true,
             actions: rsx! {
                 div { class: "flex flex-wrap items-center gap-2",
                 GhostButton { label: tr("＋ Add"), onclick: move |_| dialogs.open(Dialog::AddTransaction(portfolio)) }
                 GhostButton { label: tr("Import CSV"), onclick: move |_| dialogs.open(Dialog::Import(portfolio)) }
-                ExportButtons { filename: "akhsakov-transactions.csv", csv: csv_text.clone() }
+                ExportButtons { filename: "akhsakov-transactions.csv", csv }
+                input {
+                    class: "w-32 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3.5 py-1.5 text-sm uppercase text-ctp-text \
+                            placeholder:normal-case placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
+                    r#type: "search",
+                    placeholder: tr("Ticker…"),
+                    aria_label: tr("Filter by ticker"),
+                    value: "{query}",
+                    oninput: move |e| {
+                        query.set(e.value());
+                        limit.set(TX_PAGE);
+                    },
+                }
                 Segmented {
                     ToggleButton {
                         label: tr("All"),
                         active: filter() == TxFilter::All,
-                        onclick: move |_| filter.set(TxFilter::All),
+                        onclick: move |_| set_filter(TxFilter::All),
                     }
                     ToggleButton {
                         label: tr("Buy"),
                         active: filter() == TxFilter::Buy,
-                        onclick: move |_| filter.set(TxFilter::Buy),
+                        onclick: move |_| set_filter(TxFilter::Buy),
                     }
                     ToggleButton {
                         label: tr("Sell"),
                         active: filter() == TxFilter::Sell,
-                        onclick: move |_| filter.set(TxFilter::Sell),
+                        onclick: move |_| set_filter(TxFilter::Sell),
                     }
                 }
                 }
@@ -655,8 +689,20 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
             if shown.is_empty() {
                 div { class: "px-6 pb-8 pt-2 text-sm text-ctp-overlay1", {tr("Nothing here yet.")} }
             }
-            for tx in shown {
+            for tx in shown.into_iter().take(limit()) {
                 TransactionRow { key: "{tx.id}", tx }
+            }
+            if hidden > 0 {
+                div { class: "flex flex-wrap items-center justify-center gap-2 border-t border-ctp-surface0/60 px-6 py-3",
+                    GhostButton {
+                        label: trf("Show {} more", &[&hidden.min(TX_PAGE)]),
+                        onclick: move |_| limit.set(limit().saturating_add(TX_PAGE)),
+                    }
+                    GhostButton {
+                        label: trf("Show all {}", &[&count]),
+                        onclick: move |_| limit.set(usize::MAX),
+                    }
+                }
             }
         }
     }
@@ -774,5 +820,61 @@ fn EmptyState() -> Element {
                 {tr("Add your first transaction to start tracking.")}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::DataRefresh;
+    use futures::FutureExt;
+
+    fn trade(i: u32) -> Transaction {
+        Transaction {
+            id: Uuid::from_u128(i as u128 + 1),
+            portfolio_id: Uuid::nil(),
+            ticker: TickerSymbol::new(if i.is_multiple_of(2) { "VOO" } else { "QQQ" }).unwrap(),
+            transaction_type: TransactionType::Buy,
+            shares: Decimal::ONE,
+            price: dec!(100),
+            date: format!("2025-01-{:02}", i % 28 + 1),
+            fee: Decimal::ZERO,
+            currency: "USD".into(),
+            fx_to_usd: Decimal::ONE,
+        }
+    }
+
+    #[component]
+    fn Harness(count: u32) -> Element {
+        use_context_provider(|| Signal::new(GetDashBoardResponse::default()));
+        use_context_provider(|| Dialogs(Signal::new(None)));
+        use_context_provider(|| DataRefresh(Signal::new(0)));
+        rsx! {
+            TransactionList { transactions: (0..count).map(trade).collect::<Vec<_>>(), portfolio: None }
+        }
+    }
+
+    fn render(count: u32) -> String {
+        let mut dom = VirtualDom::new_with_props(Harness, HarnessProps { count });
+        dom.rebuild_in_place();
+        for _ in 0..10 {
+            if dom.wait_for_work().now_or_never().is_none() {
+                break;
+            }
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+        dioxus_ssr::render(&dom)
+    }
+
+    #[test]
+    fn long_histories_show_a_page_at_a_time() {
+        let html = render(120);
+        assert_eq!(html.matches("title=\"Edit\"").count(), TX_PAGE, "one page of rows");
+        assert!(html.contains("120 shown"), "the count covers every row");
+        assert!(html.contains("Show 50 more") && html.contains("Show all 120"), "{html}");
+
+        let html = render(TX_PAGE as u32);
+        assert_eq!(html.matches("title=\"Edit\"").count(), TX_PAGE);
+        assert!(!html.contains("Show all"), "nothing hidden, no button");
     }
 }

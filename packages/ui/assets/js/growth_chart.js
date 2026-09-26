@@ -79,12 +79,19 @@ window.GrowthChart.init = function (id, cfg) {
     return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
   }
 
+  // Names can be user text (portfolio names): never raw HTML.
+  function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
   function buildTooltip(params) {
     var header =
       '<span style="font-size:12px;color:' +
       colors.subtext0 +
       '">' +
-      params[0].name +
+      esc(params[0].name) +
       "</span>";
     var rows = params
       .filter(function (p) {
@@ -103,7 +110,7 @@ window.GrowthChart.init = function (id, cfg) {
         '<span style="color:' +
         colors.subtext0 +
         ';font-size:12px">' +
-        p.seriesName +
+        esc(p.seriesName) +
         ": </span>" +
         '<span style="color:' +
         col +
@@ -194,18 +201,9 @@ window.GrowthChart.init = function (id, cfg) {
     });
 
     var option = {
+      // Lite effects: draw at once instead of animating the lines in.
+      animation: !document.documentElement.classList.contains("lite"),
       backgroundColor: "transparent",
-      legend: {
-        show: false,
-        data: cfg.series.map(function (s) {
-          return s.name;
-        }),
-        bottom: 0,
-        textStyle: { color: colors.subtext0, fontSize: 12 },
-        icon: "circle",
-        itemWidth: 8,
-        itemHeight: 8,
-      },
       tooltip: {
         trigger: "axis",
         axisPointer: {

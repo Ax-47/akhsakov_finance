@@ -19,14 +19,12 @@ use types::{quote::Quote, ticker_symbol::TickerSymbol};
 /// reached; cleared by the next live price.
 pub static OFFLINE: GlobalSignal<bool> = Signal::global(|| false);
 
-/// How often streamed prices reach the UI. Yahoo can send several ticks a
-/// second per stock; writing each one re-rendered every page that shows a
-/// price, which made the app lag.
-const FLUSH_MS: u32 = 1000;
-
 /// Live quotes for `tickers`: one batched request for the starting prices,
-/// then updates over a websocket, applied at most once per [`FLUSH_MS`].
-/// Changing `tickers` re-subscribes.
+/// then updates over a websocket, applied at most once a second (every
+/// three in Lite; see [`crate::perf::price_flush_ms`]). Yahoo can send
+/// several ticks a second per stock; writing each one re-rendered every
+/// page that shows a price, which made the app lag. Changing `tickers`
+/// re-subscribes.
 pub fn use_price_stream(tickers: Memo<Vec<TickerSymbol>>) -> ReadSignal<HashMap<TickerSymbol, Quote>> {
     let mut price_map = use_signal(HashMap::<TickerSymbol, Quote>::new);
     let mut socket = use_websocket(|| quote_subscribe(WebSocketOptions::new()));
@@ -71,7 +69,7 @@ pub fn use_price_stream(tickers: Memo<Vec<TickerSymbol>>) -> ReadSignal<HashMap<
                 if !scheduled.replace(true) {
                     let (pending, scheduled) = (pending.clone(), scheduled.clone());
                     spawn(async move {
-                        crate::notify::poll_delay(FLUSH_MS).await;
+                        crate::notify::poll_delay(crate::perf::price_flush_ms()).await;
                         scheduled.set(false);
                         let updates = std::mem::take(&mut *pending.borrow_mut());
                         apply(price_map, updates);

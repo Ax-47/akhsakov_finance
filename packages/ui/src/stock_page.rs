@@ -14,7 +14,7 @@ use crate::{
     },
     editors::{Dialog, Dialogs},
     format::{fmt_compact, fmt_signed, fmt_usd, or_dash, signed_color},
-    hooks::{use_portfolio, PortfolioState},
+    hooks::{use_portfolio, use_portfolio_memo, PortfolioState},
     page::{GhostButton, HeroStat, Page},
     stock_research::{DividendsAndSplits, NewsTab, OptionsTab, OwnershipTab, RatingChanges},
 };
@@ -52,12 +52,17 @@ pub fn StockPage(ticker: String) -> Element {
 
 #[component]
 fn StockView(ticker: TickerSymbol) -> Element {
-    let PortfolioState {
-        positions,
-        total_value,
-        ..
-    } = use_portfolio(None);
-    let position = positions.iter().find(|p| p.ticker == ticker).cloned();
+    // The page follows which stocks you hold, not their live prices: only
+    // [`YouOwn`] and the report's position card re-render as prices move.
+    let portfolio = use_portfolio_memo(None);
+    let peers = use_memo(move || {
+        portfolio
+            .read()
+            .positions
+            .iter()
+            .map(|p| p.ticker.clone())
+            .collect::<Vec<_>>()
+    });
     let mut tab = use_signal(|| Tab::Summary);
     let dialogs = use_context::<Dialogs>();
     // Compare tab: other stocks, or two measures of this one over time.
@@ -156,15 +161,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                         HeroStat { label: tr("Next earnings"), value: f.stats.next_earnings.clone().unwrap_or_else(|| "—".into()) }
                     }
                 }
-                if let Some(p) = &position {
-                    div { class: "mt-4 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-2 text-sm",
-                        span { class: "text-ctp-subtext0", {tr("You own")} }
-                        span { class: "font-medium tabular-nums text-ctp-text", "{p.shares.normalize()} shares · {fmt_usd(p.market_value(), 2)}" }
-                        span { class: "font-medium tabular-nums {signed_color(p.unrealized_pnl())}",
-                            "{fmt_signed(p.unrealized_pnl(), 2)} ({p.unrealized_pnl_pct():+.2}%)"
-                        }
-                    }
-                }
+                YouOwn { ticker: ticker.clone() }
             }
 
             nav { class: "mt-10 mb-5 overflow-x-auto",
@@ -187,7 +184,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                         if let Some(f) = &f {
                             About { fundamentals: f.clone() }
                         }
-                        StockReport { ticker: ticker.clone(), position: position.clone(), total_value }
+                        StockReport { ticker: ticker.clone() }
                         Peers { ticker: ticker.clone() }
                         NotesCard { ticker: ticker.clone() }
                     }
@@ -205,7 +202,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                     if !compare_over_time() {
                         CompareMeasures {
                             ticker: ticker.clone(),
-                            peers: positions.iter().map(|p| p.ticker.clone()).collect::<Vec<_>>(),
+                            peers: peers(),
                         }
                     } else if let Some(f) = &f {
                         MeasureVsMeasure { fundamentals: f.clone() }
@@ -232,6 +229,24 @@ fn StockView(ticker: TickerSymbol) -> Element {
                         RatingChanges { ticker: ticker.clone() }
                     }
                 },
+            }
+        }
+    }
+}
+
+/// "You own …" line under the price, when you hold the stock.
+#[component]
+fn YouOwn(ticker: TickerSymbol) -> Element {
+    let PortfolioState { positions, .. } = use_portfolio(None);
+    let Some(p) = positions.iter().find(|p| p.ticker == ticker) else {
+        return rsx! {};
+    };
+    rsx! {
+        div { class: "mt-4 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-2 text-sm",
+            span { class: "text-ctp-subtext0", {tr("You own")} }
+            span { class: "font-medium tabular-nums text-ctp-text", "{p.shares.normalize()} shares · {fmt_usd(p.market_value(), 2)}" }
+            span { class: "font-medium tabular-nums {signed_color(p.unrealized_pnl())}",
+                "{fmt_signed(p.unrealized_pnl(), 2)} ({p.unrealized_pnl_pct():+.2}%)"
             }
         }
     }

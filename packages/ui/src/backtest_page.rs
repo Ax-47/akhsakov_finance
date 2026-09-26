@@ -9,7 +9,7 @@ use crate::{
         charts::{GrowthChart, Series},
     },
     format::{display_currency, fmt_usd},
-    hooks::use_portfolio,
+    hooks::use_portfolio_memo,
     page::{GhostButton, Page},
 };
 use api::quote::quote::get_charts;
@@ -74,7 +74,10 @@ struct Outcome {
 #[component]
 pub fn BacktestPage() -> Element {
     let settings = use_context::<AppSettings>();
-    let allocation = use_portfolio(None).allocation;
+    // Only whether you hold anything re-renders the page; the weights are
+    // read when "use mine" is pressed, not on every price update.
+    let portfolio = use_portfolio_memo(None);
+    let has_holdings = use_memo(move || !portfolio.read().allocation.is_empty());
     let mut assets = use_signal(|| {
         vec![
             Asset { ticker: "VOO".into(), weight: "60".into() },
@@ -106,10 +109,11 @@ pub fn BacktestPage() -> Element {
         running.set(false);
     };
 
-    let has_holdings = !allocation.is_empty();
     let run_label = if running() { tr("Running…") } else { tr("Run backtest") };
     let use_mine = move |_| {
-        let mine: Vec<Asset> = allocation
+        let mine: Vec<Asset> = portfolio
+            .peek()
+            .allocation
             .iter()
             .map(|(t, w)| Asset { ticker: t.to_string(), weight: format!("{:.1}", w.to_f64().unwrap_or(0.0)) })
             .collect();
@@ -135,7 +139,7 @@ pub fn BacktestPage() -> Element {
                     subtitle: {let base = crate::i18n::trf("Weights add up to {}%", &[&format!("{weights_total:.0}")]); if (weights_total - 100.0).abs() > 0.5 { format!("{base} — {}", tr("they'll be scaled to 100%")) } else { base }},
                     actions: rsx! {
                         div { class: "flex gap-2",
-                            if has_holdings {
+                            if has_holdings() {
                                 GhostButton { label: tr("Use my portfolio"), onclick: use_mine }
                             }
                             GhostButton { label: tr("＋ Add"), onclick: move |_| assets.write().push(Asset { ticker: String::new(), weight: "10".into() }) }

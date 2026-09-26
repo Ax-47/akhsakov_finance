@@ -12,10 +12,10 @@ use crate::{
         },
     },
     format::{fmt_signed, fmt_usd, signed_color},
+    hooks::{use_portfolio, PortfolioState},
 };
 use api::quote::quote::get_charts;
 use dioxus::prelude::*;
-use dtos::Position;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use rust_decimal_macros::dec;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
@@ -143,11 +143,7 @@ pub fn open_stock(ticker: &TickerSymbol) {
 /// Price-based analysis of one stock: signals, returns, a year vs the
 /// S&P 500, risk, range & trend, and your position.
 #[component]
-pub(crate) fn StockReport(
-    ticker: TickerSymbol,
-    position: Option<Position>,
-    total_value: Decimal,
-) -> Element {
+pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
     let app_settings = use_context::<crate::app::AppSettings>();
     let (benchmark, risk_free) = (app_settings.benchmark(), app_settings.risk_free());
     let (symbol, key) = (ticker.clone(), format!("stock-report/{ticker}/{benchmark}"));
@@ -214,9 +210,7 @@ pub(crate) fn StockReport(
                     RiskTiles { stats: stats.clone() }
                     div { class: "grid gap-5 md:grid-cols-2",
                         RangeAndTrend { stats: stats.clone() }
-                        if let Some(p) = position {
-                            PositionCard { position: p, total_value }
-                        }
+                        PositionCard { ticker: ticker.clone() }
                     }
                 }
             }
@@ -412,8 +406,12 @@ fn RangeAndTrend(stats: StockStats) -> Element {
 }
 
 #[component]
-fn PositionCard(position: Position, total_value: Decimal) -> Element {
-    let p = &position;
+fn PositionCard(ticker: TickerSymbol) -> Element {
+    // Only this card follows live prices, not the whole report.
+    let PortfolioState { positions, total_value, .. } = use_portfolio(None);
+    let Some(p) = positions.iter().find(|p| p.ticker == ticker) else {
+        return rsx! {};
+    };
     let weight = p.market_value() / total_value.max(dec!(1)) * dec!(100);
     rsx! {
         Card { title: tr("Your position"),

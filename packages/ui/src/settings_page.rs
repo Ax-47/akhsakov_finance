@@ -6,7 +6,7 @@ use crate::{
     components::card::{ActionButton, Card, Field, Segmented, Stepper, ToggleButton, INPUT},
     editors::{Dialog, Dialogs},
     files::{print_report, ExportButtons},
-    hooks::{use_portfolio, PortfolioState},
+    hooks::use_portfolio_memo,
     page::{GhostButton, Page},
 };
 use dioxus::prelude::*;
@@ -31,7 +31,8 @@ pub fn SettingsPage() -> Element {
     let refresh = use_context::<DataRefresh>();
     let dialogs = use_context::<Dialogs>();
     let data = use_context::<Signal<GetDashBoardResponse>>();
-    let PortfolioState { positions, .. } = use_portfolio(None);
+    // Peeked only when exporting, so prices moving don't re-render the page.
+    let portfolio = use_portfolio_memo(None);
 
     let mut draft = use_signal(move || saved.peek().clone());
     let mut risk_free = use_signal(move || saved.peek().risk_free.normalize().to_string());
@@ -63,20 +64,17 @@ pub fn SettingsPage() -> Element {
         }
     };
 
-    let names: Vec<(uuid::Uuid, String)> = data
-        .read()
-        .portfolios
-        .iter()
-        .map(|p| (p.id, p.name.clone()))
-        .collect();
-    let tx_csv = transactions_csv(&data.read().transactions, |t| {
-        names
-            .iter()
-            .find(|(id, _)| *id == t.portfolio_id)
-            .map(|(_, n)| n.clone())
-            .unwrap_or_default()
-    });
-    let pos_csv = holdings_csv(&positions);
+    let tx_csv = move || {
+        let data = data.peek();
+        transactions_csv(&data.transactions, |t| {
+            data.portfolios
+                .iter()
+                .find(|p| p.id == t.portfolio_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_default()
+        })
+    };
+    let pos_csv = move || holdings_csv(&portfolio.peek().positions);
     let benchmark = draft.read().benchmark.clone();
     let is_preset = BENCHMARKS.iter().any(|(t, _)| *t == benchmark.as_str());
 
@@ -369,7 +367,7 @@ fn BackupButtons() -> Element {
 /// Theme and language, remembered on this device.
 #[component]
 fn Appearance() -> Element {
-    use crate::{i18n::{self, Lang}, theme::{self, Theme}};
+    use crate::{i18n::{self, Lang}, perf::{self, Effects}, theme::{self, Theme}};
     let chip = |on: bool| {
         if on {
             "rounded-full border border-ctp-mauve bg-ctp-mauve/15 px-3.5 py-1.5 text-sm font-medium text-ctp-text cursor-pointer"
@@ -393,6 +391,25 @@ fn Appearance() -> Element {
                     div { class: "flex flex-wrap gap-2",
                         for lang in Lang::ALL {
                             button { key: "{lang:?}", class: chip(i18n::current() == lang), onclick: move |_| i18n::set_language(lang), "{lang.label()}" }
+                        }
+                    }
+                }
+                div { class: "md:col-span-2",
+                    div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Effects")} }
+                    div { class: "flex flex-wrap gap-2",
+                        for e in Effects::ALL {
+                            button { key: "{e:?}", class: chip(perf::current() == e), onclick: move |_| perf::set_effects(e), {tr(e.label())} }
+                        }
+                    }
+                    p { class: "mt-2 text-xs text-ctp-overlay1",
+                        {tr("Lite turns off animations and rolling numbers, and updates live prices every 3 seconds instead of every second. For older or slower computers.")}
+                        " "
+                        if perf::current() == Effects::Auto {
+                            if perf::low_end() {
+                                {tr("Auto is using Lite on this device.")}
+                            } else {
+                                {tr("Auto is using full effects on this device.")}
+                            }
                         }
                     }
                 }

@@ -89,14 +89,15 @@ pub fn print_report() {
     );
 }
 
-/// Download + Copy buttons for a generated CSV.
+/// Download + Copy buttons for a CSV. `csv` builds it when a button is
+/// pressed: building it on every render redid the whole export each time a
+/// price moved.
 #[component]
-pub fn ExportButtons(filename: String, csv: String) -> Element {
+pub fn ExportButtons(filename: String, csv: Callback<(), String>) -> Element {
     let mut copied = use_signal(|| None::<bool>);
-    let (name, body) = (filename.clone(), csv.clone());
     rsx! {
         span { class: "inline-flex gap-1 print:hidden",
-            crate::page::GhostButton { label: tr("⇩ CSV"), onclick: move |_| download(&name, "text/csv", &body) }
+            crate::page::GhostButton { label: tr("⇩ CSV"), onclick: move |_| download(&filename, "text/csv", &csv.call(())) }
             crate::page::GhostButton {
                 label: match copied() {
                     Some(true) => tr("Copied"),
@@ -104,7 +105,7 @@ pub fn ExportButtons(filename: String, csv: String) -> Element {
                     None => tr("Copy"),
                 },
                 onclick: move |_| {
-                    let text = csv.clone();
+                    let text = csv.call(());
                     spawn(async move { copied.set(Some(copy_to_clipboard(&text).await)) });
                 },
             }
