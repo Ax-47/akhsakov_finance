@@ -106,7 +106,7 @@ pub fn WatchlistPage() -> Element {
                     group: None,
                     detail: cap.map_or_else(
                         || "market cap unknown".into(),
-                        |c| format!("{} market cap", fmt_compact(c)),
+                        |c| crate::i18n::trf("{} market cap", &[&fmt_compact(c)]),
                     ),
                 }
             })

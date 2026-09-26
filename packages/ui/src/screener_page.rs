@@ -89,10 +89,10 @@ pub fn ScreenerPage() -> Element {
     let mut size_options: Vec<(String, String)> = SIZES
         .iter()
         .enumerate()
-        .map(|(i, (label, ..))| (i.to_string(), label.to_string()))
+        .map(|(i, (label, ..))| (i.to_string(), crate::i18n::tr_str(label).to_string()))
         .collect();
     if size.is_none() {
-        size_options.push(("custom".into(), "Custom".into()));
+        size_options.push(("custom".into(), tr("Custom").into()));
     }
     let active_preset = presets().into_iter().position(|(_, p)| p == ScreenFilter { page: 0, ..f.clone() });
 
@@ -118,7 +118,7 @@ pub fn ScreenerPage() -> Element {
                             let region = filter.peek().region.clone();
                             filter.set(ScreenFilter { region, ..preset.clone() });
                         },
-                        "{label}"
+                        {tr(label)}
                     }
                 }
             }

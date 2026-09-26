@@ -61,12 +61,12 @@ fn MptBody(analysis: MptAnalysis, allocation: ReadSignal<Vec<(TickerSymbol, Deci
                     MetricTile {
                         label: tr("Effective holdings"),
                         value: format!("{:.1}", a.effective_n),
-                        hint: format!("out of {}", a.live_positions),
+                        hint: crate::i18n::trf("out of {}", &[&a.live_positions]),
                     }
                     MetricTile {
                         label: tr("Concentration"),
                         value: a.concentration_risk.label().to_string(),
-                        hint: format!("HHI {:.3} · lower is better", a.hhi),
+                        hint: crate::i18n::trf("HHI {} · lower is better", &[&format!("{:.3}", a.hhi)]),
                         tone: concentration_tone,
                     }
                     MetricTile {

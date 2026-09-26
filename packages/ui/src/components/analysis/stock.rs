@@ -267,7 +267,7 @@ fn ReportHeader(stats: StockStats) -> Element {
     if let Some(r) = &s.risk {
         if r.beta > 1.3 {
             chips.push((
-                format!("Swings {:.1}× the market", r.beta),
+                crate::i18n::trf("Swings {}× the market", &[&format!("{:.1}", r.beta)]),
                 "bg-ctp-peach/15 text-ctp-peach",
             ));
         } else if r.beta < 0.7 {
@@ -330,24 +330,24 @@ fn RiskTiles(stats: StockStats) -> Element {
             MetricTile {
                 label: tr("Volatility"),
                 value: format!("{:.1}%", pct(r.volatility)),
-                hint: format!("Yearly swing · S&P {:.1}%", pct(r.market_volatility)),
+                hint: crate::i18n::trf("Yearly swing · S&P {}%", &[&format!("{:.1}", pct(r.market_volatility))]),
                 tone: vol_tone,
             }
             MetricTile {
                 label: tr("Beta"),
                 value: format!("{:.2}", r.beta),
-                hint: format!("Correlation {:.2} with the S&P", r.market_correlation),
+                hint: crate::i18n::trf("Correlation {} with the S&P", &[&format!("{:.2}", r.market_correlation)]),
             }
             MetricTile {
                 label: tr("Max drawdown"),
                 value: format!("−{:.1}%", pct(r.max_drawdown)),
-                hint: format!("Worst fall · S&P −{:.1}%", pct(r.market_max_drawdown)),
+                hint: crate::i18n::trf("Worst fall · S&P −{}%", &[&format!("{:.1}", pct(r.market_max_drawdown))]),
                 tone: dd_tone,
             }
             MetricTile {
                 label: tr("Sharpe ratio"),
                 value: format!("{:.2}", r.sharpe),
-                hint: format!("Return per risk · alpha {:+.1}%", pct(r.alpha)),
+                hint: crate::i18n::trf("Return per risk · alpha {}%", &[&format!("{:+.1}", pct(r.alpha))]),
                 tone: sharpe_tone,
             }
         }

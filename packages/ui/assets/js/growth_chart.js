@@ -116,20 +116,19 @@ window.GrowthChart.init = function (id, cfg) {
     return header + rows.join("");
   }
 
+  var tries = 0;
   function initChart() {
-    if (window.GrowthChart.latest[id] !== cfg) return; // superseded
+    if (window.GrowthChart.latest[id] !== cfg) return; // superseded or removed
     var el = document.getElementById(id);
     if (!el) {
-      console.error("[GrowthChart] #" + id + " not found");
-      requestAnimationFrame(initChart);
+      // Not mounted yet; give up after ~1s instead of spinning every frame
+      // forever when the chart was removed before it drew.
+      if (++tries < 60) requestAnimationFrame(initChart);
       return;
     }
 
-    if (el.__chart) {
-      el.__chart.dispose();
-      el.__chart = null;
-    }
-    var chart = echarts.init(el, null, { renderer: "canvas" });
+    // Reuse the chart: disposing and re-creating it on every redraw was slow.
+    var chart = el.__chart && !el.__chart.isDisposed() ? el.__chart : echarts.init(el, null, { renderer: "canvas" });
     el.__chart = chart;
 
     // Broker-style lines: thin, no fill except a faint wash under the first
@@ -259,7 +258,7 @@ window.GrowthChart.init = function (id, cfg) {
       };
     }
 
-    chart.setOption(option);
+    chart.setOption(option, true);
 
     if (!el.__onresize) {
       el.__onresize = function () {
@@ -268,7 +267,10 @@ window.GrowthChart.init = function (id, cfg) {
       window.addEventListener("resize", el.__onresize);
       // Also when the element itself changes size, e.g. an off-screen card
       // being laid out for the first time as it scrolls into view.
-      if (window.ResizeObserver) new ResizeObserver(el.__onresize).observe(el);
+      if (window.ResizeObserver) {
+        el.__observer = new ResizeObserver(el.__onresize);
+        el.__observer.observe(el);
+      }
     }
   }
 
@@ -279,4 +281,17 @@ window.GrowthChart.init = function (id, cfg) {
   window.GrowthChart.ready().then(bootstrap, function (e) {
     console.error(e.message);
   });
+};
+
+// Frees a chart whose component unmounted. Without this, every chart ever
+// drawn stayed alive (window listener + ECharts instance), so the app got
+// slower the longer it ran.
+window.GrowthChart.dispose = function (id) {
+  delete window.GrowthChart.latest[id];
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (el.__onresize) window.removeEventListener("resize", el.__onresize);
+  if (el.__observer) el.__observer.disconnect();
+  if (el.__chart && !el.__chart.isDisposed()) el.__chart.dispose();
+  el.__chart = el.__onresize = el.__observer = null;
 };

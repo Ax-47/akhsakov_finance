@@ -48,7 +48,10 @@ const POINTER_MOVE: u8 = 1;
 const POINTER_JS: &str = r#"
     const id = await dioxus.recv();
     let svg;
-    while (!(svg = document.getElementById(id))) {
+    // Give up if the graph was removed before it mounted, rather than
+    // polling every frame forever.
+    for (let i = 0; !(svg = document.getElementById(id)); i++) {
+        if (i > 120) return;
         await new Promise((r) => requestAnimationFrame(r));
     }
     const toView = (e) => {

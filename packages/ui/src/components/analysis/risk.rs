@@ -190,7 +190,7 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
     rsx! {
         Card {
             title: tr("Risk overview"),
-            subtitle: format!("{} trading days · {} – {}", r.days, day_label(r.first_day), day_label(r.last_day)),
+            subtitle: crate::i18n::trf("{} trading days · {} – {}", &[&r.days, &day_label(r.first_day), &day_label(r.last_day)]),
             actions,
             div { class: "flex flex-col sm:flex-row sm:items-start gap-4 mb-6",
                 span { class: "self-start shrink-0 rounded-full px-3 py-1 text-sm font-semibold {grade.pill()}",
@@ -211,13 +211,13 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
                 MetricTile {
                     label: tr("Volatility"),
                     value: format!("{:.1}%", pct(r.volatility)),
-                    hint: format!("Yearly swing · S&P {:.1}%", pct(r.market_volatility)),
+                    hint: crate::i18n::trf("Yearly swing · S&P {}%", &[&format!("{:.1}", pct(r.market_volatility))]),
                     tone: tone(r.volatility <= r.market_volatility),
                 }
                 MetricTile {
                     label: tr("Max drawdown"),
                     value: format!("−{:.1}%", pct(r.max_drawdown)),
-                    hint: format!("Worst peak-to-trough · S&P −{:.1}%", pct(r.market_max_drawdown)),
+                    hint: crate::i18n::trf("Worst peak-to-trough · S&P −{}%", &[&format!("{:.1}", pct(r.market_max_drawdown))]),
                     tone: tone(r.max_drawdown <= r.market_max_drawdown),
                 }
                 MetricTile {
@@ -228,12 +228,12 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
                 MetricTile {
                     label: tr("Expected shortfall"),
                     value: format!("−{:.2}%", pct(r.cvar_95)),
-                    hint: format!("Average bad day: {}", usd(r.cvar_95 * value)),
+                    hint: crate::i18n::trf("Average bad day: {}", &[&usd(r.cvar_95 * value)]),
                 }
                 MetricTile {
                     label: tr("Sharpe ratio"),
                     value: format!("{:.2}", r.sharpe),
-                    hint: format!("Return per risk · Sortino {:.2}", r.sortino),
+                    hint: crate::i18n::trf("Return per risk · Sortino {}", &[&format!("{:.2}", r.sortino)]),
                     tone: tone(r.sharpe >= 1.0),
                 }
                 MetricTile {
@@ -250,7 +250,7 @@ fn RiskOverview(report: RiskReport, value: f64, period: &'static str, actions: E
                 MetricTile {
                     label: tr("Diversification"),
                     value: format!("{:.2}×", r.diversification_ratio),
-                    hint: "1.0× = no benefit · higher is better".to_string(),
+                    hint: tr("1.0× = no benefit · higher is better").to_string(),
                     tone: tone(r.diversification_ratio >= 1.2),
                 }
             }

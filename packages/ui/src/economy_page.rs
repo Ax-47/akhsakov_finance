@@ -240,7 +240,7 @@ fn month_year(date: &str) -> String {
     ];
     let month: usize = date.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(0);
     match (MONTHS.get(month.wrapping_sub(1)), date.get(..4)) {
-        (Some(m), Some(y)) => format!("{m} {y}"),
+        (Some(m), Some(y)) => format!("{} {y}", crate::i18n::tr_str(m)),
         _ => date.to_string(),
     }
 }

@@ -409,7 +409,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
     rsx! {
         Card {
             title: tr("Measure vs measure"),
-            subtitle: format!("Two measures of this stock over its last {} quarters", labels.len()),
+            subtitle: crate::i18n::trf("Two measures of this stock over its last {} quarters", &[&labels.len()]),
             // Quick picks
             div { class: "flex flex-wrap gap-1.5",
                 for (name, x, y) in presets {
@@ -424,7 +424,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
                             a.set(x);
                             b.set(y);
                         },
-                        "{name}"
+                        {crate::i18n::tr_str(name)}
                     }
                 }
             }
@@ -478,7 +478,7 @@ fn MeasureSummary(
         div { class: "px-4 py-3",
             div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                 span { class: "h-2 w-2 rounded-full", style: "background:{color};" }
-                "{label}"
+                {crate::i18n::tr_str(label)}
             }
             div { class: "mt-1 flex flex-wrap items-baseline gap-2",
                 span { class: "text-2xl font-semibold tabular-nums text-ctp-text", "{value}" }
@@ -524,7 +524,7 @@ fn MeasurePicker(
                               bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                     for (group, items) in group_measures(&options) {
                         div { key: "{group}",
-                            div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay1", "{group}" }
+                            div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay1", {crate::i18n::tr_str(group)} }
                             for (i, label) in items {
                                 MenuItem {
                                     key: "{i}",
@@ -667,10 +667,10 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
             if data.read().is_none() {
                 Card { title: tr("Measures"), p { class: "py-12 text-center text-sm text-ctp-subtext0", "Loading fundamentals for {names.len()} stocks…" } }
             } else {
-                Card { title: "{chosen.label}", subtitle: better_hint(chosen.better).to_string(),
+                Card { title: crate::i18n::tr_str(chosen.label), subtitle: better_hint(chosen.better).to_string(),
                     BarChart {
                         labels: names.clone(),
-                        series: vec![BarSeries { name: chosen.label.to_string(), color: "var(--catppuccin-color-mauve)", values: chosen_values }],
+                        series: vec![BarSeries { name: crate::i18n::tr_str(chosen.label).to_string(), color: "var(--catppuccin-color-mauve)", values: chosen_values }],
                         unit: chosen.unit,
                     }
                 }
@@ -739,7 +739,7 @@ fn MeasureRow(
     rsx! {
         if let Some(group) = group {
             tr {
-                td { class: "pl-6 pt-4 pb-1 text-xs font-semibold text-ctp-mauve", colspan: "{columns + 1}", "{group}" }
+                td { class: "pl-6 pt-4 pb-1 text-xs font-semibold text-ctp-mauve", colspan: "{columns + 1}", {crate::i18n::tr_str(group)} }
             }
         }
         tr {
@@ -751,7 +751,7 @@ fn MeasureRow(
             title: "{hint}",
             onclick: move |e| onclick.call(e),
             td { class: "pl-6 pr-4 py-2.5",
-                span { class: "text-ctp-subtext1", "{label}" }
+                span { class: "text-ctp-subtext1", {crate::i18n::tr_str(label)} }
                 span { class: "ml-2 text-xs text-ctp-overlay1",
                     match better {
                         Better::Higher => "↑",

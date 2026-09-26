@@ -104,6 +104,13 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
         }
     });
 
+    let drop_id = chart_id.clone();
+    use_drop(move || {
+        document::eval(&format!(
+            "window.StockChart && window.StockChart.dispose && window.StockChart.dispose({drop_id:?});"
+        ));
+    });
+
     let id = chart_id.clone();
     use_effect(move || {
         let Some(Ok(candles)) = &*history.read() else {
@@ -127,7 +134,7 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
     let unit = if span() == Span::Y5 { "weeks" } else { "days" };
     let status = match &*history.read() {
         None => Some("Loading chart…".to_string()),
-        Some(Err(e)) => Some(format!("Couldn't load prices: {e}")),
+        Some(Err(e)) => Some(crate::i18n::trf("Couldn't load prices: {}", &[e])),
         Some(Ok(c)) if c.is_empty() => Some("No price history.".to_string()),
         _ => None,
     };
@@ -137,7 +144,7 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
         document::Script { src: asset!("/assets/js/stock_chart.js") }
         Card {
             title: tr("Chart"),
-            subtitle: format!("Drag to pan, Ctrl + scroll to zoom · averages in {unit}"),
+            subtitle: crate::i18n::trf("Drag to pan, Ctrl + scroll to zoom · averages in {}", &[&unit]),
             actions: rsx! {
                 div { class: "flex flex-wrap items-center gap-2",
                     Segmented {

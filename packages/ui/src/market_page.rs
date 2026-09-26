@@ -155,7 +155,7 @@ fn IndexView(index: MarketIndex) -> Element {
                         MetricTile {
                             label: tr("Breadth"),
                             value: format!("{advancing} ▲  {declining} ▼"),
-                            hint: format!("{:.0}% of stocks up", advancing as f64 / count.max(1) as f64 * 100.0),
+                            hint: crate::i18n::trf("{}% of stocks up", &[&format!("{:.0}", advancing as f64 / count.max(1) as f64 * 100.0)]),
                         }
                         MetricTile {
                             label: tr("Best sector"),
@@ -196,7 +196,7 @@ fn IndexView(index: MarketIndex) -> Element {
 
                     if let Some(sector) = focus() {
                         div { class: "mt-5 motion-safe:animate-rise",
-                            Card { title: "{sector}", subtitle: format!("{} stocks, largest first", focused_rows.len()), flush: true,
+                            Card { title: "{sector}", subtitle: crate::i18n::trf("{} stocks, largest first", &[&focused_rows.len()]), flush: true,
                                 StockTable { rows: focused_rows.clone() }
                                 div { class: "h-3" }
                             }
