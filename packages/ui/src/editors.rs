@@ -72,7 +72,7 @@ pub fn PortfolioDialog(
                 class: "grid gap-4",
                 onsubmit: move |e| e.prevent_default(),
                 Field { label: tr("Name"),
-                    input { class: INPUT, autofocus: true, placeholder: "e.g. Retirement", value: "{name}", oninput: move |e| name.set(e.value()) }
+                    input { class: INPUT, autofocus: true, placeholder: tr("e.g. Retirement"), value: "{name}", oninput: move |e| name.set(e.value()) }
                 }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
@@ -110,9 +110,9 @@ pub fn DeletePortfolioDialog(id: Uuid, name: String, on_close: EventHandler<()>)
         }
     };
     rsx! {
-        Modal { title: "Delete {name}?", on_close,
+        Modal { title: tr("Delete {name}?").replace("{name}", &name), on_close,
             p { class: "text-sm text-ctp-subtext0",
-                "This deletes the portfolio and its {count} transactions. It can't be undone."
+                {tr("This deletes the portfolio and its {count} transactions. It can't be undone.").replace("{count}", &count.to_string())}
             }
             ErrorLine { error: error() }
             div { class: "mt-6 flex justify-end gap-2",
@@ -364,7 +364,7 @@ impl TxForm {
         }
         .map_err(|_| "Enter a ticker, e.g. NVDA".to_string())?;
         let need =
-            |field: &str, label: &str| num(field).ok_or(format!("Enter a number for {label}"));
+            |field: &str, label: &str| num(field).ok_or(crate::i18n::trf("Enter a number for {}", &[&label]));
         let (shares, price) = match self.kind {
             TransactionType::Dividend => (Decimal::ZERO, need(&self.price, "the amount")?),
             TransactionType::Split => (need(&self.shares, "the ratio")?, Decimal::ZERO),
@@ -592,7 +592,7 @@ pub fn GoalDialog(#[props(default)] goal: Option<Goal>, on_close: EventHandler<(
         Modal { title: if goal.is_some() { tr("Edit goal") } else { tr("New goal") }, on_close,
             form { class: "grid gap-4", onsubmit: move |e| e.prevent_default(),
                 Field { label: tr("Name"),
-                    input { class: INPUT, autofocus: true, placeholder: "e.g. House deposit", value: "{name}", oninput: move |e| name.set(e.value()) }
+                    input { class: INPUT, autofocus: true, placeholder: tr("e.g. House deposit"), value: "{name}", oninput: move |e| name.set(e.value()) }
                 }
                 div { class: "grid grid-cols-2 gap-3",
                     Field { label: tr("Target ($)"),

@@ -344,7 +344,7 @@ pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 /// `Mar 5, 2026` from a day number.
 pub fn day_label(day: i64) -> String {
     let (y, m, d) = civil_from_days(day);
-    format!("{} {d}, {y}", MONTHS[(m - 1) as usize])
+    format!("{} {d}, {y}", crate::i18n::tr_str(MONTHS[(m - 1) as usize]))
 }
 
 #[cfg(test)]

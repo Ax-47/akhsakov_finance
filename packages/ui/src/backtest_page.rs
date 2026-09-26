@@ -132,7 +132,7 @@ pub fn BacktestPage() -> Element {
             div { class: "mt-10 grid gap-5 lg:grid-cols-[1fr_320px] motion-safe:animate-rise",
                 Card {
                     title: tr("Mix"),
-                    subtitle: format!("Weights add up to {weights_total:.0}%{}", if (weights_total - 100.0).abs() > 0.5 { " — they'll be scaled to 100%" } else { "" }),
+                    subtitle: {let base = crate::i18n::trf("Weights add up to {}%", &[&format!("{weights_total:.0}")]); if (weights_total - 100.0).abs() > 0.5 { format!("{base} — {}", tr("they'll be scaled to 100%")) } else { base }},
                     actions: rsx! {
                         div { class: "flex gap-2",
                             if has_holdings {
@@ -169,10 +169,10 @@ pub fn BacktestPage() -> Element {
                 }
                 Card { title: tr("Plan"),
                     div { class: "grid gap-4",
-                        Field { label: "Start with ({symbol.trim()})",
+                        Field { label: format!("{} ({})", tr("Start with"), symbol.trim()),
                             input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{initial}", oninput: move |e| initial.set(e.value()) }
                         }
-                        Field { label: "Then every month ({symbol.trim()})",
+                        Field { label: format!("{} ({})", tr("Then every month"), symbol.trim()),
                             input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{monthly}", oninput: move |e| monthly.set(e.value()) }
                         }
                         Field { label: tr("Over"),
@@ -228,13 +228,13 @@ fn Results(outcome: Outcome) -> Element {
             MetricTile {
                 label: tr("Would be worth"),
                 value: money(mix.final_value),
-                hint: format!("You'd have put in {}", money(mix.invested)),
+                hint: crate::i18n::trf("You'd have put in {}", &[&money(mix.invested)]),
                 tone: gain_tone,
             }
             MetricTile {
                 label: tr("Yearly return"),
                 value: pct(mix.irr),
-                hint: format!("Growth rate {} a year, ignoring timing", pct(mix.cagr)),
+                hint: crate::i18n::trf("Growth rate {} a year, ignoring timing", &[&pct(mix.cagr)]),
             }
             MetricTile {
                 label: tr("Worst fall"),
@@ -245,7 +245,7 @@ fn Results(outcome: Outcome) -> Element {
             MetricTile {
                 label: format!("vs {benchmark_name}"),
                 value: format!("{vs_sign}{}", money(vs)),
-                hint: format!("{} would be worth {}", benchmark_name, money(benchmark.final_value)),
+                hint: crate::i18n::trf("{} would be worth {}", &[&benchmark_name, &money(benchmark.final_value)]),
                 tone: vs_tone,
             }
         }
@@ -284,7 +284,7 @@ async fn simulate(
             continue;
         }
         let t = TickerSymbol::new(&a.ticker).map_err(|_| format!("“{}” isn't a ticker", a.ticker))?;
-        let w = a.weight.trim().parse::<f64>().ok().filter(|w| *w > 0.0).ok_or(format!("Enter a weight for {t}"))?;
+        let w = a.weight.trim().parse::<f64>().ok().filter(|w| *w > 0.0).ok_or(crate::i18n::trf("Enter a weight for {}", &[&t]))?;
         picked.push((t, w));
     }
     if picked.is_empty() {
@@ -309,7 +309,7 @@ async fn simulate(
     };
     let series: Vec<BTreeMap<String, f64>> = picked.iter().map(|(t, _)| monthly_closes(t)).collect();
     if let Some((t, _)) = picked.iter().zip(&series).find(|(_, s)| s.is_empty()).map(|(p, _)| p) {
-        return Err(format!("No price history for {t}"));
+        return Err(crate::i18n::trf("No price history for {}", &[&t]));
     }
     let bench = monthly_closes(&benchmark);
 
@@ -353,6 +353,6 @@ async fn simulate(
         mix,
         benchmark: benchmark_result,
         benchmark_name: if benchmark.as_str() == "^GSPC" { "S&P 500".into() } else { benchmark.to_string() },
-        note: (!late.is_empty()).then(|| format!("Not listed yet at the start: {}. Until then the others take their share.", late.join(", "))),
+        note: (!late.is_empty()).then(|| crate::i18n::trf("Not listed yet at the start: {}. Until then the others take their share.", &[&late.join(", ")])),
     })
 }

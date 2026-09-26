@@ -14,6 +14,7 @@ use rust_decimal_macros::dec;
 use std::collections::{HashMap, HashSet};
 use types::ticker_symbol::TickerSymbol;
 
+#[derive(Clone, PartialEq)]
 pub struct PortfolioState {
     /// Latest price per ticker.
     pub ticker_price_map: HashMap<TickerSymbol, Decimal>,
@@ -39,12 +40,39 @@ pub struct PortfolioState {
 
 /// `scope` is a portfolio id, or `None` for all holdings. Prices come from
 /// the app-wide stream, so pages and scope changes don't reconnect.
+///
+/// Memoised: the positions are recomputed once per price update (not on
+/// every render of every caller), and callers only re-render when the
+/// result actually changes.
 pub fn use_portfolio(scope: Option<String>) -> PortfolioState {
     let data = use_context::<Signal<GetDashBoardResponse>>();
     let LiveQuotes(quotes) = use_context::<LiveQuotes>();
+    let state = use_memo(use_reactive!(|scope| compute_portfolio(
+        &data.read(),
+        &quotes.read(),
+        scope.as_deref()
+    )));
+    state()
+}
 
+/// Shares held per ticker, ignoring prices: for pages that only need to
+/// know what you own, so they don't re-render on every price tick.
+pub fn use_held_shares() -> Memo<HashMap<TickerSymbol, Decimal>> {
+    let data = use_context::<Signal<GetDashBoardResponse>>();
+    use_memo(move || {
+        compute_positions(&data.read(), &HashMap::new())
+            .into_iter()
+            .map(|p| (p.ticker, p.shares))
+            .collect()
+    })
+}
+
+fn compute_portfolio(
+    data: &GetDashBoardResponse,
+    quotes: &HashMap<TickerSymbol, types::quote::Quote>,
+    scope: Option<&str>,
+) -> PortfolioState {
     let prices: HashMap<TickerSymbol, (Decimal, Decimal)> = quotes
-        .read()
         .iter()
         .map(|(ticker, q)| {
             let change = day_change_pct(q.current_price, q.previous_close_price);
@@ -55,7 +83,7 @@ pub fn use_portfolio(scope: Option<String>) -> PortfolioState {
     let ticker_price_map = prices.iter().map(|(t, (p, _))| (t.clone(), *p)).collect();
     let change_map = prices.iter().map(|(t, (_, c))| (t.clone(), *c)).collect();
 
-    let scoped = scoped_data(&data.read(), scope.as_deref());
+    let scoped = scoped_data(data, scope);
     let positions = compute_positions(&scoped, &prices);
     let (total_value, total_cost, total_pnl, day_change) = portfolio_summary(&positions);
     let pct = |part: Decimal, whole: Decimal| {

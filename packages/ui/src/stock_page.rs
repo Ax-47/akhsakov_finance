@@ -337,11 +337,11 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
     rsx! {
         Card {
             title: tr("Your notes"),
-            subtitle: updated.map_or("Why you own it, what to watch for".to_string(), |u| format!("Last saved {u}")),
+            subtitle: updated.map_or(tr("Why you own it, what to watch for").to_string(), |u| crate::i18n::trf("Last saved {}", &[&u])),
             div { class: "grid gap-3",
                 textarea {
                     class: "{INPUT} min-h-28 resize-y",
-                    placeholder: "e.g. Buy more below $150. Watch margins in the next report.",
+                    placeholder: tr("e.g. Buy more below $150. Watch margins in the next report."),
                     value: "{text}",
                     oninput: move |e| { text.set(e.value()); status.set(None); },
                 }
@@ -637,11 +637,11 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
     rsx! {
         div { class: "grid gap-5 md:grid-cols-2",
             for (title, rows) in groups {
-                Card { key: "{title}", title,
+                Card { key: "{title}", title: crate::i18n::tr_str(title),
                     div { class: "flex flex-col",
                         for (label, value) in rows {
                             div { class: "flex items-center justify-between gap-4 border-t border-dashed border-ctp-surface0 py-2 text-sm first:border-t-0",
-                                span { class: "text-ctp-subtext0", "{label}" }
+                                span { class: "text-ctp-subtext0", {crate::i18n::tr_str(label)} }
                                 span { class: "font-medium tabular-nums text-ctp-text", "{value}" }
                             }
                         }

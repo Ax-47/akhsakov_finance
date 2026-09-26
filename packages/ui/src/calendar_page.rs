@@ -8,7 +8,6 @@ use crate::{
         card::{Card, Segmented, ToggleButton},
     },
     format::fmt_usd,
-    hooks::use_portfolio,
     page::Page,
 };
 use chrono::{Datelike, NaiveDate};
@@ -32,10 +31,10 @@ fn use_my_calendar() -> (
     HashMap<String, Decimal>,
 ) {
     let refresh = use_context::<DataRefresh>();
-    let held: HashMap<String, Decimal> = use_portfolio(None)
-        .positions
+    let held: HashMap<String, Decimal> = crate::hooks::use_held_shares()
+        .read()
         .iter()
-        .map(|p| (p.ticker.to_string(), p.shares))
+        .map(|(t, shares)| (t.to_string(), *shares))
         .collect();
     let mut held_tickers: Vec<String> = held.keys().cloned().collect();
     held_tickers.sort();
@@ -233,7 +232,7 @@ fn EventRow(event: CalendarEvent, shares: Option<Decimal>, show_date: bool, past
         match shares {
             Some(s) => {
                 let total = Decimal::try_from(annual).unwrap_or_default() * s;
-                format!("{per_share}/share a year · ≈ {} a year on your {} shares", fmt_usd(total, 2), crate::format::fmt_shares(s))
+                crate::i18n::trf("{}/share a year · ≈ {} a year on your {} shares", &[&per_share, &fmt_usd(total, 2), &crate::format::fmt_shares(s)])
             }
             None => format!("{per_share}/share a year"),
         }

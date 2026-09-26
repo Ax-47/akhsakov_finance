@@ -256,7 +256,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
                     input {
                         class: "mb-1 w-full rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1.5 text-sm \
                                 text-ctp-text placeholder:text-ctp-overlay1 outline-none focus:border-ctp-mauve",
-                        placeholder: "Search {portfolios.len()} portfolios…",
+                        placeholder: tr("Search {n} portfolios…").replace("{n}", &portfolios.len().to_string()),
                         autofocus: true,
                         value: "{query}",
                         oninput: move |e| query.set(e.value()),
@@ -735,7 +735,7 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
         TransactionType::Dividend => (
             "bg-ctp-teal/15 text-ctp-teal",
             tx.ticker.to_string(),
-            format!("Dividend received{}", fee.replace("fee", "tax")),
+            format!("{}{}", tr("Dividend received"), fee.replace("fee", "tax")),
             money("+", tx.usd_price() - fee_usd),
         ),
         TransactionType::Split => (

@@ -388,7 +388,7 @@ fn GoalsCard(prices: HashMap<TickerSymbol, Decimal>, today: Option<String>) -> E
     rsx! {
         Card {
             title: tr("Goals"),
-            subtitle: format!("Projected at {:.1}% a year (see Settings)", assumed * 100.0),
+            subtitle: crate::i18n::trf("Projected at {}% a year (see Settings)", &[&format!("{:.1}", assumed * 100.0)]),
             actions: rsx! {
                 ActionButton { label: tr("＋ Goal"), tone: crate::components::card::ButtonTone::Quiet, onclick: move |_| dialogs.open(Dialog::Goal(None)) }
             },

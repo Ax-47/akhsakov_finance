@@ -121,6 +121,9 @@ impl HttpPusher {
             http: reqwest::Client::builder()
                 .user_agent("akhsakov-finance/1.0")
                 .timeout(Duration::from_secs(15))
+                // The addresses are user-entered: don't let a redirect bounce
+                // the request onto the server's own network.
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("build the HTTP client"),
         }

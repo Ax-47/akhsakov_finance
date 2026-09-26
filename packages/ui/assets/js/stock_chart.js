@@ -5,6 +5,17 @@ window.StockChart = window.StockChart || {};
 window.StockChart.latest = window.StockChart.latest || {};
 window.StockChart.charts = window.StockChart.charts || {};
 
+// Frees a chart whose component unmounted (the chart map kept every
+// chart, and its detached DOM, alive before).
+window.StockChart.dispose = function (id) {
+  delete window.StockChart.latest[id];
+  var chart = window.StockChart.charts[id];
+  delete window.StockChart.charts[id];
+  if (!chart) return;
+  if (chart.__observer) chart.__observer.disconnect();
+  if (!chart.isDisposed()) chart.dispose();
+};
+
 window.StockChart.init = function (id, cfg) {
   window.StockChart.latest[id] = cfg;
   var ready = window.GrowthChart && window.GrowthChart.ready
@@ -26,10 +37,13 @@ function draw(el, id, cfg) {
     up: c("green"), down: c("red"), mauve: c("mauve"), base: c("mantle"),
   };
   var chart = window.StockChart.charts[id];
-  if (!chart || chart.isDisposed()) {
+  if (!chart || chart.isDisposed() || chart.getDom() !== el) {
+    if (chart && !chart.isDisposed()) chart.dispose();
     chart = echarts.init(el, null, { renderer: "canvas" });
     window.StockChart.charts[id] = chart;
-    new ResizeObserver(function () { chart.resize(); }).observe(el);
+    var observer = new ResizeObserver(function () { chart.resize(); });
+    observer.observe(el);
+    chart.__observer = observer;
   }
 
   var hasLower = cfg.lower && cfg.lower.kind !== "none";

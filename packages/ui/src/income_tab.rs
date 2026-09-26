@@ -75,7 +75,7 @@ pub fn IncomeTab(positions: Vec<Position>, transactions: Vec<Transaction>, total
             MetricTile {
                 label: tr("Received, last 12 months"),
                 value: money(last_year),
-                hint: format!("{} since you started", money(all_time)),
+                hint: crate::i18n::trf("{} since you started", &[&money(all_time)]),
             }
         }
 

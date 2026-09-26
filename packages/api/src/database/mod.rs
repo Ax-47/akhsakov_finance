@@ -44,6 +44,16 @@ fn check_backup(conn: &Connection) -> Result<(), DatabaseError> {
     if tables != 2 {
         return Err(bad("it has no portfolio tables"));
     }
+    // The app creates no triggers or views; a file carrying them could run
+    // its own SQL on every later write (e.g. plant a session).
+    let extras: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger', 'view')",
+        [],
+        |r| r.get(0),
+    )?;
+    if extras > 0 {
+        return Err(bad("it contains triggers or views"));
+    }
     Ok(())
 }
 
@@ -86,13 +96,21 @@ impl Database {
         Ok(f(&conn)?)
     }
 
-    /// A consistent copy of the whole database as SQLite file bytes.
+    /// A consistent copy of the whole database as SQLite file bytes,
+    /// without sign-in sessions (a backup must not carry live tokens).
     pub fn export(&self) -> Result<Vec<u8>, DatabaseError> {
         let path = std::env::temp_dir().join(format!("akhsakov-export-{}.db", uuid::Uuid::new_v4()));
-        self.with(|c| c.execute("VACUUM INTO ?1", [path.to_string_lossy()]))?;
-        let bytes = std::fs::read(&path).map_err(|e| DatabaseError::File(e.to_string()));
+        let result = (|| {
+            self.with(|c| c.execute("VACUUM INTO ?1", [path.to_string_lossy()]))?;
+            {
+                let copy = Connection::open(&path)?;
+                copy.execute("DELETE FROM sessions", [])?;
+                copy.execute_batch("VACUUM")?;
+            }
+            std::fs::read(&path).map_err(|e| DatabaseError::File(e.to_string()))
+        })();
         let _ = std::fs::remove_file(&path);
-        bytes
+        result
     }
 
     /// Replaces every table with the contents of `bytes` (an exported
@@ -105,10 +123,12 @@ impl Database {
             let source = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
             check_backup(&source)?;
             let mut live = self.0.lock().map_err(|_| DatabaseError::Poisoned)?;
+            let accounts = Accounts::read(&live)?;
             rusqlite::backup::Backup::new(&source, &mut live)?
                 .run_to_completion(256, std::time::Duration::ZERO, None)?;
             live.pragma_update(None, "foreign_keys", "ON")?;
             migrate(&live)?;
+            accounts.write(&live)?;
             Ok(())
         })();
         let _ = std::fs::remove_file(&path);
@@ -125,6 +145,51 @@ impl Database {
         let out = f(&tx)?;
         tx.commit()?;
         Ok(out)
+    }
+}
+
+/// Accounts and sessions of the running server. A restore keeps them: a
+/// backup can't remove sign-in (by holding no accounts), add accounts, or
+/// bring back old sessions.
+struct Accounts {
+    users: Vec<(String, String, String)>,
+    sessions: Vec<(String, String, String, String)>,
+}
+
+impl Accounts {
+    fn read(conn: &Connection) -> rusqlite::Result<Self> {
+        let users = conn
+            .prepare("SELECT username, password_hash, created_at FROM users")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let sessions = conn
+            .prepare("SELECT token, username, created_at, expires_at FROM sessions")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Self { users, sessions })
+    }
+
+    /// Replaces the restored accounts with these. With no accounts here
+    /// (a fresh install), the backup's accounts stay, minus any sessions.
+    fn write(&self, conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute("DELETE FROM sessions", [])?;
+        if self.users.is_empty() {
+            return Ok(());
+        }
+        conn.execute("DELETE FROM users", [])?;
+        for (name, hash, created) in &self.users {
+            conn.execute(
+                "INSERT INTO users (username, password_hash, created_at) VALUES (?1, ?2, ?3)",
+                [name, hash, created],
+            )?;
+        }
+        for (token, name, created, expires) in &self.sessions {
+            conn.execute(
+                "INSERT INTO sessions (token, username, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)",
+                [token, name, created, expires],
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -358,5 +423,63 @@ mod backup_tests {
 
         assert!(matches!(b.restore(b"not a database"), Err(DatabaseError::NotABackup(_))));
         assert_eq!(names(&b), vec!["Kept".to_string()], "a bad file changes nothing");
+    }
+
+    fn count(db: &Database, table: &str) -> i64 {
+        db.with(|c| c.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)))
+            .unwrap()
+    }
+
+    fn add_account(db: &Database, name: &str, token: &str) {
+        db.with(|c| {
+            c.execute("INSERT INTO users (username, password_hash) VALUES (?1, 'h')", [name])?;
+            c.execute(
+                "INSERT INTO sessions (token, username, expires_at) VALUES (?1, ?2, datetime('now', '+1 day'))",
+                [token, name],
+            )
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn backups_carry_no_sessions_and_restores_keep_accounts() {
+        let a = Database::in_memory().unwrap();
+        add_account(&a, "old", "old-token");
+        let bytes = a.export().unwrap();
+        assert!(!bytes.windows(9).any(|w| w == b"old-token"), "no session tokens in a backup");
+
+        // A server with accounts keeps exactly its own after a restore.
+        let b = Database::in_memory().unwrap();
+        add_account(&b, "owner", "owner-token");
+        b.restore(&bytes).unwrap();
+        let users: Vec<String> = b
+            .with(|c| c.prepare("SELECT username FROM users")?.query_map([], |r| r.get(0))?.collect())
+            .unwrap();
+        assert_eq!(users, vec!["owner".to_string()]);
+        assert_eq!(count(&b, "sessions"), 1);
+
+        // Restoring a backup made before any account can't open the app up.
+        let empty = Database::in_memory().unwrap().export().unwrap();
+        b.restore(&empty).unwrap();
+        assert_eq!(count(&b, "users"), 1);
+
+        // A fresh install takes the backup's accounts, but no sessions.
+        let fresh = Database::in_memory().unwrap();
+        fresh.restore(&bytes).unwrap();
+        assert_eq!((count(&fresh, "users"), count(&fresh, "sessions")), (1, 0));
+    }
+
+    #[test]
+    fn rejects_backups_with_triggers() {
+        let a = Database::in_memory().unwrap();
+        a.with(|c| {
+            c.execute_batch(
+                "CREATE TRIGGER t AFTER INSERT ON portfolios BEGIN DELETE FROM portfolios; END;",
+            )
+        })
+        .unwrap();
+        let bytes = a.export().unwrap();
+        let b = Database::in_memory().unwrap();
+        assert!(matches!(b.restore(&bytes), Err(DatabaseError::NotABackup(_))));
     }
 }

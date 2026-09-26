@@ -41,3 +41,9 @@
     break-inside: avoid;
   }
 }
+
+/* Thai: prefer fonts with proper Thai glyphs and tone-mark spacing over
+   whatever the system sans falls back to. */
+html:lang(th) body {
+  font-family: ui-sans-serif, system-ui, "Noto Sans Thai", "Noto Sans Thai UI", "Leelawadee UI", "Thonburi", "Sarabun", sans-serif;
+}

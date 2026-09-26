@@ -26,6 +26,13 @@ pub fn GrowthChart(
         )
     });
 
+    let drop_id = chart_id.clone();
+    use_drop(move || {
+        document::eval(&format!(
+            "window.GrowthChart && window.GrowthChart.dispose && window.GrowthChart.dispose({drop_id:?});"
+        ));
+    });
+
     let id = chart_id.clone();
     use_effect(move || {
         let series = series.read();
@@ -72,7 +79,8 @@ fn join(items: impl Iterator<Item = String>) -> String {
     items.collect::<Vec<_>>().join(",")
 }
 
-/// Quotes a string as a JS string literal.
+/// Quotes a string as a JS string literal (JSON escaping also covers
+/// newlines and control characters, which used to break the script).
 fn js_str(s: &str) -> String {
-    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }

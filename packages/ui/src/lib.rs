@@ -28,6 +28,7 @@ mod app;
 mod cache;
 pub mod i18n;
 mod theme;
+mod vim;
 mod auth;
 pub use app::App;
 

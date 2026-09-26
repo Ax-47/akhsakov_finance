@@ -72,10 +72,17 @@ impl AuthService {
     /// Returns a session token.
     pub async fn login(&self, username: &str, password: &str) -> Result<String, ServiceError> {
         let username = username.trim().to_lowercase();
-        let ok = self
-            .repo
-            .password_hash(&username)?
-            .is_some_and(|hash| self.hasher.verify(password, &hash));
+        // Unknown names still pay for a hash check, so timing doesn't reveal
+        // which usernames exist.
+        let ok = match self.repo.password_hash(&username)? {
+            Some(hash) => self.hasher.verify(password, &hash),
+            None => {
+                static DUMMY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+                let dummy = DUMMY.get_or_init(|| self.hasher.hash(&new_token()).unwrap_or_default());
+                let _ = self.hasher.verify(password, dummy);
+                false
+            }
+        };
         if !ok {
             tokio::time::sleep(FAILED_LOGIN_DELAY).await;
             return Err(invalid("Wrong username or password".into()));

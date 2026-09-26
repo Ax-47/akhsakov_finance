@@ -39,7 +39,7 @@ impl AppSettings {
             Some(_) => Some(
                 fx_rate(&settings)
                     .await
-                    .ok_or_else(|| format!("Couldn't get the USD → {code} rate. Try again shortly."))?,
+                    .ok_or_else(|| crate::i18n::trf("Couldn't get the USD → {} rate. Try again shortly.", &[&code]))?,
             ),
             None => None,
         };
@@ -97,8 +97,10 @@ pub fn App(children: Element) -> Element {
                  window.addEventListener('keydown', e => {
                      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
                          || document.activeElement?.isContentEditable;
-                     const combo = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
-                     if (!combo && (typing || e.key !== '/')) return;
+                     // Physical keys (e.code), so a Thai layout works too.
+                     const combo = (e.ctrlKey || e.metaKey) && e.code === 'KeyK';
+                     const slash = e.code === 'Slash' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+                     if (!combo && (typing || !slash)) return;
                      const box = [...document.querySelectorAll('[data-global-search]')].find(el => el.offsetParent);
                      if (box) { e.preventDefault(); box.focus(); box.select(); }
                  });
@@ -127,6 +129,7 @@ pub fn App(children: Element) -> Element {
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         crate::MotionStyles {}
+        crate::vim::VimKeys {}
         crate::auth::AuthGate {
             AppInner { {children} }
         }

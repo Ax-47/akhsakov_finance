@@ -317,7 +317,7 @@ fn label(ts: i64, style: LabelStyle) -> String {
     let (_, m, d) = civil_from_days(local.div_euclid(86_400));
     let secs = local.rem_euclid(86_400);
     let (hh, mm) = (secs / 3600, secs % 3600 / 60);
-    let month = MONTHS[(m - 1) as usize];
+    let month = crate::i18n::tr_str(MONTHS[(m - 1) as usize]);
     match style {
         LabelStyle::Time => format!("{hh:02}:{mm:02}"),
         LabelStyle::DayTime => format!("{d} {month} {hh:02}:{mm:02}"),

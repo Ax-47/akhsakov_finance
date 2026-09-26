@@ -50,6 +50,37 @@ pub fn tr(text: &'static str) -> &'static str {
     }
 }
 
+/// Like [`tr`] for text that isn't a literal (labels kept in tables and
+/// lists): the translation if there is one, otherwise `text` unchanged.
+pub fn tr_str(text: &str) -> &str {
+    if Runtime::try_current().is_none() {
+        return text;
+    }
+    match LANG() {
+        Lang::En => text,
+        Lang::Th => THAI.get(text).copied().unwrap_or(text),
+    }
+}
+
+/// [`tr`] for a sentence with values in it: each `{}` in the (English)
+/// template is replaced, in order, by the next of `args`. The translation
+/// keeps the `{}`s, so word order can differ between languages.
+pub fn trf(template: &'static str, args: &[&dyn std::fmt::Display]) -> String {
+    let mut out = String::new();
+    let mut args = args.iter();
+    let mut parts = tr(template).split("{}");
+    if let Some(first) = parts.next() {
+        out.push_str(first);
+    }
+    for part in parts {
+        if let Some(arg) = args.next() {
+            out.push_str(&arg.to_string());
+        }
+        out.push_str(part);
+    }
+    out
+}
+
 pub fn current() -> Lang {
     LANG()
 }
@@ -92,5 +123,17 @@ mod tests {
         assert_eq!(THAI.get("Settings"), Some(&"ตั้งค่า"));
         // Outside an app there's no language state: English.
         assert_eq!(tr("Settings"), "Settings");
+        assert_eq!(trf("{} would be worth {}", &[&"VOO", &"$5"]), "VOO would be worth $5");
+        assert_eq!(tr_str("Largest"), "Largest");
+    }
+
+    #[test]
+    fn templates_keep_their_placeholders() {
+        for (en, th) in thai::PAIRS {
+            assert_eq!(en.matches("{}").count(), th.matches("{}").count(), "{en}");
+            for name in ["{n}", "{name}", "{count}"] {
+                assert_eq!(en.contains(name), th.contains(name), "{en}");
+            }
+        }
     }
 }
