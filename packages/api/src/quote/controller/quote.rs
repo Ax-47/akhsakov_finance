@@ -56,7 +56,7 @@ pub async fn get_charts(
         .filter_map(|(ticker, result)| result.ok().map(|candles| (ticker, candles)))
         .collect())
 }
-#[get("/api/quotes/chart", quote_service: Extension<QuoteService>)]
+#[post("/api/quotes/chart", quote_service: Extension<QuoteService>)]
 pub async fn get_chart(
     ticker: TickerSymbol,
     range: Range,
@@ -75,7 +75,7 @@ pub async fn get_chart(
 
 /// Candles in the instrument's own currency (not converted to USD), and
 /// that currency: the chart a broker shows.
-#[get("/api/quotes/chart/native", quote_service: Extension<QuoteService>)]
+#[post("/api/quotes/chart/native", quote_service: Extension<QuoteService>)]
 pub async fn get_native_chart(
     ticker: TickerSymbol,
     range: Range,
@@ -121,7 +121,7 @@ pub async fn get_quotes(tickers: Vec<TickerSymbol>) -> Result<HashMap<TickerSymb
         .collect())
 }
 
-#[get("/api/quotes", quote_service: Extension<QuoteService>)]
+#[post("/api/quotes", quote_service: Extension<QuoteService>)]
 pub async fn get_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
     quote_service
         .get_quote(ticker)
@@ -134,7 +134,7 @@ pub async fn get_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
 }
 /// Latest quote in the instrument's own currency (`currency` says which),
 /// e.g. to prefill a trade as the broker shows it.
-#[get("/api/quotes/native", quote_service: Extension<QuoteService>)]
+#[post("/api/quotes/native", quote_service: Extension<QuoteService>)]
 pub async fn get_native_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnError> {
     quote_service
         .native_quote(ticker)
@@ -147,7 +147,7 @@ pub async fn get_native_quote(ticker: TickerSymbol) -> Result<Quote, ServerFnErr
 }
 
 /// USD per unit of `currency` at the close on `date` (YYYY-MM-DD).
-#[get("/api/quotes/fx", quote_service: Extension<QuoteService>)]
+#[post("/api/quotes/fx", quote_service: Extension<QuoteService>)]
 pub async fn get_fx_rate(
     currency: String,
     date: String,
@@ -163,7 +163,7 @@ pub async fn get_fx_rate(
 }
 
 /// Instruments matching a symbol or company name, e.g. "nvidia".
-#[get("/api/quotes/search", quote_service: Extension<QuoteService>)]
+#[post("/api/quotes/search", quote_service: Extension<QuoteService>)]
 pub async fn search_tickers(query: String) -> Result<Vec<dtos::watch::SearchHit>, ServerFnError> {
     quote_service
         .search(&query)
