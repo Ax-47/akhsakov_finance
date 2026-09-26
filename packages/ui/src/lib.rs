@@ -28,6 +28,7 @@ mod app;
 mod cache;
 pub mod i18n;
 mod theme;
+pub use theme::base_color as theme_base_color;
 mod vim;
 mod auth;
 pub use app::App;
