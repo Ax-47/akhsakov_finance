@@ -53,6 +53,16 @@ cargo clippy -p desktop --features desktop,server
 - Database changes are additive migrations. Never break an existing user's
   database on upgrade.
 
+## UI
+
+- Follow `docs/UI.md`. The maintainer owns the look and feel: any PR that
+  adds or reshapes a screen needs their approval before it merges.
+- A backend feature may ship with a minimal UI (a working control in the
+  right place, all strings translated). Say so in the PR; the polished screen
+  can follow in its own PR.
+- PRs that change what the user sees attach screenshots: desktop and phone
+  width, light and dark theme, English and Thai.
+
 ## Secrets and money
 
 - API keys and other secrets live only in their own table (for example
