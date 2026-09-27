@@ -1,7 +1,7 @@
 use crate::Route;
 use dioxus::prelude::*;
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE,
 };
 
 /// Full-window shell: sidebar on the left, scrollable page on the right.
@@ -14,45 +14,45 @@ pub fn Navbar() -> Element {
                 NavSection { label: ui::i18n::tr("Your money") }
                 Link { to: Route::Home {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     DashboardIcon {}
-                    {ui::i18n::tr("Dashboard")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Dashboard")} }
                 }
                 Link { to: Route::Portfolio {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     PortfolioIcon {}
-                    {ui::i18n::tr("Portfolio")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Portfolio")} }
                 }
                 Link { to: Route::Watchlist {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     WatchlistIcon {}
-                    {ui::i18n::tr("Watchlist")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Watchlist")} }
                 }
                 NavSection { label: ui::i18n::tr("Research") }
                 Link { to: Route::Market {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     MarketIcon {}
-                    {ui::i18n::tr("Markets")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Markets")} }
                 }
                 Link { to: Route::Screener {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     ScreenerIcon {}
-                    {ui::i18n::tr("Screener")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Screener")} }
                 }
                 Link { to: Route::Calendar {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     CalendarIcon {}
-                    {ui::i18n::tr("Calendar")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Calendar")} }
                 }
                 Link { to: Route::Economy {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     EconomyIcon {}
-                    {ui::i18n::tr("Economy")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Economy")} }
                 }
                 Link { to: Route::Learn {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     LearnIcon {}
-                    {ui::i18n::tr("Learn")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Learn")} }
                 }
                 NavSection { label: ui::i18n::tr("Tools") }
                 Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     BacktestIcon {}
-                    {ui::i18n::tr("Backtest")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Backtest")} }
                 }
                 Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     SettingsIcon {}
-                    {ui::i18n::tr("Settings")}
+                    span { class: NAV_LABEL, {ui::i18n::tr("Settings")} }
                 }
             },
             Outlet::<Route> {}

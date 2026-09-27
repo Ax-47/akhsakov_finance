@@ -132,7 +132,7 @@ pub fn VimKeys() -> Element {
     let close = move |_| {
         document::eval(&format!("document.getElementById({HELP_ID:?}).hidden = true;"));
     };
-    let general: [(&str, &str); 10] = [
+    let general: [(&str, &str); 11] = [
         ("j / k", tr("Scroll down / up")),
         ("d / u", tr("Half a page down / up")),
         ("g g", tr("Go to the top")),
@@ -140,6 +140,7 @@ pub fn VimKeys() -> Element {
         ("H / L", tr("Back / forward")),
         ("/", tr("Search stocks")),
         ("Ctrl K", tr("Search stocks")),
+        ("Ctrl B", tr("Collapse or expand the sidebar")),
         ("Esc", tr("Leave a field, close this panel")),
         ("?", tr("Show or hide this panel")),
         ("g + …", tr("Go to a page (below)")),

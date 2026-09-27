@@ -76,9 +76,18 @@ pub fn set_theme(theme: Theme) {
     ));
 }
 
-/// Loads the saved theme and the device's light / dark preference. Call
-/// once from the app root.
+/// Loads the saved theme and the device's light / dark preference, and
+/// keeps `<html>` tagged with the flavour so the page scrollbar, text
+/// selection and native controls match. Call once from the app root.
 pub fn use_theme_init() {
+    use_effect(|| {
+        let flavor = theme_class();
+        document::eval(&format!(
+            "const c = document.documentElement.classList;
+             c.remove('latte', 'frappe', 'macchiato', 'mocha');
+             c.add({flavor:?});"
+        ));
+    });
     use_future(|| async {
         let result = document::eval(&format!(
             "let t = 'system'; try {{ t = localStorage.getItem('{STORAGE_KEY}') || 'system'; }} catch (e) {{}}

@@ -11,9 +11,15 @@ use dioxus::prelude::*;
 use dtos::settings::CURRENCIES;
 
 /// Classes for a sidebar link; pair with `active_class: NAV_LINK_ACTIVE`.
-pub const NAV_LINK: &str = "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium \
-                            text-ctp-subtext0 transition-colors hover:bg-ctp-surface0/50 hover:text-ctp-text";
-pub const NAV_LINK_ACTIVE: &str = "bg-ctp-surface0! text-ctp-text! [&_svg]:text-ctp-mauve";
+pub const NAV_LINK: &str = "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium \
+                            text-ctp-subtext0 transition-colors duration-150 hover:bg-ctp-surface0/50 hover:text-ctp-text \
+                            active:bg-ctp-surface0/80";
+pub const NAV_LINK_ACTIVE: &str = "nav-active bg-ctp-surface0! text-ctp-text! [&_svg]:text-ctp-mauve";
+/// Wrap a sidebar link's text in this, so a collapsed sidebar can show it
+/// as a flyout label beside the icon.
+pub const NAV_LABEL: &str = "nav-label truncate";
+
+const COLLAPSE_KEY: &str = "akhsakov.sidebar";
 
 /// Classes for a bottom tab on phones; pair with `active_class: TAB_LINK_ACTIVE`.
 pub const TAB_LINK: &str = "flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 pt-2 pb-1.5 text-[11px] font-medium \
@@ -29,6 +35,12 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
     let mut more = use_signal(|| false);
     let has_tabs = tabs.is_some();
     let sheet_links = links.clone();
+    let (collapsed, animate) = use_collapsed_sidebar();
+    let aside_class = if animate() {
+        "transition-[width,padding] duration-200 ease-out"
+    } else {
+        ""
+    };
     rsx! {
         crate::vim::VimRouter {}
         // The page itself scrolls (with a sticky sidebar): browsers scroll the
@@ -52,12 +64,29 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
             }
             // Only the link list scrolls (on short windows), so the search results
             // and the currency menu can overflow the sidebar.
-            aside { class: "hidden w-60 shrink-0 flex-col border-r border-ctp-surface0/70 bg-ctp-mantle px-4 py-6 md:sticky md:top-0 md:z-30 md:flex md:h-screen print:hidden",
-                div { class: "px-2", Brand {} }
-                div { class: "mt-6", crate::search::SearchBox {} }
+            aside {
+                class: "hidden w-60 shrink-0 flex-col border-r border-ctp-surface0/70 bg-ctp-mantle px-4 py-6 md:sticky md:top-0 md:z-30 md:flex md:h-screen print:hidden {aside_class}",
+                "data-sidebar": if collapsed() { "collapsed" } else { "expanded" },
+                div { class: "sidebar-head flex items-center justify-between gap-2 px-2",
+                    Brand {}
+                    CollapseButton { collapsed: collapsed(), onclick: move |_| set_collapsed(collapsed, !collapsed()) }
+                }
+                div { class: "mt-6", "data-sidebar-hide": "true", crate::search::SearchBox {} }
+                // Collapsed: search opens the sidebar and focuses the box.
+                button {
+                    class: "sidebar-rail-only mt-6 flex h-10 w-full cursor-pointer items-center justify-center rounded-xl border border-ctp-surface0 \
+                            text-ctp-subtext0 transition-colors hover:border-ctp-surface1 hover:text-ctp-text",
+                    title: tr("Search stocks"),
+                    "aria-label": tr("Search stocks"),
+                    onclick: move |_| {
+                        set_collapsed(collapsed, false);
+                        focus_search();
+                    },
+                    SearchIcon {}
+                }
                 nav { class: "-mx-1 mt-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1", {links} }
-                div { class: "mt-3 mb-3", CurrencyPicker { compact: false } }
-                div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-base/50 p-3",
+                div { class: "mt-3 mb-3", "data-sidebar-hide": "true", CurrencyPicker { compact: false } }
+                div { class: "rounded-2xl border border-ctp-surface0/70 bg-ctp-base/50 p-3", "data-sidebar-hide": "true",
                     if crate::hooks::use_price_stream::OFFLINE() {
                         div { class: "flex items-center gap-2 text-xs text-ctp-peach",
                             span { class: "h-1.5 w-1.5 rounded-full bg-ctp-peach" }
@@ -70,6 +99,11 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
                         }
                     }
                     div { class: "mt-1 text-xs text-ctp-overlay1", {tr("Returns include recorded fees; not tax.")} }
+                }
+                // Collapsed: just the connection dot.
+                div { class: "sidebar-rail-only mt-3 flex justify-center",
+                    title: if crate::hooks::use_price_stream::OFFLINE() { tr("Offline · last saved prices") } else { tr("Prices from Yahoo Finance") },
+                    span { class: if crate::hooks::use_price_stream::OFFLINE() { "h-2 w-2 rounded-full bg-ctp-peach" } else { "h-2 w-2 rounded-full bg-ctp-green" } }
                 }
             }
             div { class: if has_tabs { "min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0" } else { "min-w-0 flex-1" }, {children} }
@@ -94,6 +128,109 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
                     }
                 }
             }
+        }
+    }
+}
+
+/// Whether the wide-screen sidebar is folded to an icon rail, remembered on
+/// this device, and whether its width may animate yet (not while the saved
+/// state is first applied). Ctrl/⌘+B toggles it.
+fn use_collapsed_sidebar() -> (Signal<bool>, Signal<bool>) {
+    let mut collapsed = use_signal(|| false);
+    let mut animate = use_signal(|| false);
+    use_future(move || async move {
+        let mut channel = document::eval(&format!(
+            r#"let saved = false;
+               try {{ saved = localStorage.getItem({COLLAPSE_KEY:?}) === "collapsed"; }} catch (_) {{}}
+               dioxus.send(saved ? "collapse" : "expand");
+               const send = (m) => {{
+                   try {{ dioxus.send(m); return true; }} catch (_) {{ stop(); return false; }}
+               }};
+               const key = (e) => {{
+                   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.code !== "KeyB") return;
+                   if (document.activeElement?.isContentEditable) return;
+                   if (send("toggle")) e.preventDefault();
+               }};
+               const expand = () => send("expand");
+               const stop = () => {{
+                   window.removeEventListener("keydown", key);
+                   window.removeEventListener("sidebar-expand", expand);
+               }};
+               window.addEventListener("keydown", key);
+               window.addEventListener("sidebar-expand", expand);
+               await new Promise(() => {{}});"#
+        ));
+        let mut first = true;
+        while let Ok(message) = channel.recv::<String>().await {
+            match message.as_str() {
+                "collapse" if first => collapsed.set(true),
+                "expand" if first => {}
+                "expand" => set_collapsed(collapsed, false),
+                "toggle" => set_collapsed(collapsed, !collapsed()),
+                _ => {}
+            }
+            if first {
+                first = false;
+                spawn(async move {
+                    crate::notify::sleep_ms(100).await;
+                    animate.set(true);
+                });
+            }
+        }
+    });
+    (collapsed, animate)
+}
+
+fn set_collapsed(mut collapsed: Signal<bool>, value: bool) {
+    if *collapsed.peek() == value {
+        return;
+    }
+    collapsed.set(value);
+    let state = if value { "collapsed" } else { "expanded" };
+    document::eval(&format!(
+        "try {{ localStorage.setItem({COLLAPSE_KEY:?}, {state:?}); }} catch (_) {{}}"
+    ));
+}
+
+/// Focuses the sidebar search once it's shown again.
+fn focus_search() {
+    document::eval(
+        "setTimeout(() => {
+             const box = [...document.querySelectorAll('[data-global-search]')].find(el => el.offsetParent);
+             if (box) { box.focus(); box.select(); }
+         }, 50);",
+    );
+}
+
+#[component]
+fn CollapseButton(collapsed: bool, onclick: EventHandler<MouseEvent>) -> Element {
+    let label = if collapsed { tr("Expand sidebar (Ctrl B)") } else { tr("Collapse sidebar (Ctrl B)") };
+    rsx! {
+        button {
+            class: "flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ctp-overlay1 \
+                    transition-colors hover:bg-ctp-surface0/60 hover:text-ctp-text",
+            title: label,
+            "aria-label": label,
+            "aria-expanded": !collapsed,
+            onclick: move |e| onclick.call(e),
+            svg { class: if collapsed { "h-4 w-4 rotate-180 transition-transform duration-200" } else { "h-4 w-4 transition-transform duration-200" },
+                view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
+                stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",
+                rect { x: "2.5", y: "3.5", width: "15", height: "13", rx: "2.5" }
+                path { d: "M7.5 3.5v13" }
+                path { d: "M13 8l-2 2 2 2" }
+            }
+        }
+    }
+}
+
+#[component]
+fn SearchIcon() -> Element {
+    rsx! {
+        svg { class: "h-4.5 w-4.5", view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
+            stroke_linecap: "round", "aria-hidden": "true",
+            circle { cx: "9", cy: "9", r: "5.5" }
+            path { d: "M13 13l4 4" }
         }
     }
 }
@@ -182,11 +319,11 @@ fn CurrencyPicker(compact: bool) -> Element {
 fn Brand() -> Element {
     rsx! {
         div { class: "flex items-center gap-3",
-            span { class: "flex h-9 w-9 items-center justify-center rounded-xl text-base font-bold text-ctp-crust \
-                           bg-gradient-to-br from-ctp-pink via-ctp-mauve to-ctp-sky",
+            span { class: "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base font-bold text-ctp-crust \
+                           bg-gradient-to-br from-ctp-pink via-ctp-mauve to-ctp-sky shadow-sm shadow-ctp-mauve/30",
                 {tr("A")}
             }
-            div { class: "leading-tight",
+            div { class: "leading-tight", "data-sidebar-hide": "true",
                 div { class: "text-sm font-semibold text-ctp-text", {tr("Akhsakov")} }
                 div { class: "text-xs text-ctp-subtext0", {tr("Finance")} }
             }

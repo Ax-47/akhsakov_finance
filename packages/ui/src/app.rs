@@ -140,8 +140,13 @@ pub fn App(children: Element) -> Element {
                      const combo = (e.ctrlKey || e.metaKey) && e.code === 'KeyK';
                      const slash = e.code === 'Slash' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
                      if (!combo && (typing || !slash)) return;
-                     const box = [...document.querySelectorAll('[data-global-search]')].find(el => el.offsetParent);
-                     if (box) { e.preventDefault(); box.focus(); box.select(); }
+                     const find = () => [...document.querySelectorAll('[data-global-search]')].find(el => el.offsetParent);
+                     const box = find();
+                     if (box) { e.preventDefault(); box.focus(); box.select(); return; }
+                     // Collapsed sidebar: open it, then focus its search.
+                     e.preventDefault();
+                     window.dispatchEvent(new CustomEvent('sidebar-expand'));
+                     setTimeout(() => { const b = find(); if (b) { b.focus(); b.select(); } }, 50);
                  });
              }",
         );
@@ -254,7 +259,13 @@ fn AppInner(children: Element) -> Element {
         if ready() {
             {children}
         } else {
-            div { class: "{crate::theme::theme_class()} flex h-screen items-center justify-center bg-ctp-base text-sm text-ctp-subtext0", {tr("Loading…")} }
+            div { class: "{crate::theme::theme_class()} flex h-screen flex-col items-center justify-center gap-4 bg-ctp-base text-sm text-ctp-subtext0",
+                span { class: "flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-ctp-pink via-ctp-mauve to-ctp-sky \
+                               text-lg font-bold text-ctp-crust shadow-lg shadow-ctp-mauve/20 motion-safe:animate-pulse",
+                    {tr("A")}
+                }
+                span { role: "status", {tr("Loading…")} }
+            }
         }
         crate::offline::OfflineBanner {}
         crate::editors::EditorHost {}
