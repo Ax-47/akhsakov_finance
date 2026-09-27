@@ -87,6 +87,33 @@ dx serve
 
 เปิดที่อยู่ที่ `dx` แสดง (ปกติคือ `http://127.0.0.1:8080`) ครั้งแรกแอปจะสร้างพอร์ตตัวอย่างให้ ถ้าจะเปิดให้เครื่องอื่นเข้าได้ ให้สร้างบัญชีใน Settings ก่อน
 
+### Docker
+
+Docker จะ build เว็บและเซิร์ฟเวอร์แบบ release ไว้ใน image เดียว ข้อมูล SQLite จะอยู่ในโฟลเดอร์ `data/` บนเครื่อง และบังคับให้ล็อกอินตั้งแต่แรก
+
+```sh
+mkdir -p data
+docker compose up --build -d
+```
+
+เปิด `http://127.0.0.1:8080` แล้วสร้างบัญชีแรก ดูสถานะและ log หรือหยุดเซิร์ฟเวอร์ได้ด้วย
+
+```sh
+docker compose ps
+docker compose logs -f app
+docker compose down
+```
+
+ตั้งพอร์ตหรือที่เก็บข้อมูลเองได้โดยใส่ตัวแปรหน้าคำสั่ง เช่น
+
+```sh
+AKHSAKOV_PORT=8090 AKHSAKOV_DATA_DIR=/srv/akhsakov-finance docker compose up --build -d
+```
+
+ตั้ง `AKHSAKOV_REQUIRE_LOGIN=0` ได้ถ้าต้องการพฤติกรรมเหมือน `dx serve` แต่ไม่ควรทำเมื่อเครื่องอื่นเข้าถึงพอร์ตนี้ได้ ถ้าจะเปิดผ่านอินเทอร์เน็ต ให้วาง reverse proxy ที่มี HTTPS ไว้ข้างหน้า
+
+สำรองข้อมูลผ่าน Settings → Backup ได้ขณะที่ระบบทำงานอยู่ ถ้าจะ copy โฟลเดอร์ข้อมูลโดยตรง ให้รัน `docker compose down` ก่อนเพื่อให้ไฟล์ SQLite และ WAL อยู่ในสถานะที่สอดคล้องกัน การลบ container ไม่ลบข้อมูลในโฟลเดอร์บนเครื่อง
+
 ### เดสก์ท็อป
 
 ```sh
