@@ -15,6 +15,11 @@ Owner: **minoplhy** for the AI trader work unless noted; the maintainer
    - Rebuild and commit `packages/ui/assets/tailwind.css`.
    - Move the "Not implemented yet" list out of the PR body; this file tracks
      it now.
+   - Let traders edit the theses of their own portfolio: add `save_thesis` and
+     `add_thesis_note` to `ALLOWED_TOOLS`, add both to the tools whose
+     `portfolio` argument is forced to the trader's portfolio, tell the trader
+     prompt it may change its own theses without asking, and test that a call
+     naming another portfolio still lands on the trader's own.
 
 ## Phase 1: safety first
 
@@ -27,6 +32,21 @@ Before traders run more often or on their own, they need hard limits.
    across all AI portfolios.
 5. **Approval mode**: the trader proposes orders; a person approves or
    rejects them before execution.
+
+## Phase 1.5: a goal for each portfolio
+
+Traders should know what they are trading for. Reuse the existing `goals`
+table from `planning` (target, date, monthly contribution, `portfolio_id`)
+rather than adding a second notion of goal.
+
+5a. **Trader mandate**: add horizon, maximum acceptable drawdown and a
+    benchmark ticker to `TraderConfig` (additive migration), editable next to
+    the strategy in settings.
+5b. **`get_my_goals` tool**: read-only, `portfolio` forced to the trader's
+    own. Traders cannot create, change or delete goals.
+5c. **Goals in the prompt**: at the start of each run, include the
+    portfolio's goals, their `GoalProjection` (on track, required return) and
+    the mandate, so the trader knows whether it is ahead or behind.
 
 ## Phase 2: model compatibility
 
@@ -57,7 +77,7 @@ Before traders run more often or on their own, they need hard limits.
 
 ## Phase 5: race mode
 
-Needs Phases 1, 2 (items 6–8) and 4 (item 15).
+Needs Phases 1, 1.5, 2 (items 6–8) and 4 (item 15).
 
 18. **Race entity and setup**: pick contestant portfolios, equal starting
     capital, duration, round frequency; strategy and model are locked while a
@@ -67,6 +87,7 @@ Needs Phases 1, 2 (items 6–8) and 4 (item 15).
     contestants (the round closes at a deadline; late contestants skip it).
 20. **Controls**: start, pause, resume, stop all.
 21. **Leaderboard**: total return, drawdown, volatility, risk-adjusted return,
+    progress toward each contestant's goal, return against its benchmark,
     fees, turnover, cash allocation and failed runs.
 22. **Race history and export** of results and the tool-call audit.
 

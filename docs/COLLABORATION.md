@@ -64,6 +64,12 @@ cargo clippy -p desktop --features desktop,server
 - AI traders act only on the portfolio they are assigned to, only through the
   allow-listed tools, and within the run limits. Any change that loosens a
   limit or adds a tool is its own PR and says so in its title.
+- Every trader tool call has its `portfolio` argument forced to the trader's
+  own portfolio on the server, whatever the model sent.
+- AI traders may edit the theses of their own portfolio (logged in the journal
+  as written by AI). They never edit the theses of other portfolios.
+- Goals belong to the user. AI traders can read their portfolio's goals but
+  never create, change or delete them.
 - No vendor branding or vendor domains in product copy; keep the UI
   provider-neutral.
 
