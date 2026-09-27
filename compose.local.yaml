@@ -1,0 +1,7 @@
+services:
+  app:
+    image: "${AKHSAKOV_IMAGE:-akhsakov-finance:local}"
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile

@@ -120,12 +120,13 @@ AKHSAKOV_IMAGE=ghcr.io/Ax-47/akhsakov_finance:edge docker compose up -d
 
 สำหรับผู้ดูแลโปรเจกต์: หลัง workflow publish package ครั้งแรก ให้เปิดหน้า Package settings ใน GitHub แล้วเปลี่ยน visibility เป็น Public หนึ่งครั้ง เพื่อให้ผู้ใช้ pull image ได้โดยไม่ต้องล็อกอิน
 
-ถ้าต้องการ build source ใน checkout นี้เอง ให้สร้าง image local แล้วส่งชื่อให้ Compose
+ถ้าต้องการ build source ใน checkout นี้เอง ให้ใช้ Compose override สำหรับ local build
 
 ```sh
-docker build -t akhsakov-finance:local .
-AKHSAKOV_IMAGE=akhsakov-finance:local docker compose up -d
+docker compose -f compose.yaml -f compose.local.yaml up --build -d
 ```
+
+คำสั่งนี้ build `akhsakov-finance:local` จาก `Dockerfile` แล้วใช้ค่า environment, port และ data volume ชุดเดียวกับ Compose ปกติ
 
 ตั้งพอร์ตหรือที่เก็บข้อมูลเองได้โดยใส่ตัวแปรหน้าคำสั่ง เช่น
 
