@@ -23,9 +23,11 @@ on:
 permissions:
   contents: read
 
+# Builds take a while; a new push waits for the running one instead of
+# throwing its results away.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -75,8 +77,16 @@ jobs:
         with:
           key: release-${{ matrix.target }}
       - uses: cargo-bins/cargo-binstall@main
+      # The prebuilt Linux dx needs a newer glibc than Ubuntu 22.04's, so it's
+      # compiled there (rust-cache keeps ~/.cargo/bin for the next run).
       - name: Install dx
-        run: cargo binstall dioxus-cli@${{ env.DX_VERSION }} --no-confirm --force
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            dx --version 2>/dev/null | grep -qF "$DX_VERSION" ||
+              cargo install dioxus-cli --version "$DX_VERSION" --locked --force
+          else
+            cargo binstall "dioxus-cli@$DX_VERSION" --no-confirm --force
+          fi
 
       # dx builds the server along with the app (the app has the fullstack
       # feature), so the first pass provides it. The second puts it inside
