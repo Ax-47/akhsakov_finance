@@ -1,0 +1,17 @@
+services:
+  app:
+    image: "${AKHSAKOV_IMAGE:-ghcr.io/Ax-47/akhsakov_finance:latest}"
+    init: true
+    restart: unless-stopped
+    environment:
+      IP: 0.0.0.0
+      PORT: 8080
+      DIOXUS_PUBLIC_PATH: /app/public
+      AKHSAKOV_DB: /data/akhsakov_finance.db
+      AKHSAKOV_REQUIRE_LOGIN: "${AKHSAKOV_REQUIRE_LOGIN:-1}"
+    ports:
+      - "${AKHSAKOV_PORT:-8080}:8080"
+    volumes:
+      - type: bind
+        source: ${AKHSAKOV_DATA_DIR:-./data}
+        target: /data

@@ -87,6 +87,56 @@ dx serve
 
 เปิดที่อยู่ที่ `dx` แสดง (ปกติคือ `http://127.0.0.1:8080`) ครั้งแรกแอปจะสร้างพอร์ตตัวอย่างให้ ถ้าจะเปิดให้เครื่องอื่นเข้าได้ ให้สร้างบัญชีใน Settings ก่อน
 
+### Docker
+
+Docker image รวมเว็บและเซิร์ฟเวอร์แบบ release ไว้ด้วยกัน ข้อมูล SQLite จะอยู่ในโฟลเดอร์ `data/` บนเครื่อง และบังคับให้ล็อกอินตั้งแต่แรก
+
+```sh
+mkdir -p data
+docker compose up -d
+```
+
+เปิด `http://127.0.0.1:8080` แล้วสร้างบัญชีแรก ดูสถานะและ log หรือหยุดเซิร์ฟเวอร์ได้ด้วย
+
+```sh
+docker compose ps
+docker compose logs -f app
+docker compose down
+```
+
+อัปเดตเป็น release ล่าสุดแล้วเปิด container ใหม่ด้วย
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+ค่าเริ่มต้นใช้ `ghcr.io/Ax-47/akhsakov_finance:latest` ซึ่งมาจาก release tag ล่าสุด เลือกเวอร์ชันตายตัวหรือ build ล่าสุดจาก branch `main` ได้ด้วย `AKHSAKOV_IMAGE`
+
+```sh
+AKHSAKOV_IMAGE=ghcr.io/Ax-47/akhsakov_finance:0.2.0 docker compose up -d
+AKHSAKOV_IMAGE=ghcr.io/Ax-47/akhsakov_finance:edge docker compose up -d
+```
+
+สำหรับผู้ดูแลโปรเจกต์: หลัง workflow publish package ครั้งแรก ให้เปิดหน้า Package settings ใน GitHub แล้วเปลี่ยน visibility เป็น Public หนึ่งครั้ง เพื่อให้ผู้ใช้ pull image ได้โดยไม่ต้องล็อกอิน
+
+ถ้าต้องการ build source ใน checkout นี้เอง ให้สร้าง image local แล้วส่งชื่อให้ Compose
+
+```sh
+docker build -t akhsakov-finance:local .
+AKHSAKOV_IMAGE=akhsakov-finance:local docker compose up -d
+```
+
+ตั้งพอร์ตหรือที่เก็บข้อมูลเองได้โดยใส่ตัวแปรหน้าคำสั่ง เช่น
+
+```sh
+AKHSAKOV_PORT=8090 AKHSAKOV_DATA_DIR=/srv/akhsakov-finance docker compose up -d
+```
+
+ตั้ง `AKHSAKOV_REQUIRE_LOGIN=0` ได้ถ้าต้องการพฤติกรรมเหมือน `dx serve` แต่ไม่ควรทำเมื่อเครื่องอื่นเข้าถึงพอร์ตนี้ได้ ถ้าจะเปิดผ่านอินเทอร์เน็ต ให้วาง reverse proxy ที่มี HTTPS ไว้ข้างหน้า
+
+สำรองข้อมูลผ่าน Settings → Backup ได้ขณะที่ระบบทำงานอยู่ ถ้าจะ copy โฟลเดอร์ข้อมูลโดยตรง ให้รัน `docker compose down` ก่อนเพื่อให้ไฟล์ SQLite และ WAL อยู่ในสถานะที่สอดคล้องกัน การลบ container ไม่ลบข้อมูลในโฟลเดอร์บนเครื่อง
+
 ### เดสก์ท็อป
 
 ```sh
