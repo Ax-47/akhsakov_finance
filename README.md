@@ -111,11 +111,11 @@ docker compose pull
 docker compose up -d
 ```
 
-ค่าเริ่มต้นใช้ `ghcr.io/Ax-47/akhsakov_finance:latest` ซึ่งมาจาก release tag ล่าสุด เลือกเวอร์ชันตายตัวหรือ build ล่าสุดจาก branch `main` ได้ด้วย `AKHSAKOV_IMAGE`
+ค่าเริ่มต้นใช้ `ghcr.io/ax-47/akhsakov_finance:latest` ซึ่งมาจาก release tag ล่าสุด เลือกเวอร์ชันตายตัวหรือ build ล่าสุดจาก branch `main` ได้ด้วย `AKHSAKOV_IMAGE`
 
 ```sh
-AKHSAKOV_IMAGE=ghcr.io/Ax-47/akhsakov_finance:0.2.0 docker compose up -d
-AKHSAKOV_IMAGE=ghcr.io/Ax-47/akhsakov_finance:edge docker compose up -d
+AKHSAKOV_IMAGE=ghcr.io/ax-47/akhsakov_finance:0.2.0 docker compose up -d
+AKHSAKOV_IMAGE=ghcr.io/ax-47/akhsakov_finance:edge docker compose up -d
 ```
 
 สำหรับผู้ดูแลโปรเจกต์: หลัง workflow publish package ครั้งแรก ให้เปิดหน้า Package settings ใน GitHub แล้วเปลี่ยน visibility เป็น Public หนึ่งครั้ง เพื่อให้ผู้ใช้ pull image ได้โดยไม่ต้องล็อกอิน
