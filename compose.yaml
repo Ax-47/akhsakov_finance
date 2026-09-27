@@ -1,9 +1,6 @@
 services:
   app:
-    image: akhsakov-finance:local
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: "${AKHSAKOV_IMAGE:-ghcr.io/Ax-47/akhsakov_finance:latest}"
     init: true
     restart: unless-stopped
     environment:
