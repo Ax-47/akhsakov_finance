@@ -43,9 +43,13 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
     };
     rsx! {
         crate::vim::VimRouter {}
-        // The page itself scrolls (with a sticky sidebar): browsers scroll the
-        // document much more smoothly than a scrolling box inside it.
-        div { class: "{crate::theme::theme_class()} flex min-h-screen flex-col bg-ctp-base text-ctp-text md:flex-row print:block",
+        // Wide screens: the window doesn't scroll, the content column does
+        // (`data-scroll-root`), beside a sidebar that stays put. With the page
+        // scrolling and a sticky or fixed sidebar, WebKit painting without
+        // GPU compositing redrew the sidebar on every scroll frame: 10–19 ms
+        // a frame against ~7 ms (144 fps) this way. Narrow screens scroll the
+        // page, under a sticky header.
+        div { class: "{crate::theme::theme_class()} flex min-h-screen flex-col bg-ctp-base text-ctp-text md:h-screen md:flex-row md:overflow-hidden print:block print:h-auto print:overflow-visible",
             // Narrow screens: brand, search and currency, then the links on
             // their own row that scrolls sideways.
             header { class: "sticky top-0 z-40 border-b border-ctp-surface0/70 bg-ctp-mantle px-4 pt-3 md:hidden print:hidden",
@@ -65,7 +69,7 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
             // Only the link list scrolls (on short windows), so the search results
             // and the currency menu can overflow the sidebar.
             aside {
-                class: "hidden w-60 shrink-0 flex-col border-r border-ctp-surface0/70 bg-ctp-mantle px-4 py-6 md:sticky md:top-0 md:z-30 md:flex md:h-screen print:hidden {aside_class}",
+                class: "hidden w-60 shrink-0 flex-col border-r border-ctp-surface0/70 bg-ctp-mantle px-4 py-6 md:relative md:z-30 md:flex md:h-screen print:hidden {aside_class}",
                 "data-sidebar": if collapsed() { "collapsed" } else { "expanded" },
                 div { class: "sidebar-head flex items-center justify-between gap-2 px-2",
                     Brand {}
@@ -106,7 +110,15 @@ pub fn Sidebar(links: Element, children: Element, #[props(default)] tabs: Option
                     span { class: if crate::hooks::use_price_stream::OFFLINE() { "h-2 w-2 rounded-full bg-ctp-peach" } else { "h-2 w-2 rounded-full bg-ctp-green" } }
                 }
             }
-            div { class: if has_tabs { "min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0" } else { "min-w-0 flex-1" }, {children} }
+            div {
+                class: if has_tabs {
+                    "min-w-0 flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] md:h-screen md:overflow-y-auto md:pb-0 print:h-auto print:overflow-visible"
+                } else {
+                    "min-w-0 flex-1 md:h-screen md:overflow-y-auto print:h-auto print:overflow-visible"
+                },
+                "data-scroll-root": "true",
+                {children}
+            }
             if let Some(tabs) = tabs {
                 if more() {
                     // "More": every page, as a sheet above the tab bar.

@@ -4,7 +4,10 @@
 @source "../desktop/src/**/*.{rs,html,css}";
 
 @theme {
-  --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* `backwards`, not `both`: once finished the animation lets go, so the
+     section doesn't stay a separate compositing layer for good (in
+     WebKit a transform held by a filled animation keeps one). */
+  --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 
   @keyframes rise {
     from { opacity: 0; transform: translateY(8px); }
@@ -22,6 +25,11 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     -webkit-tap-highlight-color: transparent;
+  }
+  /* Wide screens scroll the content column, not the window (sidebar.rs). */
+  @media (width >= 48rem) {
+    html { scrollbar-gutter: auto; }
+    [data-scroll-root] { scrollbar-gutter: stable; }
   }
   html.latte { color-scheme: light; }
   html.frappe,
@@ -156,15 +164,6 @@ aside .nav-active::before {
 :focus-visible {
   outline: 2px solid var(--catppuccin-color-mauve);
   outline-offset: 2px;
-}
-
-/* While the page scrolls, hovering cards and rows under the cursor would
-   repaint and animate on every frame; ignore the pointer until it settles.
-   Set on <body> only and inherited: a `.is-scrolling *` rule made the
-   webview restyle every element each time scrolling started and stopped,
-   which was itself a big part of the scroll lag on desktop. */
-html.is-scrolling body {
-  pointer-events: none;
 }
 
 /* Lite effects (Settings → Appearance, or Auto on slow devices): nothing

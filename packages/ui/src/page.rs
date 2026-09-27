@@ -15,7 +15,7 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 pub fn Page(children: Element) -> Element {
     // A newly opened page starts at the top.
     use_hook(|| {
-        document::eval("window.scrollTo(0, 0);");
+        document::eval("window.scrollTo(0, 0); document.querySelector('[data-scroll-root]')?.scrollTo(0, 0);");
     });
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }

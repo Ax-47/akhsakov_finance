@@ -50,7 +50,9 @@ fn script() -> String {
     // on a sidebar link isn't handled by the desktop app's router, which then
     // opens the link in the system browser as file:///portfolio.
     const go = (path) => window.dispatchEvent(new CustomEvent("vim-go", {{ detail: path }}));
-    const scroll = (dy) => window.scrollBy({{ top: dy, behavior: "auto" }});
+    // The content column on wide screens, else the window (see app.rs).
+    const scroller = () => (window.pageScroller ? window.pageScroller() : document.scrollingElement);
+    const scroll = (dy) => scroller().scrollBy({{ top: dy, behavior: "auto" }});
     window.addEventListener("keydown", (e) => {{
         if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
         const el = document.activeElement;
@@ -74,16 +76,16 @@ fn script() -> String {
         if (pending === "g") {{
             pending = "";
             clearTimeout(timer);
-            if (key === "g") window.scrollTo({{ top: 0 }});
+            if (key === "g") scroller().scrollTo({{ top: 0 }});
             else if (pages[key]) go(pages[key]);
             else handled = false;
         }} else {{
             switch (key) {{
                 case "j": scroll(step); break;
                 case "k": scroll(-step); break;
-                case "d": scroll(window.innerHeight / 2); break;
-                case "u": scroll(-window.innerHeight / 2); break;
-                case "G": window.scrollTo({{ top: document.documentElement.scrollHeight }}); break;
+                case "d": scroll(scroller().clientHeight / 2); break;
+                case "u": scroll(-scroller().clientHeight / 2); break;
+                case "G": scroller().scrollTo({{ top: scroller().scrollHeight }}); break;
                 case "H": history.back(); break;
                 case "L": history.forward(); break;
                 case "?": if (h) h.hidden = !h.hidden; break;

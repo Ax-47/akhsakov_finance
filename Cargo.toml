@@ -38,10 +38,18 @@ dtos = { path = "packages/dtos" }
 # our own crates stay quick to rebuild.
 [profile.dev.package."*"]
 opt-level = 2
+debug = false
+
+# Full debug info made each dev binary ~520 MB (90% DWARF), so every
+# rebuild spent most of its link time writing it. Line tables keep file:line
+# in backtraces; attach a debugger to a `debug = true` build when needed.
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = "debuginfo"
 
 # Smaller WebAssembly for `dx build --release` on the web.
 [profile.wasm-release]

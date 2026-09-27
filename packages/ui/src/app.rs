@@ -129,6 +129,35 @@ impl DataRefresh {
 pub fn App(children: Element) -> Element {
     use_hook(|| {
         document::eval(&format!("window.ECHARTS_URL = {:?};", ECHARTS_JS.to_string()));
+        // What scrolls the page: the content column on wide screens (see
+        // sidebar.rs), else the window. Used by the vim keys too.
+        document::eval(
+            "window.pageScroller = () => {
+                 const box = document.querySelector('[data-scroll-root]');
+                 return box && getComputedStyle(box).overflowY !== 'visible' ? box : document.scrollingElement;
+             };
+             if (!window.__columnKeys) {
+                 window.__columnKeys = true;
+                 // Arrows, Page Up/Down, Space, Home/End scroll the column even
+                 // when focus is elsewhere (a sidebar link, nothing at all):
+                 // the webview only scrolls the focused box or the window.
+                 window.addEventListener('keydown', e => {
+                     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+                     const box = window.pageScroller();
+                     if (box === document.scrollingElement || document.querySelector('[role=\"dialog\"]')) return;
+                     const a = document.activeElement;
+                     if (a && a !== document.body && (box.contains(a) || a.isContentEditable
+                         || /^(INPUT|TEXTAREA|SELECT|BUTTON|SUMMARY)$/.test(a.tagName) || a.getAttribute('role') === 'button')) return;
+                     const page = box.clientHeight * 0.875;
+                     const by = { ArrowDown: 40, ArrowUp: -40, PageDown: page, PageUp: -page, ' ': e.shiftKey ? -page : page }[e.key];
+                     if (e.key === 'Home') box.scrollTo({ top: 0, behavior: 'smooth' });
+                     else if (e.key === 'End') box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+                     else if (by !== undefined) box.scrollBy({ top: by, behavior: 'smooth' });
+                     else return;
+                     e.preventDefault();
+                 });
+             }",
+        );
         // "/" or Ctrl/⌘+K jumps to stock search (unless you're typing).
         document::eval(
             "if (!window.__searchKey) {
@@ -148,23 +177,6 @@ pub fn App(children: Element) -> Element {
                      window.dispatchEvent(new CustomEvent('sidebar-expand'));
                      setTimeout(() => { const b = find(); if (b) { b.focus(); b.select(); } }, 50);
                  });
-             }",
-        );
-        // Tag the page while it scrolls (see `.is-scrolling` in input.css).
-        document::eval(
-            "if (!window.__scrollTag) {
-                 window.__scrollTag = true;
-                 // Only the user's own scrolling (wheel, touch, keys) pauses
-                 // hovers; programmatic scrolls like going to the top don't.
-                 let t, userScroll = 0;
-                 const intent = () => { userScroll = Date.now(); };
-                 ['wheel', 'touchmove', 'keydown'].forEach(e => window.addEventListener(e, intent, { passive: true, capture: true }));
-                 window.addEventListener('scroll', () => {
-                     if (Date.now() - userScroll > 300) return;
-                     document.documentElement.classList.add('is-scrolling');
-                     clearTimeout(t);
-                     t = setTimeout(() => document.documentElement.classList.remove('is-scrolling'), 150);
-                 }, { passive: true, capture: true });
              }",
         );
     });

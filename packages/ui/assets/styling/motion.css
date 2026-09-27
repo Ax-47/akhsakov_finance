@@ -27,6 +27,12 @@
   animation-fill-mode: both;
 }
 
+/* The new glyph ends where it would sit anyway, so it lets go once done
+   (a held transform keeps a compositing layer per character). */
+.odo-new {
+  animation-fill-mode: backwards;
+}
+
 .odo-old {
   position: absolute;
   inset: 0;

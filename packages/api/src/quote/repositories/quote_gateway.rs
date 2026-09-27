@@ -21,8 +21,10 @@ use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::Tic
 #[async_trait]
 pub trait QuoteGateway: Send + Sync {
     async fn subscribe(&self) -> Receiver<QuoteUpdateEvent>;
-    async fn add_ticker(&mut self, ticker: TickerSymbol) -> Result<(), QuoteGateWayError>;
-    async fn remove_ticker(&mut self, ticker: &TickerSymbol) -> Result<(), QuoteGateWayError>;
+    /// Streams prices for `tickers`, counting one more watcher for each.
+    async fn add_tickers(&mut self, tickers: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError>;
+    /// Drops one watcher for each of `tickers`; unwatched ones stop streaming.
+    async fn remove_tickers(&mut self, tickers: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError>;
     async fn get_chart(
         &self,
         ticker: TickerSymbol,
@@ -44,12 +46,12 @@ impl QuoteGateway for YahooGateWay {
         self.subscribe().await
     }
 
-    async fn add_ticker(&mut self, ticker: TickerSymbol) -> Result<(), QuoteGateWayError> {
-        self.add_ticker(ticker).await.map_err(Into::into)
+    async fn add_tickers(&mut self, tickers: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
+        self.add_tickers(tickers).await.map_err(Into::into)
     }
 
-    async fn remove_ticker(&mut self, ticker: &TickerSymbol) -> Result<(), QuoteGateWayError> {
-        self.remove_ticker(ticker).await.map_err(Into::into)
+    async fn remove_tickers(&mut self, tickers: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
+        self.remove_tickers(tickers).await.map_err(Into::into)
     }
 
     async fn get_chart(

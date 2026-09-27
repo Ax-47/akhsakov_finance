@@ -188,19 +188,22 @@ async fn handle_socket(
     loop {
         select! {
             msg = socket.recv() => match msg {
+                // Only what changed reaches the price stream, so resending
+                // the same list (every data reload does) costs nothing.
                 Ok(ClientEvent::Watch(tickers)) => {
-                    for ticker in &tickers {
-                        if quote_service.watch(ticker.clone()).await.is_err() {
-                            tracing::warn!("failed to watch {ticker}");
-                        }
+                    let added: Vec<TickerSymbol> = tickers.iter().filter(|t| !watched.contains(t)).cloned().collect();
+                    let dropped: Vec<TickerSymbol> = watched.iter().filter(|t| !tickers.contains(t)).cloned().collect();
+                    if quote_service.watch(added.clone()).await.is_err() {
+                        tracing::warn!("failed to watch {added:?}");
                     }
+                    let _ = quote_service.unwatch(dropped).await;
                     watched = tickers;
-                    rx = quote_service.subscribe().await;
                 }
                 Ok(ClientEvent::Unwatch(ticker)) => {
-                    let _ = quote_service.unwatch(&ticker).await;
-                    watched.retain(|t| t != &ticker);
-                    rx = quote_service.subscribe().await;
+                    if watched.contains(&ticker) {
+                        let _ = quote_service.unwatch(vec![ticker.clone()]).await;
+                        watched.retain(|t| t != &ticker);
+                    }
                 }
                 Err(_) => break,
             },
@@ -225,7 +228,5 @@ async fn handle_socket(
 
     // Unwatch everything this connection held so the service stops
     // fetching prices for a dead socket.
-    for ticker in &watched {
-        let _ = quote_service.unwatch(ticker).await;
-    }
+    let _ = quote_service.unwatch(watched).await;
 }
