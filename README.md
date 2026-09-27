@@ -20,6 +20,25 @@
 - **เชื่อมต่อ Claude (MCP)**: ให้ Claude อ่านพอร์ตและช่วยจด thesis ได้ และให้เงินสมมติกับ Claude ไปบริหารพอร์ตของตัวเองได้
 - ล็อกอินหลายผู้ใช้, 13 สกุลเงินแสดงผล, ธีม Catppuccin, โหมด Lite, คีย์ลัดแบบ Vim
 
+## ติดตั้งแอปเดสก์ท็อป (Linux)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Ax-47/akhsakov_finance/main/installer.sh | bash
+```
+
+installer ดึง AppImage และไฟล์ `server` จาก GitHub release ล่าสุดมาติดตั้งให้ผู้ใช้คนปัจจุบัน ไม่ต้องใช้ sudo ตัวแอปและข้อมูลอยู่ใน `~/.local/share/akhsakov-finance/` คำสั่ง `akhsakov-finance` อยู่ใน `~/.local/bin/` และมีไอคอนในเมนูแอป ตอนเปิดแอป launcher จะเปิดเซิร์ฟเวอร์ที่ `127.0.0.1:8080` ให้ และปิดตามเมื่อปิดหน้าต่าง
+
+เครื่องต้องมี WebKitGTK 4.1 และ xdotool (Arch: `sudo pacman -S webkit2gtk-4.1 xdotool`) ถ้าขาดอะไร installer จะบอก
+
+- อัปเดต: รันคำสั่งเดิมซ้ำ ข้อมูลยังอยู่ครบ
+- เลือกเวอร์ชัน: `… | bash -s -- --version <tag>`
+- ติดตั้งจากไฟล์ที่ build เอง: `./installer.sh --appimage <ไฟล์ .AppImage> --server <ไฟล์ server>`
+- ถอนการติดตั้ง: `… | bash -s -- --uninstall` (เก็บข้อมูลไว้) หรือ `--purge` (ลบข้อมูลด้วย)
+- ย้ายข้อมูลจากตอนรัน `dx serve`: copy `akhsakov_finance.db` ไปไว้ใน `~/.local/share/akhsakov-finance/` ตอนแอปปิดอยู่
+- log ของเซิร์ฟเวอร์อยู่ที่ `~/.local/state/akhsakov-finance/server.log`
+
+release ที่ installer ใช้ได้ต้องแนบไฟล์ `.AppImage` ของแอปเดสก์ท็อป และไบนารีเซิร์ฟเวอร์ที่ชื่อมีคำว่า `server` (เช่นที่ได้จาก `dx bundle`) ไบนารีผูกกับ glibc ของเครื่องที่ build ถ้า build บน Arch แล้ว distro ที่ glibc เก่ากว่าอาจรันไม่ได้
+
 ## เริ่มใช้งาน
 
 ต้องมี Rust (stable) และ [Dioxus CLI](https://dioxuslabs.com/learn/0.7/getting_started/)
