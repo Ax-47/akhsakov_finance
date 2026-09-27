@@ -1,14 +1,19 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1-bookworm AS builder
+FROM rust:1-trixie AS builder
 
 ARG DX_VERSION=0.7.9
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libssl-dev pkg-config \
+    && apt-get install -y --no-install-recommends ca-certificates curl libssl-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install dioxus-cli --version "${DX_VERSION}" --locked
+RUN curl --fail --location --silent --show-error \
+        "https://github.com/DioxusLabs/dioxus/releases/download/v${DX_VERSION}/dx-x86_64-unknown-linux-gnu.tar.gz" \
+        --output /tmp/dx.tar.gz \
+    && tar --extract --gzip --file /tmp/dx.tar.gz --directory /usr/local/bin dx \
+    && rm /tmp/dx.tar.gz \
+    && dx --version
 
 WORKDIR /src
 COPY . .
@@ -19,10 +24,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     dx bundle --web --release --out-dir /opt/akhsakov-finance
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+    && apt-get install -y --no-install-recommends ca-certificates curl libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
