@@ -9,3 +9,9 @@ script = []
 
 [web.resource.dev]
 script = []
+
+[bundle]
+identifier = "com.akhsakov.finance"
+publisher = "Akhsakov"
+short_description = "Personal finance application"
+category = "Finance"
