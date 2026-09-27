@@ -34,6 +34,7 @@ mod theme;
 pub use theme::base_color as theme_base_color;
 mod vim;
 mod auth;
+pub mod server_address;
 pub use app::App;
 
 mod alerts;

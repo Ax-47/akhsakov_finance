@@ -167,6 +167,7 @@ pub fn SettingsPage() -> Element {
                     ActionButton { label: tr("Save settings"), onclick: save }
                 }
                 Appearance {}
+                crate::server_address::ServerCard {}
                 crate::auth::SecurityCard {}
                 NotificationSettings {}
                 ConnectorCard {}
@@ -189,7 +190,7 @@ pub fn SettingsPage() -> Element {
                             GhostButton { label: tr("Print / PDF"), onclick: move |_| print_report() }
                         }
                         p { class: "text-xs text-ctp-overlay1",
-                            {tr("Your data is stored in akhsakov_finance.db where the app runs (set AKHSAKOV_DB to keep it elsewhere). Point the phone app at the same server to see the same data everywhere.")}
+                            {tr("Your data is stored in akhsakov_finance.db on the computer that runs the server (set AKHSAKOV_DB to keep it elsewhere). Point the phone app at the same server to see the same data everywhere.")}
                         }
                     }
                 }

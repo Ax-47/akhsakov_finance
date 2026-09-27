@@ -20,24 +20,55 @@
 - **เชื่อมต่อ Claude (MCP)**: ให้ Claude อ่านพอร์ตและช่วยจด thesis ได้ และให้เงินสมมติกับ Claude ไปบริหารพอร์ตของตัวเองได้
 - ล็อกอินหลายผู้ใช้, 13 สกุลเงินแสดงผล, ธีม Catppuccin, โหมด Lite, คีย์ลัดแบบ Vim
 
-## ติดตั้งแอปเดสก์ท็อป (Linux)
+## ติดตั้ง
+
+ติดตั้งให้ผู้ใช้คนปัจจุบันจาก GitHub release ล่าสุด ไม่ต้องใช้ sudo หรือสิทธิ์ admin
+
+**Linux (x86_64) และ macOS**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Ax-47/akhsakov_finance/main/installer.sh | bash
 ```
 
-installer ดึง AppImage และไฟล์ `server` จาก GitHub release ล่าสุดมาติดตั้งให้ผู้ใช้คนปัจจุบัน ไม่ต้องใช้ sudo ตัวแอปและข้อมูลอยู่ใน `~/.local/share/akhsakov-finance/` คำสั่ง `akhsakov-finance` อยู่ใน `~/.local/bin/` และมีไอคอนในเมนูแอป ตอนเปิดแอป launcher จะเปิดเซิร์ฟเวอร์ที่ `127.0.0.1:8080` ให้ และปิดตามเมื่อปิดหน้าต่าง
+**Windows** (PowerShell)
 
-เครื่องต้องมี WebKitGTK 4.1 และ xdotool (Arch: `sudo pacman -S webkit2gtk-4.1 xdotool`) ถ้าขาดอะไร installer จะบอก
+```powershell
+irm https://raw.githubusercontent.com/Ax-47/akhsakov_finance/main/installer.ps1 | iex
+```
 
-- อัปเดต: รันคำสั่งเดิมซ้ำ ข้อมูลยังอยู่ครบ
-- เลือกเวอร์ชัน: `… | bash -s -- --version <tag>`
-- ติดตั้งจากไฟล์ที่ build เอง: `./installer.sh --appimage <ไฟล์ .AppImage> --server <ไฟล์ server>`
-- ถอนการติดตั้ง: `… | bash -s -- --uninstall` (เก็บข้อมูลไว้) หรือ `--purge` (ลบข้อมูลด้วย)
-- ย้ายข้อมูลจากตอนรัน `dx serve`: copy `akhsakov_finance.db` ไปไว้ใน `~/.local/share/akhsakov-finance/` ตอนแอปปิดอยู่
-- log ของเซิร์ฟเวอร์อยู่ที่ `~/.local/state/akhsakov-finance/server.log`
+**Android**: ดาวน์โหลด `akhsakov-finance-android-arm64.apk` จากหน้า [Releases](https://github.com/Ax-47/akhsakov_finance/releases) มาติดตั้งบนมือถือ เปิดแอปครั้งแรกจะถามที่อยู่เซิร์ฟเวอร์ ให้รัน `akhsakov-finance run server --lan` บนคอมพิวเตอร์ (มือถือกับคอมต้องอยู่ Wi-Fi เดียวกัน) แล้วกรอกที่อยู่ที่คำสั่งแสดง เช่น `http://192.168.1.20:8080` เปลี่ยนทีหลังได้ใน Settings → Server
 
-release ที่ installer ใช้ได้ต้องแนบไฟล์ `.AppImage` ของแอปเดสก์ท็อป และไบนารีเซิร์ฟเวอร์ที่ชื่อมีคำว่า `server` (เช่นที่ได้จาก `dx bundle`) ไบนารีผูกกับ glibc ของเครื่องที่ build ถ้า build บน Arch แล้ว distro ที่ glibc เก่ากว่าอาจรันไม่ได้
+ตัวแอปเดสก์ท็อปเปิดเซิร์ฟเวอร์ของตัวเองที่ `127.0.0.1:8080` แล้วปิดตามเมื่อปิดหน้าต่าง ข้อมูลอยู่ที่
+
+| ระบบ | ข้อมูล (`akhsakov_finance.db`, `server.log`) | ตัวแอป |
+|---|---|---|
+| Linux | `~/.local/share/akhsakov-finance/` | อยู่ในโฟลเดอร์เดียวกัน (`app/`) และมีไอคอนในเมนูแอป |
+| macOS | `~/Library/Application Support/akhsakov-finance/` | `~/Applications/AkhsakovFinance.app` |
+| Windows | `%LOCALAPPDATA%\akhsakov-finance\` | `%LOCALAPPDATA%\Programs\AkhsakovFinance\` และใน Start menu |
+
+### คำสั่ง `akhsakov-finance`
+
+```sh
+akhsakov-finance                        # เปิดแอป
+akhsakov-finance run server             # รันแค่เซิร์ฟเวอร์ (ให้เครื่องนี้เท่านั้นเข้าได้)
+akhsakov-finance run server --lan       # ให้มือถือและเครื่องอื่นใน Wi-Fi เดียวกันเข้าได้ (--port เปลี่ยนพอร์ต)
+akhsakov-finance update                 # ติดตั้ง release ล่าสุด (--version <tag> เลือกเวอร์ชัน)
+akhsakov-finance uninstall              # ถอนการติดตั้ง เก็บข้อมูลไว้ (--purge ลบข้อมูลด้วย)
+akhsakov-finance version
+```
+
+- ถ้าเปิด `run server` ไว้ก่อน แอปเดสก์ท็อปจะใช้เซิร์ฟเวอร์ตัวนั้นแทนการเปิดของตัวเอง ใช้ข้อมูลชุดเดียวกับมือถือได้
+- ก่อนใช้ `--lan` ให้สร้างบัญชีใน Settings → Security ก่อน ไม่งั้นใครใน Wi-Fi เดียวกันก็เปิดข้อมูลได้ ครั้งแรกระบบอาจถามเรื่อง firewall ให้กดอนุญาต
+- ติดตั้งจากไฟล์ที่ build เอง: `./installer.sh --from <ไฟล์ .AppImage หรือ .zip>` หรือ `./installer.ps1 -From <ไฟล์ -setup.exe>`
+- ย้ายข้อมูลจากตอนรัน `dx serve`: copy `akhsakov_finance.db` ไปไว้ในโฟลเดอร์ข้อมูลตามตารางด้านบนตอนแอปปิดอยู่
+- Linux ต้องมี WebKitGTK 4.1 (Arch: `sudo pacman -S webkit2gtk-4.1`) ถ้าขาดอะไร installer จะบอก
+- macOS: ไฟล์ `.zip` ที่ดาวน์โหลดผ่านเบราว์เซอร์จะติด quarantine เพราะแอปไม่ได้ sign ถ้าเปิดไม่ขึ้นให้ใช้ installer หรือรัน `xattr -dr com.apple.quarantine AkhsakovFinance.app`
+
+### ออก release
+
+push tag ที่ขึ้นต้นด้วย `v` (เช่น `git tag v0.2.0 && git push origin v0.2.0`) แล้ว workflow [Release](.github/workflows/release.yml) จะ build ทุกแพลตฟอร์ม ใส่เซิร์ฟเวอร์ไว้ในแต่ละ bundle และสร้าง GitHub release พร้อม `SHA256SUMS` ให้ installer ใช้
+
+ถ้าอยากให้อัปเดตแอป Android ทับของเดิมได้ ต้อง sign ด้วย key เดิมทุกครั้ง: ตั้ง secret `ANDROID_KEYSTORE` (ไฟล์ .jks แบบ base64), `ANDROID_KEYSTORE_PASSWORD` และ `ANDROID_KEY_ALIAS` ถ้าไม่ตั้ง APK จะ sign ด้วย debug key ที่เปลี่ยนทุก build ต้องลบแอปเก่าก่อนติดตั้งเวอร์ชันใหม่
 
 ## เริ่มใช้งาน
 
@@ -67,7 +98,7 @@ dx serve --platform desktop
 
 ### มือถือ
 
-แอปมือถือต่อกับเซิร์ฟเวอร์ที่รันอยู่บนเครื่องอื่น ต้องบอกที่อยู่เซิร์ฟเวอร์ตอน build (มือถือมองไม่เห็น `127.0.0.1` ของคอมพิวเตอร์ ส่วน Android emulator ใช้ `http://10.0.2.2:8080`)
+แอปมือถือต่อกับเซิร์ฟเวอร์ที่รันอยู่บนเครื่องอื่น ถ้าไม่ได้ระบุตอน build แอปจะถามที่อยู่ตอนเปิดครั้งแรก (มือถือมองไม่เห็น `127.0.0.1` ของคอมพิวเตอร์ ส่วน Android emulator ใช้ `http://10.0.2.2:8080`) ระบุไว้ตอน build ได้แบบนี้
 
 ```sh
 cd packages/mobile
@@ -78,9 +109,9 @@ AKHSAKOV_SERVER_URL=http://192.168.1.20:8080 dx serve --platform android
 
 | ตัวแปร | ความหมาย |
 |---|---|
-| `AKHSAKOV_DB` | ไฟล์ฐานข้อมูล (ค่าเริ่มต้น `akhsakov_finance.db` ในโฟลเดอร์ที่รัน) |
+| `AKHSAKOV_DB` | ไฟล์ฐานข้อมูล (ค่าเริ่มต้น `akhsakov_finance.db` ในโฟลเดอร์ที่รัน ส่วนแอปที่ติดตั้งใช้โฟลเดอร์ข้อมูลตามตารางในหัวข้อติดตั้ง) |
 | `AKHSAKOV_REQUIRE_LOGIN` | `1` = บังคับล็อกอินตั้งแต่แรก แม้ยังไม่มีบัญชี |
-| `AKHSAKOV_SERVER_URL` | ที่อยู่เซิร์ฟเวอร์ของแอปมือถือ (ใช้ตอน build) |
+| `AKHSAKOV_SERVER_URL` | ที่อยู่เซิร์ฟเวอร์ของแอปมือถือ (ใช้ตอน build ถ้าไม่ตั้ง แอปจะถามตอนเปิดครั้งแรก) |
 | `AKHSAKOV_FAST_RENDERING` | `1` = ให้เดสก์ท็อปบน Wayland ใช้ GPU เต็มที่ (เร็วกว่า แต่บางเครื่องจอกระพริบ) |
 
 ## โครงสร้างโปรเจกต์
@@ -88,7 +119,7 @@ AKHSAKOV_SERVER_URL=http://192.168.1.20:8080 dx serve --platform android
 ```
 packages/
 ├─ web/       จุดเริ่มของเว็บ (route และเมนู)
-├─ desktop/   จุดเริ่มของเดสก์ท็อป (เซิร์ฟเวอร์รันในแอปเดียวกัน)
+├─ desktop/   จุดเริ่มของเดสก์ท็อป (แอปที่ติดตั้งเปิดเซิร์ฟเวอร์ของตัวเอง: src/local_server.rs)
 ├─ mobile/    จุดเริ่มของมือถือ
 ├─ ui/        หน้าจอและคอมโพเนนต์ที่ทุกแพลตฟอร์มใช้ร่วมกัน, คำแปลภาษาไทย (src/i18n/thai.rs)
 ├─ api/       server functions แยกเป็น bounded context (portfolio, quote, assets,

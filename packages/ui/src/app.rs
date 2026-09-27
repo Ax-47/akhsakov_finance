@@ -187,8 +187,10 @@ pub fn App(children: Element) -> Element {
         document::Stylesheet { href: TAILWIND_CSS }
         crate::MotionStyles {}
         crate::vim::VimKeys {}
-        crate::auth::AuthGate {
-            AppInner { {children} }
+        crate::server_address::ServerGate {
+            crate::auth::AuthGate {
+                AppInner { {children} }
+            }
         }
     }
 }

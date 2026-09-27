@@ -3,6 +3,12 @@ name = "mobile"
 version = "0.1.0"
 edition = "2021"
 
+# Named after the app: the Android launcher shows AkhsakovFinance. (An
+# underscore, so the file doesn't clash with the desktop's akhsakov-finance.)
+[[bin]]
+name = "akhsakov_finance"
+path = "src/main.rs"
+
 [dependencies]
 dioxus = { workspace = true, features = ["router", "fullstack"] }
 ui = { workspace = true }

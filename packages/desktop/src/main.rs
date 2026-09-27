@@ -1,7 +1,16 @@
+// The app opens without a console window on Windows. The server build
+// keeps its console for `akhsakov-finance run server`.
+#![cfg_attr(
+    all(windows, feature = "desktop", not(feature = "server"), not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 use dioxus::prelude::*;
 
 use crate::views::Navbar;
 
+#[cfg(all(feature = "desktop", not(feature = "server")))]
+mod local_server;
 mod views;
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -35,7 +44,9 @@ enum Route {
 }
 
 fn main() {
-    #[cfg(not(feature = "server"))]
+    #[cfg(all(feature = "desktop", not(feature = "server")))]
+    dioxus::fullstack::set_server_url(local_server::start().leak());
+    #[cfg(not(any(feature = "desktop", feature = "server")))]
     dioxus::fullstack::set_server_url("http://127.0.0.1:8080");
     #[cfg(all(feature = "desktop", not(feature = "server")))]
     {
@@ -57,10 +68,24 @@ fn main() {
     #[cfg(not(any(feature = "desktop", feature = "server")))]
     dioxus::launch(App);
     #[cfg(feature = "server")]
+    exit_with_parent();
+    #[cfg(feature = "server")]
     dioxus::serve(|| async move {
         let router = api::with_services(dioxus::server::router(App));
         Ok(router)
     });
+}
+
+/// When the app started this server (see local_server.rs), it holds our
+/// stdin open for as long as it runs; end-of-file means the app is gone.
+#[cfg(feature = "server")]
+fn exit_with_parent() {
+    if std::env::var_os("AKHSAKOV_EXIT_WITH_PARENT").is_some() {
+        std::thread::spawn(|| {
+            let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+            std::process::exit(0);
+        });
+    }
 }
 
 #[component]

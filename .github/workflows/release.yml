@@ -1,0 +1,298 @@
+name: Release
+
+# Builds the desktop app for Linux, macOS and Windows, with the server inside
+# each bundle (packages/desktop/Dioxus.toml), the standalone servers, and the
+# Android app. Pushing a tag like v0.2.0 publishes them as a GitHub release,
+# which installer.sh and installer.ps1 install from. Pull requests that touch
+# the installers or the packaging build everything and try the installers on
+# each system, without publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - installer.sh
+      - installer.ps1
+      - .github/workflows/release.yml
+      - packages/desktop/Dioxus.toml
+      - packages/desktop/src/local_server.rs
+      - packages/mobile/Dioxus.toml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  DX_VERSION: 0.7.9
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu, so the binaries run on older glibc too.
+          - name: linux-x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            package: appimage
+          - name: macos-aarch64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            package: macos
+          - name: macos-x86_64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            package: macos
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            package: nsis
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install WebKitGTK
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev xvfb
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dx
+        run: cargo binstall dioxus-cli@${{ env.DX_VERSION }} --no-confirm --force
+
+      # dx builds the server along with the app (the app has the fullstack
+      # feature), so the first pass provides it. The second puts it inside
+      # the app: dx copies sidecar/<name>-<target> into the bundle as <name>,
+      # and Windows needs the .exe inside the name (see Dioxus.toml).
+      - name: Build the app and the server
+        working-directory: packages/desktop
+        run: >
+          dx bundle --platform desktop --release
+          --target ${{ matrix.target }} --package-types ${{ matrix.package }}
+          --out-dir ../../bundle
+      - name: Put the server inside the app
+        run: |
+          ls -la bundle
+          mkdir -p packages/desktop/sidecar dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp bundle/server.exe packages/desktop/sidecar/akhsakov-finance-server.exe-${{ matrix.target }}
+            cp bundle/server.exe dist/akhsakov-finance-server-${{ matrix.name }}.exe
+          else
+            cp bundle/server packages/desktop/sidecar/akhsakov-finance-server-${{ matrix.target }}
+            cp bundle/server dist/akhsakov-finance-server-${{ matrix.name }}
+          fi
+          rm -rf bundle
+      - name: Bundle the app with its server
+        working-directory: packages/desktop
+        run: >
+          dx bundle --platform desktop --release
+          --target ${{ matrix.target }} --package-types ${{ matrix.package }}
+          --out-dir ../../bundle
+
+      - name: Name the files
+        run: |
+          ls -la bundle
+          name=${{ matrix.name }}
+          case "$RUNNER_OS" in
+          Linux)
+            cp bundle/*.AppImage "dist/akhsakov-finance-$name.AppImage"
+            ;;
+          macOS)
+            app="$(find bundle -maxdepth 1 -name '*.app' | head -n 1)"
+            test -x "$app/Contents/MacOS/akhsakov-finance-server"
+            ditto -c -k --keepParent "$app" "dist/akhsakov-finance-$name.zip"
+            ;;
+          Windows)
+            setup="$(find bundle -maxdepth 1 -iname '*setup*.exe' | head -n 1)"
+            cp "$setup" "dist/akhsakov-finance-$name-setup.exe"
+            ;;
+          esac
+          ls -la dist
+
+      # Install from the files just built, then run the app and the server
+      # the way users do.
+      - name: Try the installer (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME"
+          bash installer.sh --from dist/akhsakov-finance-${{ matrix.name }}.AppImage
+          cli="$HOME/.local/bin/akhsakov-finance"
+          "$cli" version
+          test -x "$HOME/.local/share/akhsakov-finance/app/usr/bin/akhsakov-finance-server"
+
+          "$cli" run server --port 8099 > "$RUNNER_TEMP/server.out" 2>&1 &
+          for _ in $(seq 60); do grep -q 'The server is running' "$RUNNER_TEMP/server.out" && break; sleep 1; done
+          cat "$RUNNER_TEMP/server.out"
+          curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8099/api/auth/status
+          kill %1; wait %1 || true
+
+          # The launcher starts the server, and stops it with the window.
+          xvfb-run -a "$cli" &
+          for _ in $(seq 60); do curl -fs -X POST -d '{}' http://127.0.0.1:8080/api/auth/status >/dev/null && break; sleep 1; done
+          curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/auth/status
+          sleep 5
+          # The app itself, named by the launcher (see run_app in installer.sh).
+          pkill -f '^akhsakov-finance$'
+          for _ in $(seq 20); do curl -fs -X POST -d '{}' http://127.0.0.1:8080/api/auth/status >/dev/null || break; sleep 1; done
+          if curl -fs -X POST -d '{}' http://127.0.0.1:8080/api/auth/status; then
+            echo "::error::the server kept running after the app closed"; exit 1
+          fi
+
+          "$cli" uninstall --purge
+          test ! -e "$HOME/.local/share/akhsakov-finance"
+
+      - name: Try the installer (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          export HOME="$RUNNER_TEMP/home" && mkdir -p "$HOME"
+          bash installer.sh --from dist/akhsakov-finance-${{ matrix.name }}.zip
+          cli="$HOME/.local/bin/akhsakov-finance"
+          "$cli" version
+
+          "$cli" run server --port 8099 > "$RUNNER_TEMP/server.out" 2>&1 &
+          for _ in $(seq 60); do grep -q 'The server is running' "$RUNNER_TEMP/server.out" && break; sleep 1; done
+          cat "$RUNNER_TEMP/server.out"
+          curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8099/api/auth/status
+          kill %1; wait %1 || true
+
+          # The app starts its own server, which stops when the app does.
+          "$HOME/Applications/AkhsakovFinance.app/Contents/MacOS/akhsakov-finance" &
+          for _ in $(seq 60); do curl -fs -X POST -d '{}' http://127.0.0.1:8080/api/auth/status >/dev/null && break; sleep 1; done
+          curl -fsS -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/auth/status
+          test -f "$HOME/Library/Application Support/akhsakov-finance/akhsakov_finance.db"
+          kill %1
+          for _ in $(seq 20); do curl -fs -X POST -d '{}' http://127.0.0.1:8080/api/auth/status >/dev/null || break; sleep 1; done
+          if curl -fs -X POST -d '{}' http://127.0.0.1:8080/api/auth/status; then
+            echo "::error::the server kept running after the app closed"; exit 1
+          fi
+
+          "$cli" uninstall --purge
+          test ! -e "$HOME/Applications/AkhsakovFinance.app"
+
+      - name: Try the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./installer.ps1 -From "dist/akhsakov-finance-${{ matrix.name }}-setup.exe" -NoModifyPath
+          $cli = Join-Path $env:LOCALAPPDATA 'akhsakov-finance\bin\akhsakov-finance.cmd'
+          & $cli version
+          if ($LASTEXITCODE -ne 0) { throw 'version failed' }
+          $status = { param($port) try { Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/auth/status" -Body '{}' -ContentType 'application/json' -TimeoutSec 2 } catch { $null } }
+
+          $server = Start-Process -FilePath $cli -ArgumentList 'run', 'server', '--port', '8099' -PassThru -NoNewWindow
+          for ($i = 0; $i -lt 60 -and -not (& $status 8099); $i++) { Start-Sleep 1 }
+          if (-not (& $status 8099)) { throw 'run server did not answer' }
+          Get-Process -Name 'akhsakov-finance-server' | Stop-Process -Force
+          Start-Sleep 2
+
+          # The app starts its own server, which stops when the app does.
+          & $cli run app
+          for ($i = 0; $i -lt 60 -and -not (& $status 8080); $i++) { Start-Sleep 1 }
+          if (-not (& $status 8080)) { throw 'the app did not start its server' }
+          Get-Process -Name 'akhsakov-finance' | Stop-Process -Force
+          for ($i = 0; $i -lt 20 -and (& $status 8080); $i++) { Start-Sleep 1 }
+          if (& $status 8080) { throw 'the server kept running after the app closed' }
+
+          & $cli uninstall --purge
+          if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\AkhsakovFinance\akhsakov-finance.exe')) { throw 'uninstall left the app behind' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android (arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-android
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Install dx
+        run: cargo binstall dioxus-cli@${{ env.DX_VERSION }} --no-confirm --force
+      # Without AKHSAKOV_SERVER_URL the app asks for the server's address on
+      # first launch (packages/ui/src/server_address.rs).
+      - name: Build the APK
+        working-directory: packages/mobile
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          dx bundle --platform android --release --target aarch64-linux-android \
+            --package-types apk --out-dir ../../bundle
+      # Android only installs an update signed with the same key. Without the
+      # ANDROID_KEYSTORE secrets the APK keeps the build's throwaway debug
+      # key, and each release has to be installed fresh.
+      - name: Sign the APK
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          mkdir -p dist
+          ls -la bundle
+          apk="dist/akhsakov-finance-android-arm64.apk"
+          cp "$(find bundle -maxdepth 1 -name '*.apk' | head -n 1)" "$apk"
+          if [ -n "$ANDROID_KEYSTORE" ]; then
+            echo "$ANDROID_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)/apksigner"
+            "$apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass env:ANDROID_KEYSTORE_PASSWORD "$apk"
+            "$apksigner" verify "$apk"
+          else
+            echo "::warning::No ANDROID_KEYSTORE secret: the APK is signed with a debug key."
+          fi
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

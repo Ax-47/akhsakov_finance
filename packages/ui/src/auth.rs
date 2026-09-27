@@ -90,6 +90,9 @@ pub fn AuthGate(children: Element) -> Element {
             div { class: "{crate::theme::theme_class()} flex h-screen flex-col items-center justify-center gap-3 bg-ctp-base text-sm",
                 p { class: "text-ctp-red", "Can't reach the server: {e}" }
                 GhostButton { label: tr("Try again"), onclick: move |_| AuthState { status }.recheck() }
+                if crate::server_address::asked_on_device() {
+                    GhostButton { label: tr("Change server"), onclick: move |_| crate::server_address::change_server() }
+                }
             }
         },
         Some(Ok(ref s)) if s.required && s.user.is_none() => rsx! {
