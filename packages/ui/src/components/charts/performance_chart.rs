@@ -46,7 +46,7 @@ pub fn ChartSection(
     portfolios: ReadSignal<Vec<(String, String)>>,
     height: Decimal,
     portfolio: ReadSignal<Option<String>>,
-    /// Portfolios left out of the "all holdings" line (Claude's).
+    /// Portfolios left out of the "all holdings" line (AI-managed).
     #[props(default)]
     hidden: ReadSignal<Vec<Uuid>>,
 ) -> Element {

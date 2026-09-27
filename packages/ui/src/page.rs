@@ -47,7 +47,7 @@ pub fn PageHero(
     /// Buttons shown top-right.
     #[props(default)]
     actions: Option<Element>,
-    /// A label shown beside the title, e.g. for the portfolio Claude manages.
+    /// A label shown beside the title, e.g. for an AI-managed portfolio.
     #[props(default)]
     badge: Option<String>,
     children: Element,
@@ -101,13 +101,13 @@ pub fn PageHero(
     }
 }
 
-/// Marks the portfolio Claude manages itself.
+/// Marks a portfolio managed by an AI assistant.
 #[component]
 pub fn AiBadge(#[props(default = "AI".to_string())] label: String) -> Element {
     rsx! {
         span {
             class: "inline-flex shrink-0 items-center gap-1 rounded-full bg-ctp-mauve/15 px-2 py-0.5 text-xs font-medium text-ctp-mauve",
-            title: tr("Claude manages this portfolio with paper money"),
+            title: tr("An AI assistant manages this portfolio with paper money"),
             "🤖 {label}"
         }
     }

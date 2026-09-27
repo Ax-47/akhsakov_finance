@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub struct PortfolioRecord {
     pub id: Uuid,
     pub name: String,
-    /// The portfolio Claude manages; read only, set through the connector.
+    /// AI-managed portfolios; read only, set through the connector.
     pub ai: bool,
 }
 
@@ -27,4 +27,3 @@ pub trait PortfolioRepository: Send + Sync {
     fn insert_transactions(&self, txs: &[Transaction]) -> Result<(), RepositoryError>;
     fn delete_transaction(&self, id: Uuid) -> Result<(), RepositoryError>;
 }
-

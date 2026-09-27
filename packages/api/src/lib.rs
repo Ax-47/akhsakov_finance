@@ -51,6 +51,9 @@ pub use thesis::controller::*;
 pub mod mcp;
 pub use mcp::controller::*;
 
+pub mod models;
+pub use models::*;
+
 /// Adds every context's service to the router, sharing one database.
 #[cfg(feature = "server")]
 pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::axum::Router {
@@ -75,6 +78,7 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
     let theses = thesis::thesis_services_setup(db.clone());
     let connector =
         mcp::mcp_services_setup(db.clone(), theses.clone(), portfolio.clone(), watchlist.clone(), quotes.clone());
+    let models = models::model_services_setup(db.clone(), connector.clone());
     // Layers wrap what's added before them: the sign-in check runs first,
     // then the services are attached.
     let router = mcp::routes(router, connector.clone())
@@ -89,6 +93,7 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         .layer(Extension(watchlist))
         .layer(Extension(theses))
         .layer(Extension(connector))
+        .layer(Extension(models))
         .layer(Extension(notifications.clone()))
         .layer(Extension(planning::planning_services_setup(db.clone())))
         .layer(Extension(planning::dca_services_setup(db.clone(), portfolio.clone(), notifications.clone())))

@@ -96,7 +96,7 @@ pub fn Dashboard() -> Element {
         .is_some_and(|(_, _, ai)| ai)
         .then(|| tr("AI-managed · paper money").to_string());
     let names: Vec<(String, String)> = portfolios.iter().map(|(id, name, _)| (id.clone(), name.clone())).collect();
-    // The picker lists Claude's portfolio with an AI tag.
+    // The picker lists AI-managed portfolios with an AI tag.
     let choices: Vec<(String, String)> = portfolios
         .iter()
         .map(|(id, name, ai)| (id.clone(), if *ai { format!("{name} · 🤖 AI") } else { name.clone() }))

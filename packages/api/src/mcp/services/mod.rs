@@ -1,5 +1,5 @@
 //! The connector's key, and the MCP protocol itself: JSON-RPC 2.0 messages
-//! in, replies out. The tools live in [`tools`]; Claude's own portfolio in
+//! in, replies out. The tools live in [`tools`]; AI paper portfolios in
 //! [`trading`].
 
 pub mod tools;
@@ -76,9 +76,13 @@ impl McpService {
         Self { keys, tools, trading }
     }
 
-    /// Claude's own portfolio, which Settings sets up and funds.
+    /// AI paper portfolios, which Settings sets up and funds.
     pub fn trading(&self) -> &Trading {
         &self.trading
+    }
+
+    pub(crate) fn tools(&self) -> &Tools {
+        &self.tools
     }
 
     /// `None` while the connector is off.

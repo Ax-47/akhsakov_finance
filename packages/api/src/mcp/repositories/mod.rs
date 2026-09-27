@@ -9,7 +9,7 @@ pub trait KeyRepository: Send + Sync {
     fn set_key(&self, key: Option<&str>) -> Result<(), RepositoryError>;
 }
 
-/// Which portfolios Claude manages itself.
+/// Which portfolios an AI assistant manages.
 pub trait AiPortfolioRepository: Send + Sync {
     /// Oldest first.
     fn ai_portfolios(&self) -> Result<Vec<uuid::Uuid>, RepositoryError>;

@@ -1,6 +1,6 @@
 //! Your thesis on each holding of each portfolio: why you own it, what
 //! would make you sell, a target, conviction, a review date and a journal.
-//! Claude can read these and add to them through the AI connector
+//! AI assistants can read these and add to them through the connector
 //! (Settings), so they're memory for both of you.
 
 use crate::i18n::{tr, trf};
@@ -104,13 +104,13 @@ pub fn ThesisTab(portfolio: Option<Uuid>) -> Element {
         div { class: "flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-3 text-sm",
             span { class: "text-ctp-subtext0",
                 if connected.read().unwrap_or(false) {
-                    {tr("Claude is connected: it reads these before talking about a holding and adds what it learns to the journal.")}
+                    {tr("An AI assistant is connected: it reads these before discussing a holding and can add what it learns to the journal.")}
                 } else {
-                    {tr("Write down why you own each stock. Connect Claude and it will remember these too.")}
+                    {tr("Write down why you own each stock. Connect an AI assistant and it can remember these too.")}
                 }
             }
             if !connected.read().unwrap_or(true) {
-                GhostButton { label: tr("Connect Claude"), onclick: move |_| { navigator().push("/settings"); } }
+                GhostButton { label: tr("Connect an AI assistant"), onclick: move |_| { navigator().push("/settings"); } }
             }
         }
         {body}
@@ -186,7 +186,7 @@ pub(crate) fn StockTheses(ticker: TickerSymbol) -> Element {
     rsx! {
         Card {
             title: tr("Your thesis"),
-            subtitle: tr("One per portfolio. Claude can read these and add to the journal.").to_string(),
+            subtitle: tr("One per portfolio. Connected AI assistants can read these and add to the journal.").to_string(),
             flush: true,
             div { class: "divide-y divide-ctp-surface0/60 border-t border-ctp-surface0/60",
                 for (id, name, held, thesis) in rows {

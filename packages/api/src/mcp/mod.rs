@@ -1,6 +1,6 @@
-//! The AI connector: an MCP (Model Context Protocol) server at `/mcp`, so
-//! Claude (claude.ai, the Claude apps, Claude Code) can read your
-//! portfolios and read and write your theses, and trade in a portfolio of
+//! The AI connector: a provider-neutral MCP (Model Context Protocol) server
+//! at `/mcp`, so any compatible client can read your portfolios, read and
+//! write your theses, and trade in a portfolio of
 //! its own with paper money you give it. It's off until you turn it on in
 //! Settings, which creates the key every request must carry.
 //!

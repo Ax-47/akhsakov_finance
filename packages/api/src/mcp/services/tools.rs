@@ -1,5 +1,5 @@
 //! The tools the connector offers: read your portfolios and theses, save a
-//! thesis, and add to its journal; and, when you've given Claude a
+//! thesis, and add to its journal; and, when you've given the assistant a
 //! portfolio of its own, look up prices and trade in it. Everything the AI
 //! writes is marked as written by AI.
 
@@ -29,7 +29,7 @@ const LIST_JOURNAL: usize = 3;
 const RECENT_TRADES: usize = 10;
 
 const NO_PORTFOLIO: &str = "You don't have a portfolio of your own yet. The user can give you one, with \
-starting cash, in the app under Settings → Connect Claude.";
+starting cash, in the app under Settings → AI connector.";
 
 pub fn definitions() -> Value {
     let portfolio = json!({
@@ -704,7 +704,7 @@ mod tests {
         assert!(refused.is_err(), "no orders before it has a portfolio");
 
         let info = s.trading().start("", dec!(1000)).await.unwrap();
-        assert_eq!((info.name.as_str(), info.funded, info.cash), ("Claude", dec!(1000), dec!(1000)));
+        assert_eq!((info.name.as_str(), info.funded, info.cash), ("AI", dec!(1000), dec!(1000)));
         assert!(s.trading().start("", dec!(0)).await.is_err(), "needs cash");
 
         let quote = call(&s, "get_quote", json!({"ticker":"PTT.BK"})).await.unwrap();
@@ -735,7 +735,7 @@ mod tests {
 
         let all = call(&s, "get_my_portfolio", json!({})).await.unwrap();
         let mine = &all["portfolios"][0];
-        assert_eq!(mine["portfolio"]["name"], "Claude");
+        assert_eq!(mine["portfolio"]["name"], "AI");
         assert_eq!(mine["trades"], 3);
         assert_eq!(mine["recent_trades"][0]["side"], "sell");
         assert_eq!(mine["holdings"].as_array().unwrap().len(), 1);
@@ -744,8 +744,8 @@ mod tests {
         // beyond rounding the baht position.
         assert!(mine["profit"].as_f64().unwrap().abs() < 0.01, "{mine}");
 
-        // The reason is journaled on the holding in Claude's portfolio.
-        let thesis = call(&s, "get_thesis", json!({"ticker":"NVDA","portfolio":"Claude"})).await.unwrap();
+        // The reason is journaled on the holding in the AI portfolio.
+        let thesis = call(&s, "get_thesis", json!({"ticker":"NVDA","portfolio":"AI"})).await.unwrap();
         let journal = thesis["thesis"]["journal"].as_array().unwrap();
         assert!(
             journal.iter().any(|e| e["text"] == "Bought 2 at 200 USD ($400). AI capex keeps growing."),
@@ -756,14 +756,14 @@ mod tests {
         let main = list["portfolios"].as_array().unwrap().iter().find(|p| p["name"] == "Main").unwrap();
         assert_eq!(main["holdings"][0]["shares"].as_f64(), Some(2.0));
         assert_eq!(main["yours"], false);
-        assert!(list["portfolios"].as_array().unwrap().iter().any(|p| p["name"] == "Claude" && p["yours"] == true));
+        assert!(list["portfolios"].as_array().unwrap().iter().any(|p| p["name"] == "AI" && p["yours"] == true));
 
         let more = s.trading().add_funds(info.portfolio_id, dec!(500)).await.unwrap();
         assert_eq!(more.funded, dec!(1500));
         s.trading().stop(info.portfolio_id).unwrap();
         assert!(s.trading().infos().unwrap().is_empty());
         assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.is_err());
-        assert!(s.trading().add_funds(info.portfolio_id, dec!(5)).await.is_err(), "not Claude's any more");
+        assert!(s.trading().add_funds(info.portfolio_id, dec!(5)).await.is_err(), "not AI-managed any more");
     }
 
     #[tokio::test]
@@ -771,18 +771,18 @@ mod tests {
         let s = service();
         let us = s.trading().start("US growth", dec!(500)).await.unwrap();
         let thai = s.trading().start("", dec!(100)).await.unwrap();
-        assert_eq!(thai.name, "Claude");
+        assert_eq!(thai.name, "AI");
         assert!(s.trading().start("main", dec!(5)).await.is_err(), "names stay unique");
 
         let unsure = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
-        assert!(unsure.contains("US growth") && unsure.contains("Claude"), "{unsure}");
+        assert!(unsure.contains("US growth") && unsure.contains("AI"), "{unsure}");
         assert!(call(&s, "place_order", json!({"portfolio":"Main","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.is_err(), "not the user's");
 
         // $200 fits the US portfolio's $500 but not the other's $100.
         call(&s, "place_order", json!({"portfolio":"us growth","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap();
-        let broke = call(&s, "place_order", json!({"portfolio":"Claude","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
+        let broke = call(&s, "place_order", json!({"portfolio":"AI","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
         assert!(broke.contains("you have $100"), "{broke}");
-        let sell = call(&s, "place_order", json!({"portfolio":"Claude","ticker":"NVDA","side":"sell","shares":1,"reason":"x"})).await.unwrap_err();
+        let sell = call(&s, "place_order", json!({"portfolio":"AI","ticker":"NVDA","side":"sell","shares":1,"reason":"x"})).await.unwrap_err();
         assert!(sell.contains("don't hold"), "holdings are per portfolio too: {sell}");
 
         let all = call(&s, "get_my_portfolio", json!({})).await.unwrap();
@@ -790,7 +790,7 @@ mod tests {
             let p = all["portfolios"].as_array().unwrap().iter().find(|p| p["portfolio"]["name"] == name).unwrap();
             p["cash"].as_f64().unwrap()
         };
-        assert_eq!((cash("US growth"), cash("Claude")), (300.0, 100.0));
+        assert_eq!((cash("US growth"), cash("AI")), (300.0, 100.0));
         let one = call(&s, "get_my_portfolio", json!({"portfolio": us.portfolio_id.to_string()})).await.unwrap();
         assert_eq!(one["portfolios"].as_array().unwrap().len(), 1);
 
