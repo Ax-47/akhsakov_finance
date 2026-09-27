@@ -107,7 +107,10 @@ pub fn Treemap(items: ReadSignal<Vec<HeatItem>>, saturation: f64, height: u32) -
     }
     rsx! {
         div {
-            class: "relative w-full overflow-hidden rounded-2xl",
+            // Dense maps skip rounding: clipping ~500 tiles to rounded corners,
+            // and rounding each, doubled the time to paint a scroll frame in
+            // the desktop app (WebKit painting without the GPU).
+            class: if dense { "relative w-full" } else { "relative w-full overflow-hidden rounded-2xl" },
             style: "height:{height}px;",
             for group in layout.read().groups.iter() {
                 GroupFrame { key: "g-{group.name}", group: group.clone() }
@@ -173,7 +176,7 @@ fn HeatmapTile(tile: Tile, saturation: f64, dense: bool) -> Element {
         ("hidden", "", false)
     };
     let shape = if dense {
-        "border-[1.5px] rounded-md"
+        "border-[1.5px]"
     } else {
         "border-[3px] rounded-xl"
     };

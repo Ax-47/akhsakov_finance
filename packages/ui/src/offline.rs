@@ -157,7 +157,9 @@ pub fn OfflineBanner() -> Element {
         (None, false) => return rsx! {},
     };
     rsx! {
-        div { class: "{crate::theme::theme_class()} sticky top-0 z-40 flex items-center justify-center gap-3 bg-ctp-peach/90 px-4 py-1.5 text-xs font-medium text-ctp-crust print:hidden",
+        // Wide screens: pinned to the bottom of the window, so it shows without
+        // adding height to the full-window layout (see sidebar.rs).
+        div { class: "{crate::theme::theme_class()} sticky top-0 z-40 flex items-center justify-center gap-3 bg-ctp-peach/90 px-4 py-1.5 text-xs font-medium text-ctp-crust md:fixed md:inset-x-0 md:bottom-0 md:top-auto print:hidden",
             span { "{text}" }
             if server.is_some() {
                 button {

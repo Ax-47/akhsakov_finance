@@ -200,19 +200,29 @@ impl QuoteService {
         self.gateway.read().await.subscribe().await
     }
 
-    pub async fn watch(&self, ticker: TickerSymbol) -> Result<(), QuoteGateWayError> {
-        // Hand-priced assets have nothing to stream.
-        if self.manual(&ticker).is_some() {
+    /// Streams prices for `tickers`. Pair every call with an [`unwatch`]
+    /// of the same tickers: other connections may watch them too.
+    ///
+    /// [`unwatch`]: Self::unwatch
+    pub async fn watch(&self, tickers: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
+        let tickers = self.streamable(tickers);
+        if tickers.is_empty() {
             return Ok(());
         }
-        self.gateway.write().await.add_ticker(ticker).await
+        self.gateway.write().await.add_tickers(tickers).await
     }
 
-    pub async fn unwatch(&self, ticker: &TickerSymbol) -> Result<(), QuoteGateWayError> {
-        if self.manual(ticker).is_some() {
+    pub async fn unwatch(&self, tickers: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
+        let tickers = self.streamable(tickers);
+        if tickers.is_empty() {
             return Ok(());
         }
-        self.gateway.write().await.remove_ticker(ticker).await
+        self.gateway.write().await.remove_tickers(tickers).await
+    }
+
+    /// Hand-priced assets have nothing to stream.
+    fn streamable(&self, tickers: Vec<TickerSymbol>) -> Vec<TickerSymbol> {
+        tickers.into_iter().filter(|t| self.manual(t).is_none()).collect()
     }
 
     /// Up to 8 matches for a free-text query; empty queries return nothing.
@@ -433,10 +443,10 @@ mod tests {
         async fn subscribe(&self) -> Receiver<QuoteUpdateEvent> {
             tokio::sync::broadcast::channel(1).1
         }
-        async fn add_ticker(&mut self, _: TickerSymbol) -> Result<(), QuoteGateWayError> {
+        async fn add_tickers(&mut self, _: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
             Ok(())
         }
-        async fn remove_ticker(&mut self, _: &TickerSymbol) -> Result<(), QuoteGateWayError> {
+        async fn remove_tickers(&mut self, _: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
             Ok(())
         }
         async fn get_chart(
@@ -519,10 +529,10 @@ mod tests {
         async fn subscribe(&self) -> Receiver<QuoteUpdateEvent> {
             tokio::sync::broadcast::channel(1).1
         }
-        async fn add_ticker(&mut self, _: TickerSymbol) -> Result<(), QuoteGateWayError> {
+        async fn add_tickers(&mut self, _: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
             Ok(())
         }
-        async fn remove_ticker(&mut self, _: &TickerSymbol) -> Result<(), QuoteGateWayError> {
+        async fn remove_tickers(&mut self, _: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
             Ok(())
         }
         async fn get_chart(&self, _: TickerSymbol, _: Range, _: Interval, _: bool) -> Result<Vec<Candle>, QuoteGateWayError> {
@@ -567,7 +577,7 @@ mod tests {
         let fund = TickerSymbol::new("KFSSF").unwrap();
         let q = service.native_quote(fund.clone()).await.unwrap();
         assert_eq!((q.current_price, q.previous_close_price, q.currency.as_str()), (dec!(11), dec!(10), "THB"));
-        assert!(service.watch(fund).await.is_ok());
+        assert!(service.watch(vec![fund]).await.is_ok());
 
         let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
         let prices = OneFund.manual(&TickerSymbol::new("KFSSF").unwrap()).unwrap().1;

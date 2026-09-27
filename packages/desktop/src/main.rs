@@ -44,6 +44,12 @@ fn main() {
         // tear or go blank while the window is dragged on some setups, so
         // it's opt-in with AKHSAKOV_FAST_RENDERING=1.
         let fast = std::env::var("AKHSAKOV_FAST_RENDERING").is_ok_and(|v| v == "1");
+        // On Hyprland (Intel + NVIDIA laptop) WebKit's GPU compositing
+        // left the page undrawn until the window moved; without it pages
+        // redraw normally. Set WEBKIT_DISABLE_COMPOSITING_MODE=0 to keep it.
+        if fast && std::env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        }
         dioxus::LaunchBuilder::new()
             .with_cfg(dioxus::desktop::Config::new().with_disable_dma_buf_on_wayland(!fast))
             .launch(App);
@@ -61,6 +67,8 @@ fn main() {
 fn App() -> Element {
     #[cfg(all(feature = "desktop", not(feature = "server")))]
     use_webview_background();
+    #[cfg(all(feature = "desktop", not(feature = "server"), target_os = "linux"))]
+    use_display_frame_rate();
     rsx! {
         ui::App { Router::<Route> {} }
     }
@@ -84,6 +92,60 @@ fn use_webview_background() {
         }
         #[cfg(not(target_os = "linux"))]
         let _ = window.webview.set_background_color((r, g, b, 0xff));
+    });
+}
+
+/// Renders at the screen's refresh rate. WebKitGTK aims for about 60 fps
+/// by default, so on a 144 Hz screen it only drew every second refresh
+/// (72 fps) while scrolling or animating. An idle page draws nothing
+/// either way. The power-saver profile still halves the rate.
+/// AKHSAKOV_60FPS=1 keeps WebKit's default, to compare.
+#[cfg(all(feature = "desktop", not(feature = "server"), target_os = "linux"))]
+fn use_display_frame_rate() {
+    use_hook(|| {
+        if std::env::var("AKHSAKOV_60FPS").is_ok_and(|v| v == "1") {
+            println!("[render] keeping WebKit's ~60 fps preference (AKHSAKOV_60FPS=1)");
+            return;
+        }
+        use dioxus::desktop::wry::WebViewExtUnix;
+        use std::ffi::{c_char, CStr};
+        use webkit2gtk::{glib::translate::ToGlibPtr, WebViewExt};
+
+        #[repr(C)]
+        struct FeatureList([u8; 0]);
+        #[repr(C)]
+        struct Feature([u8; 0]);
+        // WebKitGTK 2.42+; the Rust bindings stop at 2.40.
+        extern "C" {
+            fn webkit_settings_get_all_features() -> *mut FeatureList;
+            fn webkit_feature_list_get_length(list: *mut FeatureList) -> usize;
+            fn webkit_feature_list_get(list: *mut FeatureList, index: usize) -> *mut Feature;
+            fn webkit_feature_list_unref(list: *mut FeatureList);
+            fn webkit_feature_get_identifier(feature: *mut Feature) -> *const c_char;
+            fn webkit_settings_set_feature_enabled(
+                settings: *mut webkit2gtk::ffi::WebKitSettings,
+                feature: *mut Feature,
+                enabled: webkit2gtk::glib::ffi::gboolean,
+            );
+        }
+
+        let webview = dioxus::desktop::window().webview.webview();
+        let Some(settings) = webview.settings() else {
+            return;
+        };
+        unsafe {
+            let features = webkit_settings_get_all_features();
+            for i in 0..webkit_feature_list_get_length(features) {
+                let feature = webkit_feature_list_get(features, i);
+                let id = CStr::from_ptr(webkit_feature_get_identifier(feature));
+                if id.to_bytes() == b"PreferPageRenderingUpdatesNear60FPS" {
+                    webkit_settings_set_feature_enabled(settings.to_glib_none().0, feature, 0);
+                    println!("[render] rendering at the display's refresh rate");
+                }
+            }
+            webkit_feature_list_unref(features);
+        }
+        webview.set_settings(&settings);
     });
 }
 

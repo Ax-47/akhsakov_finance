@@ -129,7 +129,7 @@
     --default-transition-timing-function: cubic-bezier(.4, 0, .2, 1);
     --default-font-family: var(--font-sans);
     --default-mono-font-family: var(--font-mono);
-    --animate-rise: rise .5s cubic-bezier(.22, 1, .36, 1) both;
+    --animate-rise: rise .5s cubic-bezier(.22, 1, .36, 1) backwards;
   }
 }
 
@@ -1485,6 +1485,16 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizelegibility;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  @media (min-width: 48rem) {
+    html {
+      scrollbar-gutter: auto;
+    }
+
+    [data-scroll-root] {
+      scrollbar-gutter: stable;
+    }
   }
 
   html.latte {
@@ -4193,12 +4203,24 @@
   }
 
   @media (min-width: 48rem) {
-    .md\:sticky {
-      position: sticky;
+    .md\:fixed {
+      position: fixed;
     }
 
-    .md\:top-0 {
-      top: calc(var(--spacing) * 0);
+    .md\:relative {
+      position: relative;
+    }
+
+    .md\:inset-x-0 {
+      inset-inline: calc(var(--spacing) * 0);
+    }
+
+    .md\:top-auto {
+      top: auto;
+    }
+
+    .md\:bottom-0 {
+      bottom: calc(var(--spacing) * 0);
     }
 
     .md\:bottom-4 {
@@ -4243,6 +4265,14 @@
 
     .md\:items-center {
       align-items: center;
+    }
+
+    .md\:overflow-hidden {
+      overflow: hidden;
+    }
+
+    .md\:overflow-y-auto {
+      overflow-y: auto;
     }
 
     .md\:pb-0 {
@@ -4305,6 +4335,14 @@
 
     .print\:hidden {
       display: none;
+    }
+
+    .print\:h-auto {
+      height: auto;
+    }
+
+    .print\:overflow-visible {
+      overflow: visible;
     }
   }
 
@@ -4441,10 +4479,6 @@ aside .nav-active:before {
 :focus-visible {
   outline: 2px solid var(--catppuccin-color-mauve);
   outline-offset: 2px;
-}
-
-html.is-scrolling body {
-  pointer-events: none;
 }
 
 html.lite *, html.lite :before, html.lite :after {

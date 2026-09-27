@@ -41,6 +41,46 @@ window.GrowthChart.ready =
     return window.GrowthChart.loading;
   };
 
+// Resizes `chart` when `el` changes size: at most once a frame, and only
+// when the size really changed. A ResizeObserver also reports right after
+// it starts watching and a window listener reported every resize again, so
+// charts drew a second time as they appeared and twice per frame while the
+// sidebar folded. Returns a function that stops watching.
+window.GrowthChart.watchSize =
+  window.GrowthChart.watchSize ||
+  function (el, chart) {
+    var w = el.clientWidth;
+    var h = el.clientHeight;
+    var queued = false;
+    function check() {
+      queued = false;
+      if (chart.isDisposed()) return;
+      var nw = el.clientWidth;
+      var nh = el.clientHeight;
+      if (nw === w && nh === h) return;
+      w = nw;
+      h = nh;
+      chart.resize();
+    }
+    function schedule() {
+      if (!queued) {
+        queued = true;
+        requestAnimationFrame(check);
+      }
+    }
+    if (window.ResizeObserver) {
+      var observer = new ResizeObserver(schedule);
+      observer.observe(el);
+      return function () {
+        observer.disconnect();
+      };
+    }
+    window.addEventListener("resize", schedule);
+    return function () {
+      window.removeEventListener("resize", schedule);
+    };
+  };
+
 window.GrowthChart.init = function (id, cfg) {
   window.GrowthChart.latest[id] = cfg;
   // Theme colours come from the chart's container (the themed page sets
@@ -142,17 +182,21 @@ window.GrowthChart.init = function (id, cfg) {
     // series, a dot and a colour-filled % pill at the end of each line.
     var last = cfg.labels.length - 1;
     var series = cfg.series.map(function (s, idx) {
+      // A dot on the last point only: the other points get no symbol at
+      // all (size-0 dots were still one element per point to lay out,
+      // draw and hit-test, thousands on a five-year chart).
+      var data = s.values.slice();
+      if (last >= 0 && data[last] != null) {
+        data[last] = { value: data[last], symbol: "circle", symbolSize: 9 };
+      }
       return {
         name: s.name,
         type: "line",
-        data: s.values,
+        data: data,
         smooth: 0.2,
         showSymbol: true,
         showAllSymbol: true,
-        symbol: "circle",
-        symbolSize: function (_value, p) {
-          return p.dataIndex === last ? 9 : 0;
-        },
+        symbol: "none",
         itemStyle: { color: s.color, borderColor: colors.base, borderWidth: 2 },
         lineStyle: { color: s.color, width: 2 },
         emphasis: { focus: "series" },
@@ -258,18 +302,9 @@ window.GrowthChart.init = function (id, cfg) {
 
     chart.setOption(option, true);
 
-    if (!el.__onresize) {
-      el.__onresize = function () {
-        if (el.__chart) el.__chart.resize();
-      };
-      window.addEventListener("resize", el.__onresize);
-      // Also when the element itself changes size, e.g. an off-screen card
-      // being laid out for the first time as it scrolls into view.
-      if (window.ResizeObserver) {
-        el.__observer = new ResizeObserver(el.__onresize);
-        el.__observer.observe(el);
-      }
-    }
+    // Also when the element itself changes size, e.g. an off-screen card
+    // being laid out for the first time as it scrolls into view.
+    if (!el.__unwatch) el.__unwatch = window.GrowthChart.watchSize(el, chart);
   }
 
   function bootstrap() {
@@ -288,8 +323,7 @@ window.GrowthChart.dispose = function (id) {
   delete window.GrowthChart.latest[id];
   var el = document.getElementById(id);
   if (!el) return;
-  if (el.__onresize) window.removeEventListener("resize", el.__onresize);
-  if (el.__observer) el.__observer.disconnect();
+  if (el.__unwatch) el.__unwatch();
   if (el.__chart && !el.__chart.isDisposed()) el.__chart.dispose();
-  el.__chart = el.__onresize = el.__observer = null;
+  el.__chart = el.__unwatch = null;
 };

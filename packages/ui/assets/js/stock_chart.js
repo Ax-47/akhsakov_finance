@@ -12,7 +12,7 @@ window.StockChart.dispose = function (id) {
   var chart = window.StockChart.charts[id];
   delete window.StockChart.charts[id];
   if (!chart) return;
-  if (chart.__observer) chart.__observer.disconnect();
+  if (chart.__unwatch) chart.__unwatch();
   if (!chart.isDisposed()) chart.dispose();
 };
 
@@ -41,9 +41,7 @@ function draw(el, id, cfg) {
     if (chart && !chart.isDisposed()) chart.dispose();
     chart = echarts.init(el, null, { renderer: "canvas" });
     window.StockChart.charts[id] = chart;
-    var observer = new ResizeObserver(function () { chart.resize(); });
-    observer.observe(el);
-    chart.__observer = observer;
+    chart.__unwatch = window.GrowthChart.watchSize(el, chart);
   }
 
   var hasLower = cfg.lower && cfg.lower.kind !== "none";

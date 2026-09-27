@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use rust_decimal::Decimal;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 #[cfg(feature = "server")]
 use tokio::sync::{
     broadcast::{channel, Receiver, Sender},
@@ -26,7 +26,8 @@ pub struct YahooGateWay {
     client: YfClient,
     handle: Option<StreamHandle>,
     sender: Sender<QuoteUpdateEvent>,
-    tickers: Arc<Mutex<HashSet<TickerSymbol>>>,
+    /// Streamed tickers, with how many watchers each has.
+    tickers: Arc<Mutex<HashMap<TickerSymbol, usize>>>,
 }
 #[cfg(feature = "server")]
 impl YahooGateWay {
@@ -36,7 +37,7 @@ impl YahooGateWay {
             client: crate::shared::yahoo_client(),
             handle: None,
             sender: tx,
-            tickers: Arc::new(Mutex::new(HashSet::new())),
+            tickers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -44,7 +45,10 @@ impl YahooGateWay {
         if let Some(old) = self.handle.take() {
             old.stop().await;
         }
-        let tickers: Vec<TickerSymbol> = self.tickers.lock().await.iter().cloned().collect();
+        let tickers: Vec<TickerSymbol> = self.tickers.lock().await.keys().cloned().collect();
+        if tickers.is_empty() {
+            return Ok(());
+        }
         let (handle, mut receiver) = StreamBuilder::new(&self.client)
             .symbols(tickers.iter().map(|s| s.as_str()))
             .method(StreamMethod::WebsocketWithFallback)
@@ -77,14 +81,44 @@ impl YahooGateWay {
     pub async fn subscribe(&self) -> Receiver<QuoteUpdateEvent> {
         self.sender.subscribe()
     }
-    pub async fn add_ticker(&mut self, ticker: TickerSymbol) -> Result<(), YahooGateWayError> {
-        self.tickers.lock().await.insert(ticker);
-        self.subscribe_gateway().await
+    /// Adds a watcher to each ticker. The stream restarts (once) only when
+    /// a ticker nobody watched yet joins it.
+    pub async fn add_tickers(&mut self, tickers: Vec<TickerSymbol>) -> Result<(), YahooGateWayError> {
+        let mut added = false;
+        {
+            let mut watched = self.tickers.lock().await;
+            for ticker in tickers {
+                let n = watched.entry(ticker).or_insert(0);
+                added |= *n == 0;
+                *n += 1;
+            }
+        }
+        if added {
+            self.subscribe_gateway().await?;
+        }
+        Ok(())
     }
 
-    pub async fn remove_ticker(&mut self, ticker: &TickerSymbol) -> Result<(), YahooGateWayError> {
-        self.tickers.lock().await.remove(ticker);
-        self.subscribe_gateway().await
+    /// Drops a watcher from each ticker; the stream restarts (once) only
+    /// when a ticker loses its last watcher.
+    pub async fn remove_tickers(&mut self, tickers: Vec<TickerSymbol>) -> Result<(), YahooGateWayError> {
+        let mut removed = false;
+        {
+            let mut watched = self.tickers.lock().await;
+            for ticker in &tickers {
+                if let Some(n) = watched.get_mut(ticker) {
+                    *n -= 1;
+                    if *n == 0 {
+                        watched.remove(ticker);
+                        removed = true;
+                    }
+                }
+            }
+        }
+        if removed {
+            self.subscribe_gateway().await?;
+        }
+        Ok(())
     }
 
     pub async fn get_chart(

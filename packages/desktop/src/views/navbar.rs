@@ -1,4 +1,4 @@
-use crate::Route;
+use crate::{views::ScrollBench, Route};
 use dioxus::prelude::*;
 use ui::{
     BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE,
@@ -9,6 +9,7 @@ use ui::{
 pub fn Navbar() -> Element {
     rsx! {
         KeepLinksInApp {}
+        ScrollBench {}
         Sidebar {
             links: rsx! {
                 NavSection { label: ui::i18n::tr("Your money") }
