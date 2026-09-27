@@ -9,6 +9,10 @@ use types::{range::Range, ticker_symbol::TickerSymbol};
 #[async_trait]
 pub trait ReportData: Send + Sync {
     fn transactions(&self) -> Result<Vec<Transaction>, String>;
+    /// Portfolios left out of an all-portfolio report: Claude's paper money.
+    fn ai_portfolios(&self) -> Result<Vec<uuid::Uuid>, String> {
+        Ok(vec![])
+    }
     /// `(YYYY-MM-DD, USD close)`, oldest first.
     async fn closes(&self, ticker: &TickerSymbol, range: Range) -> Result<Vec<(String, Decimal)>, String>;
     /// Display currency symbol and units of it per USD.

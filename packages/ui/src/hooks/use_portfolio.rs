@@ -72,7 +72,7 @@ struct AllHoldings(Memo<PortfolioState>);
 pub fn use_held_shares() -> Memo<HashMap<TickerSymbol, Decimal>> {
     let data = use_context::<Signal<GetDashBoardResponse>>();
     use_memo(move || {
-        compute_positions(&data.read(), &HashMap::new())
+        compute_positions(&data.read().without_ai(), &HashMap::new())
             .into_iter()
             .map(|p| (p.ticker, p.shares))
             .collect()
@@ -174,7 +174,8 @@ fn day_change_pct(current: Decimal, previous_close: Decimal) -> Decimal {
 /// Only the transactions of one portfolio, or everything for `None`.
 pub fn scoped_data(data: &GetDashBoardResponse, scope: Option<&str>) -> GetDashBoardResponse {
     match scope {
-        None => data.clone(),
+        // All holdings are your own: Claude's paper money is kept apart.
+        None => data.without_ai(),
         Some(id) => GetDashBoardResponse {
             portfolios: data
                 .portfolios

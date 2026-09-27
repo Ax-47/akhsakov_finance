@@ -83,29 +83,36 @@ pub fn Dashboard() -> Element {
         data.read()
             .portfolios
             .iter()
-            .map(|p| (p.id.to_string(), p.name.clone()))
-            .collect::<Vec<(String, String)>>()
+            .map(|p| (p.id.to_string(), p.name.clone(), p.ai))
+            .collect::<Vec<(String, String, bool)>>()
     });
     let (transactions, portfolios) = (transactions(), portfolios());
-    let title = scope()
-        .and_then(|id| {
-            portfolios
-                .iter()
-                .find(|(pid, _)| *pid == id)
-                .map(|(_, name)| name.clone())
-        })
+    let current = scope().and_then(|id| portfolios.iter().find(|(pid, _, _)| *pid == id).cloned());
+    let title = current
+        .as_ref()
+        .map(|(_, name, _)| name.clone())
         .unwrap_or_else(|| tr("Your portfolio").to_string());
+    let badge = current
+        .is_some_and(|(_, _, ai)| ai)
+        .then(|| tr("AI-managed · paper money").to_string());
+    let names: Vec<(String, String)> = portfolios.iter().map(|(id, name, _)| (id.clone(), name.clone())).collect();
+    // The picker lists Claude's portfolio with an AI tag.
+    let choices: Vec<(String, String)> = portfolios
+        .iter()
+        .map(|(id, name, ai)| (id.clone(), if *ai { format!("{name} · 🤖 AI") } else { name.clone() }))
+        .collect();
     let empty = positions.is_empty() && transactions.is_empty();
 
     rsx! {
         Page {
             PageHero {
                 title,
+                badge,
                 actions: rsx! {
                     div { class: "flex flex-wrap items-center gap-2",
                         GhostButton { label: tr("＋ Transaction"), primary: true, onclick: move |_| dialogs.open(Dialog::AddTransaction(scope_id)) }
                         GhostButton { label: tr("Print"), onclick: move |_| print_report() }
-                        ScopePicker { scope, portfolios: portfolios.clone() }
+                        ScopePicker { scope, portfolios: choices.clone() }
                     }
                 },
                 loaded,
@@ -136,8 +143,9 @@ pub fn Dashboard() -> Element {
                 div { class: "mt-10 motion-safe:animate-rise",
                     ChartSection {
                         transactions: data.read().transactions.clone(),
-                        portfolios: portfolios.clone(),
+                        portfolios: names.clone(),
                         portfolio: scope(),
+                        hidden: data.read().ai_ids(),
                         height: dec!(260),
                     }
                 }

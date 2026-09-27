@@ -1,12 +1,15 @@
 //! The connector's key, and the MCP protocol itself: JSON-RPC 2.0 messages
-//! in, replies out. The tools live in [`tools`].
+//! in, replies out. The tools live in [`tools`]; Claude's own portfolio in
+//! [`trading`].
 
 pub mod tools;
+pub mod trading;
 
 use crate::{mcp::repositories::KeyRepository, shared::ServiceError};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tools::Tools;
+use trading::Trading;
 use uuid::Uuid;
 
 /// Newest first; the first is offered to clients asking for another.
@@ -29,7 +32,13 @@ with add_thesis_note in one or two sentences, in the user's language.\n\
 - Change the thesis fields with save_thesis only when the user asks or agrees. Every change you make is \
 labelled as written by AI and logged in the journal.\n\
 - Holdings with no thesis are listed by list_theses; offer to write one with the user.\n\
-- Amounts are in USD. Live prices aren't included; look them up elsewhere if you need them.";
+- Amounts are in USD. The user's holdings come without live prices; get_quote looks one up.\n\
+- The user may have given you portfolios of your own, each with its own paper money, to manage \
+yourself (get_my_portfolio). Decide what to buy and sell in each, and trade with place_order (naming the \
+portfolio when you have more than one), giving a short reason each time; the reason is kept in that \
+holding's journal. Invest for the long run, spread the risk, and \
+don't trade just to be busy. place_order can't touch the user's other portfolios; never present your \
+own portfolio's trades as advice to copy.";
 
 /// What a request's key allows.
 #[derive(Debug, PartialEq)]
@@ -45,6 +54,7 @@ pub enum Access {
 pub struct McpService {
     keys: Arc<dyn KeyRepository>,
     tools: Tools,
+    trading: Trading,
 }
 
 /// Compares without stopping at the first difference, so response timing
@@ -62,8 +72,13 @@ fn error(id: Value, code: i64, message: &str) -> Value {
 }
 
 impl McpService {
-    pub fn new(keys: Arc<dyn KeyRepository>, tools: Tools) -> Self {
-        Self { keys, tools }
+    pub fn new(keys: Arc<dyn KeyRepository>, tools: Tools, trading: Trading) -> Self {
+        Self { keys, tools, trading }
+    }
+
+    /// Claude's own portfolio, which Settings sets up and funds.
+    pub fn trading(&self) -> &Trading {
+        &self.trading
     }
 
     /// `None` while the connector is off.
@@ -99,18 +114,21 @@ impl McpService {
 
     /// Answers one JSON-RPC message, or a batch of them. `None` when
     /// nothing needs a reply (notifications, responses).
-    pub fn handle(&self, message: Value) -> Option<Value> {
+    pub async fn handle(&self, message: Value) -> Option<Value> {
         match message {
             Value::Array(batch) if batch.is_empty() => Some(error(Value::Null, INVALID_REQUEST, "Empty batch")),
             Value::Array(batch) => {
-                let replies: Vec<Value> = batch.into_iter().filter_map(|m| self.handle_one(m)).collect();
+                let mut replies = Vec::with_capacity(batch.len());
+                for m in batch {
+                    replies.extend(self.handle_one(m).await);
+                }
                 (!replies.is_empty()).then_some(Value::Array(replies))
             }
-            message => self.handle_one(message),
+            message => self.handle_one(message).await,
         }
     }
 
-    fn handle_one(&self, message: Value) -> Option<Value> {
+    async fn handle_one(&self, message: Value) -> Option<Value> {
         if !message.is_object() {
             return Some(error(Value::Null, INVALID_REQUEST, "Invalid request"));
         }
@@ -122,13 +140,13 @@ impl McpService {
         // Notifications (no id), e.g. notifications/initialized, need no reply.
         let id = id?;
         let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
-        Some(match self.dispatch(method, &params) {
+        Some(match self.dispatch(method, &params).await {
             Ok(result) => reply(id, result),
             Err((code, message)) => error(id, code, &message),
         })
     }
 
-    fn dispatch(&self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
+    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
         match method {
             "initialize" => {
                 let asked = params.get("protocolVersion").and_then(Value::as_str);
@@ -156,7 +174,7 @@ impl McpService {
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 // A tool that fails says why as its result, for the model
                 // to read and correct; only unknown tools are protocol errors.
-                let (text, is_error) = match self.tools.call(name, &args) {
+                let (text, is_error) = match self.tools.call(name, &args).await {
                     None => return Err((INVALID_PARAMS, format!("Unknown tool: {name}"))),
                     Some(Ok(value)) => (serde_json::to_string_pretty(&value).unwrap_or_default(), false),
                     Some(Err(message)) => (message, true),
@@ -172,10 +190,16 @@ impl McpService {
 pub(crate) mod tests {
     use super::*;
     use crate::{
-        database::Database, mcp::infrastructures::SqliteKeyRepository,
-        portfolio::portfolio_services_setup, thesis::thesis_services_setup,
+        database::Database,
+        mcp::{
+            infrastructures::{SqliteAiPortfolioRepository, SqliteKeyRepository},
+            repositories::{LivePrices, LiveQuote},
+        },
+        portfolio::portfolio_services_setup,
+        thesis::thesis_services_setup,
         watchlist::watchlist_services_setup,
     };
+    use rust_decimal_macros::dec;
 
     struct NoFx;
 
@@ -192,6 +216,30 @@ pub(crate) mod tests {
         }
     }
 
+    /// NVDA at $200, PTT.BK at ฿35 (3¢ a baht), and OLD with only a saved
+    /// price.
+    struct FakePrices;
+
+    #[async_trait::async_trait]
+    impl LivePrices for FakePrices {
+        async fn quote(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<LiveQuote, String> {
+            let (price, currency, usd_per_unit, stale) = match ticker.as_str() {
+                "NVDA" => (dec!(200), "USD", dec!(1), false),
+                "PTT.BK" => (dec!(35), "THB", dec!(0.03), false),
+                "OLD" => (dec!(10), "USD", dec!(1), true),
+                other => return Err(format!("no such ticker {other}")),
+            };
+            Ok(LiveQuote {
+                price,
+                previous_close: price * dec!(0.98),
+                currency: currency.into(),
+                usd_per_unit,
+                timestamp: 1_767_600_000,
+                stale,
+            })
+        }
+    }
+
     /// A service over a database with one portfolio, "Main", holding NVDA.
     pub(crate) fn service() -> McpService {
         let db = Database::in_memory().unwrap();
@@ -205,12 +253,19 @@ pub(crate) mod tests {
             )
         })
         .unwrap();
+        let portfolios = portfolio_services_setup(db.clone(), Arc::new(NoFx));
+        let trading = Trading::new(
+            Arc::new(SqliteAiPortfolioRepository::new(db.clone())),
+            portfolios.clone(),
+            Arc::new(FakePrices),
+        );
         let tools = Tools::new(
             thesis_services_setup(db.clone()),
-            portfolio_services_setup(db.clone(), Arc::new(NoFx)),
+            portfolios,
             watchlist_services_setup(db.clone()),
+            trading.clone(),
         );
-        McpService::new(Arc::new(SqliteKeyRepository::new(db)), tools)
+        McpService::new(Arc::new(SqliteKeyRepository::new(db)), tools, trading)
     }
 
     #[test]
@@ -229,40 +284,43 @@ pub(crate) mod tests {
         assert_eq!(s.authorize(Some(&key)), Access::Off);
     }
 
-    #[test]
-    fn protocol() {
+    #[tokio::test]
+    async fn protocol() {
         let s = service();
         let init = s
-            .handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}))
+            .handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})).await
             .unwrap();
         assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
         assert!(init["result"]["capabilities"]["tools"].is_object());
-        let init = s.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}})).unwrap();
+        let init = s.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}})).await.unwrap();
         assert_eq!(init["result"]["protocolVersion"], PROTOCOL_VERSIONS[0]);
 
-        assert_eq!(s.handle(json!({"jsonrpc":"2.0","method":"notifications/initialized"})), None);
-        assert_eq!(s.handle(json!({"jsonrpc":"2.0","id":9,"result":{}})), None, "responses need no reply");
-        assert_eq!(s.handle(json!({"jsonrpc":"2.0","id":"p","method":"ping"})).unwrap()["result"], json!({}));
-        assert_eq!(s.handle(json!({"jsonrpc":"2.0","id":2,"method":"nope"})).unwrap()["error"]["code"], METHOD_NOT_FOUND);
-        assert_eq!(s.handle(json!(42)).unwrap()["error"]["code"], INVALID_REQUEST);
+        assert_eq!(s.handle(json!({"jsonrpc":"2.0","method":"notifications/initialized"})).await, None);
+        assert_eq!(s.handle(json!({"jsonrpc":"2.0","id":9,"result":{}})).await, None, "responses need no reply");
+        assert_eq!(s.handle(json!({"jsonrpc":"2.0","id":"p","method":"ping"})).await.unwrap()["result"], json!({}));
+        assert_eq!(s.handle(json!({"jsonrpc":"2.0","id":2,"method":"nope"})).await.unwrap()["error"]["code"], METHOD_NOT_FOUND);
+        assert_eq!(s.handle(json!(42)).await.unwrap()["error"]["code"], INVALID_REQUEST);
 
-        let list = s.handle(json!({"jsonrpc":"2.0","id":3,"method":"tools/list"})).unwrap();
+        let list = s.handle(json!({"jsonrpc":"2.0","id":3,"method":"tools/list"})).await.unwrap();
         let names: Vec<&str> = list["result"]["tools"]
             .as_array()
             .unwrap()
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["list_portfolios", "list_theses", "get_thesis", "save_thesis", "add_thesis_note"]);
+        assert_eq!(
+            names,
+            ["list_portfolios", "list_theses", "get_thesis", "save_thesis", "add_thesis_note", "get_my_portfolio", "get_quote", "place_order"]
+        );
 
-        let unknown = s.handle(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"rm_rf"}})).unwrap();
+        let unknown = s.handle(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"rm_rf"}})).await.unwrap();
         assert_eq!(unknown["error"]["code"], INVALID_PARAMS);
 
         let batch = s
             .handle(json!([
                 {"jsonrpc":"2.0","id":5,"method":"ping"},
                 {"jsonrpc":"2.0","method":"notifications/initialized"}
-            ]))
+            ])).await
             .unwrap();
         assert_eq!(batch.as_array().unwrap().len(), 1);
     }

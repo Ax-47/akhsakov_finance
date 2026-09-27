@@ -8,6 +8,8 @@ use uuid::Uuid;
 pub struct PortfolioRecord {
     pub id: Uuid,
     pub name: String,
+    /// The portfolio Claude manages; read only, set through the connector.
+    pub ai: bool,
 }
 
 pub trait PortfolioRepository: Send + Sync {

@@ -47,6 +47,9 @@ pub fn PageHero(
     /// Buttons shown top-right.
     #[props(default)]
     actions: Option<Element>,
+    /// A label shown beside the title, e.g. for the portfolio Claude manages.
+    #[props(default)]
+    badge: Option<String>,
     children: Element,
 ) -> Element {
     let up = day_change >= Decimal::ZERO;
@@ -69,9 +72,14 @@ pub fn PageHero(
                     {actions}
                 }
             }
-            h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 \
-                         bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
-                "{title}"
+            div { class: "flex flex-wrap items-center gap-3",
+                h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 \
+                             bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
+                    "{title}"
+                }
+                if let Some(badge) = badge {
+                    AiBadge { label: badge }
+                }
             }
             div { class: "mt-4 text-5xl sm:text-6xl font-semibold tracking-tight tabular-nums text-ctp-text",
                 LiveNumber { value: total_value, text: fmt_usd(total_value, 2) }
@@ -89,6 +97,18 @@ pub fn PageHero(
                 }
                 {children}
             }
+        }
+    }
+}
+
+/// Marks the portfolio Claude manages itself.
+#[component]
+pub fn AiBadge(#[props(default = "AI".to_string())] label: String) -> Element {
+    rsx! {
+        span {
+            class: "inline-flex shrink-0 items-center gap-1 rounded-full bg-ctp-mauve/15 px-2 py-0.5 text-xs font-medium text-ctp-mauve",
+            title: tr("Claude manages this portfolio with paper money"),
+            "🤖 {label}"
         }
     }
 }

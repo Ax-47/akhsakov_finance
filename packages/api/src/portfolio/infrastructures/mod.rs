@@ -94,16 +94,20 @@ fn to_transaction(
 
 impl PortfolioRepository for SqlitePortfolioRepository {
     fn portfolios(&self) -> Result<Vec<PortfolioRecord>, RepositoryError> {
-        let rows: Vec<(String, String)> = self.db.with(|c| {
-            c.prepare("SELECT id, name FROM portfolios ORDER BY created_at, name")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect()
+        let rows: Vec<(String, String, bool)> = self.db.with(|c| {
+            c.prepare(
+                "SELECT p.id, p.name, a.portfolio_id IS NOT NULL FROM portfolios p
+                 LEFT JOIN ai_portfolios a ON a.portfolio_id = p.id
+                 ORDER BY p.created_at, p.name",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect()
         })?;
         rows.into_iter()
-            .map(|(id, name)| {
+            .map(|(id, name, ai)| {
                 let id = Uuid::parse_str(&id)
                     .map_err(|_| RepositoryError::Corrupt(format!("portfolio id \"{id}\"")))?;
-                Ok(PortfolioRecord { id, name })
+                Ok(PortfolioRecord { id, name, ai })
             })
             .collect()
     }

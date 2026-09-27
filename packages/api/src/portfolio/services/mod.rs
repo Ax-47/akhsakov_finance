@@ -44,6 +44,7 @@ impl PortfolioService {
                 assets: holdings(p.id, &transactions),
                 id: p.id,
                 name: p.name,
+                ai: p.ai,
             })
             .collect();
         Ok(GetDashBoardResponse {
@@ -55,7 +56,7 @@ impl PortfolioService {
     pub fn create_portfolio(&self, name: &str) -> Result<Uuid, ServiceError> {
         let name = self.valid_name(name, None)?;
         let id = Uuid::new_v4();
-        self.repo.create_portfolio(&PortfolioRecord { id, name })?;
+        self.repo.create_portfolio(&PortfolioRecord { id, name, ai: false })?;
         Ok(id)
     }
 

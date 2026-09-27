@@ -42,12 +42,16 @@ impl ReportService {
         if dtos::report::month_bounds(month).is_none() || month.len() != 7 {
             return Err(ServiceError::Validation("Month must be YYYY-MM".into()));
         }
+        let ai = match portfolio {
+            Some(_) => vec![],
+            None => self.data.ai_portfolios().map_err(ServiceError::Storage)?,
+        };
         let transactions: Vec<_> = self
             .data
             .transactions()
             .map_err(ServiceError::Storage)?
             .into_iter()
-            .filter(|t| portfolio.is_none_or(|p| t.portfolio_id == p))
+            .filter(|t| portfolio.map_or(!ai.contains(&t.portfolio_id), |p| t.portfolio_id == p))
             .collect();
         let mut tickers: Vec<TickerSymbol> = transactions.iter().filter(|t| !t.is_cash()).map(|t| t.ticker.clone()).collect();
         tickers.sort_by(|a, b| a.as_str().cmp(b.as_str()));

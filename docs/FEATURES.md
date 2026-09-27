@@ -76,6 +76,7 @@
 
 ### 12. เชื่อมต่อ Claude (MCP)
 - MCP server ที่ `/mcp` ให้ Claude (claude.ai / แอป Claude บน Pro, Claude Desktop, Claude Code) อ่านพอร์ตและ thesis และเพิ่มบันทึกติดตามได้
+- พอร์ตของ Claude เอง: ใส่เงินต้น (เงินสมมติ) ใน Settings แล้วให้ Claude ดูราคาและซื้อขายเองผ่าน `get_quote` / `get_my_portfolio` / `place_order` โดยแตะพอร์ตอื่นไม่ได้ ดูผลเทียบ benchmark ได้ในหน้าพอร์ต
 - เปิด/ปิด และสร้างคีย์ใหม่ได้ใน Settings, สิ่งที่ AI เขียนจะมีป้าย AI กำกับ, วิธีตั้งค่าอยู่ใน [CLAUDE_CONNECTOR.md](CLAUDE_CONNECTOR.md)
 
 ### 13. ความปลอดภัยและผู้ใช้
