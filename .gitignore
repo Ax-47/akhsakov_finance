@@ -15,3 +15,6 @@
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Server binaries staged for `dx bundle` (see Dioxus.toml)
+/packages/desktop/sidecar

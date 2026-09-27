@@ -33,18 +33,19 @@ enum Route {
     Stock { ticker: String },
 }
 
-/// Backend the phone talks to. Set `AKHSAKOV_SERVER_URL` when building,
-/// e.g. `http://192.168.1.20:8080` (a phone can't reach your computer's
-/// 127.0.0.1; the Android emulator uses `http://10.0.2.2:8080`).
+/// Backend the phone talks to, when set at build time with
+/// `AKHSAKOV_SERVER_URL`, e.g. `http://192.168.1.20:8080` (a phone can't
+/// reach your computer's 127.0.0.1; the Android emulator uses
+/// `http://10.0.2.2:8080`). Without it the app asks on first launch.
 #[cfg(not(feature = "server"))]
-const SERVER_URL: &str = match option_env!("AKHSAKOV_SERVER_URL") {
-    Some(url) => url,
-    None => "http://127.0.0.1:8080",
-};
+const SERVER_URL: Option<&str> = option_env!("AKHSAKOV_SERVER_URL");
 
 fn main() {
     #[cfg(not(feature = "server"))]
-    dioxus::fullstack::set_server_url(SERVER_URL);
+    match SERVER_URL {
+        Some(url) => dioxus::fullstack::set_server_url(url),
+        None => ui::server_address::ask_on_device(),
+    }
     #[cfg(not(feature = "server"))]
     dioxus::launch(App);
     #[cfg(feature = "server")]

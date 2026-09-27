@@ -15,3 +15,8 @@ identifier = "com.akhsakov.finance"
 publisher = "Akhsakov"
 short_description = "Personal finance application"
 category = "Finance"
+# The server, which the app starts itself (src/local_server.rs). The release
+# workflow builds it and copies it to sidecar/<name>-<target triple>; bundles
+# put it next to the app's executable. Two names because Windows needs the
+# .exe in the name: whichever file exists for the target is used.
+external_bin = ["sidecar/akhsakov-finance-server", "sidecar/akhsakov-finance-server.exe"]

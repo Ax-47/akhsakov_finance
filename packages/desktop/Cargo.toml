@@ -3,6 +3,12 @@ name = "desktop"
 version = "0.1.0"
 edition = "2021"
 
+# Named after the app: bundles call it AkhsakovFinance (macOS .app, Windows
+# installer, Linux menu entry) and its executable akhsakov-finance.
+[[bin]]
+name = "akhsakov-finance"
+path = "src/main.rs"
+
 [dependencies]
 dioxus = { workspace = true, features = ["router", "fullstack"] }
 ui = { workspace = true }
