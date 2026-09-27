@@ -43,12 +43,16 @@ pub fn ReportCard(portfolio: Option<Uuid>) -> Element {
             let file = format!("report-{}.txt", r.month);
             rsx! {
                 div { class: "grid grid-cols-2 gap-3 sm:grid-cols-4",
-                    MetricTile { label: tr("Value"), value: fmt_usd(r.end_value, 2), hint: trf("from {}", &[&fmt_usd(r.start_value, 2)]) }
+                    if r.market_gain.is_some() {
+                        MetricTile { label: tr("Value"), value: fmt_usd(r.end_value, 2), hint: trf("from {}", &[&fmt_usd(r.start_value, 2)]) }
+                    } else {
+                        MetricTile { label: tr("Value"), value: "—", hint: tr("No prices for this month").to_string() }
+                    }
                     MetricTile {
                         label: tr("Market gain"),
-                        value: fmt_signed(r.market_gain, 2),
-                        tone: signed_color(r.market_gain),
-                        hint: format!("{:+}%", r.return_pct),
+                        value: r.market_gain.map(|g| fmt_signed(g, 2)).unwrap_or_else(|| "—".into()),
+                        tone: r.market_gain.map(signed_color).unwrap_or("text-ctp-overlay1"),
+                        hint: r.return_pct.map(|p| format!("{p:+}%")).unwrap_or_default(),
                     }
                     MetricTile { label: tr("Money added"), value: fmt_signed(r.net_invested, 2), hint: trf("{} buys · {} sells", &[&r.buys, &r.sells]) }
                     MetricTile { label: tr("Dividends"), value: fmt_usd(r.dividends, 2), hint: trf("tax {} · fees {}", &[&fmt_usd(r.dividend_tax, 2), &fmt_usd(r.fees, 2)]) }
@@ -70,7 +74,7 @@ pub fn ReportCard(portfolio: Option<Uuid>) -> Element {
                     }
                 }
                 if !r.unpriced.is_empty() {
-                    p { class: "mt-3 text-xs text-ctp-peach", {trf("No price history for {}; valued at zero.", &[&r.unpriced.join(", ")])} }
+                    p { class: "mt-3 text-xs text-ctp-peach", {trf("No price for {}: left out of the value, gain and return.", &[&r.unpriced.join(", ")])} }
                 }
                 div { class: "mt-4 flex flex-wrap gap-2 print:hidden",
                     ActionButton { label: tr("⇩ Text"), tone: ButtonTone::Quiet, onclick: move |_| download(&file, "text/plain", &text) }

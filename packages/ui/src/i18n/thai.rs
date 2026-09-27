@@ -27,7 +27,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Aggressive", "เชิงรุก"),
     ("Alert notifications", "การแจ้งเตือนราคา"),
     ("Alerts", "การแจ้งเตือน"),
-    ("Alerts are checked against live prices while the app is open, and fire once.", "ระบบตรวจการแจ้งเตือนกับราคาล่าสุดและแจ้งครั้งเดียว"),
+    ("Alerts are checked on the server every minute, even when the app is closed, and fire once.", "ระบบตรวจการแจ้งเตือนบนเซิร์ฟเวอร์ทุกนาที แม้ปิดแอปอยู่ และแจ้งครั้งเดียว"),
     ("Alerts are checked on the server every minute, even when the app is closed. Get them on your phone or in chat.", "เซิร์ฟเวอร์ตรวจการแจ้งเตือนทุกนาที แม้ปิดแอปอยู่ รับแจ้งเตือนทางมือถือหรือแชทได้"),
     ("Alerts are checked on the server every minute. Push them to your phone in Settings.", "เซิร์ฟเวอร์ตรวจการแจ้งเตือนทุกนาที ตั้งค่าส่งเข้ามือถือได้ในหน้าตั้งค่า"),
     ("All", "ทั้งหมด"),
@@ -992,7 +992,6 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("tax {} · fees {}", "ภาษี {} · ค่าธรรมเนียม {}"),
     ("Best", "ดีที่สุด"),
     ("Worst", "แย่ที่สุด"),
-    ("No price history for {}; valued at zero.", "ไม่มีประวัติราคาของ {} จึงคิดมูลค่าเป็นศูนย์"),
     ("⇩ Text", "⇩ ข้อความ"),
     ("Monthly report", "รายงานประจำเดือน"),
     ("This portfolio, month by month", "พอร์ตนี้ รายเดือน"),
@@ -1006,4 +1005,6 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("More", "เพิ่มเติม"),
     ("This device can't show system notifications here; use ntfy or Telegram for your phone.", "อุปกรณ์นี้แสดงการแจ้งเตือนของระบบไม่ได้ ใช้ ntfy หรือ Telegram สำหรับมือถือ"),
     ("Show alerts as system notifications on this device while the app is open in the background", "แสดงการแจ้งเตือนเป็นการแจ้งเตือนของระบบบนอุปกรณ์นี้ ขณะแอปเปิดอยู่เบื้องหลัง"),
+    ("No prices for this month", "ไม่มีราคาของเดือนนี้"),
+    ("No price for {}: left out of the value, gain and return.", "ไม่มีราคาของ {} จึงไม่นับรวมในมูลค่า กำไร และผลตอบแทน"),
 ];

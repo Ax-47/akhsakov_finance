@@ -32,11 +32,13 @@ pub struct MonthlyReport {
     pub end_value: Decimal,
     /// Bought minus sold during the month (money put in, net).
     pub net_invested: Decimal,
-    /// End − start − net invested: what the market added.
-    pub market_gain: Decimal,
+    /// End − start − net invested (+ net dividends): what the market
+    /// added, over the priced holdings only. `None` when nothing held
+    /// could be priced.
+    pub market_gain: Option<Decimal>,
     /// Market gain over start value plus half the money added, percent
     /// (a simple money-weighted return for the month).
-    pub return_pct: Decimal,
+    pub return_pct: Option<Decimal>,
     /// Dividends before tax, and the tax withheld.
     pub dividends: Decimal,
     pub dividend_tax: Decimal,
@@ -46,7 +48,9 @@ pub struct MonthlyReport {
     /// Best first, at most three each way.
     pub best: Vec<Mover>,
     pub worst: Vec<Mover>,
-    /// Holdings that had no price for a date and were valued at zero.
+    /// Holdings without a price at the start or end of the month. They're
+    /// left out of the values, the gain and the return (not out of the
+    /// money added, dividends or trades).
     pub unpriced: Vec<String>,
 }
 
@@ -77,52 +81,69 @@ pub fn monthly_report(
         portfolios: vec![],
         transactions: transactions.iter().filter(|t| t.date.as_str() <= date).cloned().collect(),
     };
-    let mut unpriced = Vec::new();
-    let mut value_on = |date: &str| -> (Decimal, HashMap<TickerSymbol, Decimal>) {
-        let positions = compute_positions(&upto(date), &HashMap::new());
-        let mut shares = HashMap::new();
-        let mut total = Decimal::ZERO;
-        for p in positions {
-            match price_on(&p.ticker, date) {
-                Some(price) => total += p.shares * price,
-                None => {
-                    if !unpriced.contains(&p.ticker.to_string()) {
-                        unpriced.push(p.ticker.to_string());
-                    }
-                }
-            }
-            shares.insert(p.ticker, p.shares);
-        }
-        (total, shares)
+    let shares_on = |date: &str| -> HashMap<TickerSymbol, Decimal> {
+        compute_positions(&upto(date), &HashMap::new()).into_iter().map(|p| (p.ticker, p.shares)).collect()
     };
-    let (start_value, start_shares) = value_on(&start);
-    let (end_value, end_shares) = value_on(&end);
+    let (start_shares, end_shares) = (shares_on(&start), shares_on(&end));
+    // A holding is left out of the values and gain if either end of the
+    // month has no price: valuing it at zero would read as a crash.
+    let mut unpriced: Vec<String> = start_shares
+        .keys()
+        .filter(|t| price_on(t, &start).is_none())
+        .chain(end_shares.keys().filter(|t| price_on(t, &end).is_none()))
+        .map(|t| t.to_string())
+        .collect();
+    unpriced.sort();
+    unpriced.dedup();
+    let priced = |t: &TickerSymbol| !unpriced.iter().any(|u| u == t.as_str());
+    let value = |held: &HashMap<TickerSymbol, Decimal>, date: &str| -> Decimal {
+        held.iter()
+            .filter(|(t, _)| priced(t))
+            .filter_map(|(t, n)| Some(*n * price_on(t, date)?))
+            .sum()
+    };
+    let (start_value, end_value) = (value(&start_shares, &start), value(&end_shares, &end));
 
     let mut r = MonthlyReport { month: month.to_string(), start_value, end_value, ..Default::default() };
+    // Flows of the priced holdings, for the gain.
+    let (mut flows, mut income) = (Decimal::ZERO, Decimal::ZERO);
     for t in transactions.iter().filter(|t| !t.is_cash() && t.date.get(..7) == Some(month)) {
         let gross = t.shares * t.usd_price();
+        let counted = priced(&t.ticker);
         match t.transaction_type {
             TransactionType::Buy => {
                 r.buys += 1;
                 r.net_invested += gross + t.usd_fee();
                 r.fees += t.usd_fee();
+                if counted {
+                    flows += gross + t.usd_fee();
+                }
             }
             TransactionType::Sell => {
                 r.sells += 1;
                 r.net_invested -= gross - t.usd_fee();
                 r.fees += t.usd_fee();
+                if counted {
+                    flows -= gross - t.usd_fee();
+                }
             }
             TransactionType::Dividend => {
                 r.dividends += t.usd_price();
                 r.dividend_tax += t.usd_fee();
+                if counted {
+                    income += t.usd_price() - t.usd_fee();
+                }
             }
             _ => {}
         }
     }
-    r.market_gain = end_value - start_value - r.net_invested + r.dividends - r.dividend_tax;
-    let base = start_value + r.net_invested / Decimal::TWO;
-    if base > Decimal::ZERO {
-        r.return_pct = (r.market_gain / base * Decimal::ONE_HUNDRED).round_dp(2);
+    let held_any = !start_shares.is_empty() || !end_shares.is_empty();
+    let priced_any = start_shares.keys().chain(end_shares.keys()).any(&priced);
+    if !held_any || priced_any {
+        let gain = end_value - start_value - flows + income;
+        r.market_gain = Some(gain);
+        let base = start_value + flows / Decimal::TWO;
+        r.return_pct = (base > Decimal::ZERO).then(|| (gain / base * Decimal::ONE_HUNDRED).round_dp(2));
     }
 
     // Movers: price change over the month on the shares held at its end
@@ -148,7 +169,6 @@ pub fn monthly_report(
     movers.sort_by(|a, b| b.pct.cmp(&a.pct).then(a.ticker.cmp(&b.ticker)));
     r.best = movers.iter().filter(|m| m.pct > Decimal::ZERO).take(3).cloned().collect();
     r.worst = movers.iter().rev().filter(|m| m.pct < Decimal::ZERO).take(3).cloned().collect();
-    unpriced.sort();
     r.unpriced = unpriced;
     Some(r)
 }
@@ -157,14 +177,17 @@ pub fn monthly_report(
 /// amount (in the reader's currency).
 pub fn report_text(r: &MonthlyReport, money: impl Fn(Decimal) -> String) -> String {
     let signed = |v: Decimal| if v >= Decimal::ZERO { format!("+{}", money(v)) } else { money(v) };
-    let mut out = format!(
-        "Value: {} → {}\nMarket gain: {} ({:+}%)\nNet invested: {}\n",
-        money(r.start_value),
-        money(r.end_value),
-        signed(r.market_gain),
-        r.return_pct,
-        signed(r.net_invested),
-    );
+    let mut out = match r.market_gain {
+        Some(gain) => format!(
+            "Value: {} → {}\nMarket gain: {}{}\n",
+            money(r.start_value),
+            money(r.end_value),
+            signed(gain),
+            r.return_pct.map(|p| format!(" ({p:+}%)")).unwrap_or_default(),
+        ),
+        None => "Value and gain: no prices available for this month\n".to_string(),
+    };
+    out.push_str(&format!("Net invested: {}\n", signed(r.net_invested)));
     if r.dividends > Decimal::ZERO {
         out.push_str(&format!("Dividends: {} (tax {})\n", money(r.dividends), money(r.dividend_tax)));
     }
@@ -177,7 +200,7 @@ pub fn report_text(r: &MonthlyReport, money: impl Fn(Decimal) -> String) -> Stri
         out.push_str(&format!("Worst: {}\n", list(&r.worst)));
     }
     if !r.unpriced.is_empty() {
-        out.push_str(&format!("No price for: {}\n", r.unpriced.join(", ")));
+        out.push_str(&format!("No price for (left out of value and gain): {}\n", r.unpriced.join(", ")));
     }
     out
 }
@@ -239,12 +262,38 @@ mod tests {
         assert_eq!((r.buys, r.sells, r.fees), (1, 1, dec!(2)));
         assert_eq!((r.dividends, r.dividend_tax), (dec!(10), dec!(1)));
         // 1800 − 1250 − 352 + 9
-        assert_eq!(r.market_gain, dec!(207));
-        assert_eq!(r.return_pct, dec!(14.52));
+        assert_eq!(r.market_gain, Some(dec!(207)));
+        assert_eq!(r.return_pct, Some(dec!(14.52)));
+        assert!(r.unpriced.is_empty());
         assert_eq!(r.best[0].ticker, "AAA");
         assert_eq!((r.worst[0].ticker.as_str(), r.worst[0].pct), ("BBB", dec!(-20)));
         let text = report_text(&r, |v| format!("${v}"));
         assert!(text.contains("Market gain: +$207 (+14.52%)"), "{text}");
         assert!(text.contains("Best: AAA +20"), "{text}");
+    }
+
+    #[test]
+    fn unpriced_holdings_are_left_out_not_zeroed() {
+        use TransactionType::*;
+        let txs = vec![
+            tx("AAA", Buy, "2026-01-10", dec!(10), dec!(100), dec!(0)),
+            tx("FUND", Buy, "2026-02-05", dec!(100), dec!(10), dec!(0)),
+        ];
+        // AAA 100 → 110; FUND never priced.
+        let price = |t: &TickerSymbol, d: &str| match t.as_str() {
+            "AAA" => Some(if d >= "2026-02-28" { dec!(110) } else { dec!(100) }),
+            _ => None,
+        };
+        let r = monthly_report(&txs, "2026-02", price).unwrap();
+        assert_eq!(r.unpriced, vec!["FUND".to_string()]);
+        assert_eq!((r.start_value, r.end_value), (dec!(1000), dec!(1100)));
+        assert_eq!(r.net_invested, dec!(1000), "money added still counts every buy");
+        assert_eq!(r.market_gain, Some(dec!(100)), "the fund's purchase isn't a loss");
+        assert_eq!(r.return_pct, Some(dec!(10)));
+
+        // Nothing priced at all: no gain rather than a fake −100%.
+        let r = monthly_report(&txs, "2026-02", |_: &TickerSymbol, _: &str| None).unwrap();
+        assert_eq!((r.market_gain, r.return_pct), (None, None));
+        assert!(report_text(&r, |v| format!("${v}")).contains("no prices available"));
     }
 }
