@@ -524,7 +524,7 @@ pub fn AlertDialog(
                 Field { label: value_label,
                     input { class: INPUT, inputmode: "decimal", value: "{value}", oninput: move |e| value.set(e.value()) }
                 }
-                p { class: "text-xs text-ctp-subtext0", {tr("Alerts are checked against live prices while the app is open, and fire once.")} }
+                p { class: "text-xs text-ctp-subtext0", {tr("Alerts are checked on the server every minute, even when the app is closed, and fire once.")} }
                 ErrorLine { error: error() }
                 div { class: "flex justify-end gap-2",
                     ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }

@@ -23,6 +23,12 @@ use crate::{
     },
 };
 
+/// A provider call taking longer than this counts as failed, so the saved
+/// copy is served instead of keeping the app waiting (the provider's own
+/// retries can take minutes when it's unreachable).
+const QUOTE_TIMEOUT: Duration = Duration::from_secs(8);
+const CHART_TIMEOUT: Duration = Duration::from_secs(20);
+
 /// Live FX rates are reused this long.
 const LIVE_FX_TTL: Duration = Duration::from_secs(60);
 /// Daily FX history is refetched this often.
@@ -172,9 +178,12 @@ impl QuoteService {
             return Ok(manual_candles(&prices, range, chrono::Utc::now().date_naive()));
         }
         let key = format!("{ticker}|{}|{interval:?}|{is_prepost_market}", range.code());
-        let fetched = self.gateway.read().await
-            .get_chart(ticker, range, interval, is_prepost_market)
-            .await;
+        let fetched = tokio::time::timeout(
+            CHART_TIMEOUT,
+            async { self.gateway.read().await.get_chart(ticker, range, interval, is_prepost_market).await },
+        )
+        .await
+        .unwrap_or_else(|_| Err(QuoteGateWayError::GateWayError("the price provider didn't answer in time".into())));
         match (fetched, &self.cache) {
             (Ok(candles), Some(cache)) => {
                 if !candles.is_empty() {
@@ -249,7 +258,9 @@ impl QuoteService {
                 stale: false,
             });
         }
-        let fetched = self.gateway.read().await.get_quote(ticker.clone()).await;
+        let fetched = tokio::time::timeout(QUOTE_TIMEOUT, async { self.gateway.read().await.get_quote(ticker.clone()).await })
+            .await
+            .unwrap_or_else(|_| Err(QuoteGateWayError::GateWayError("the price provider didn't answer in time".into())));
         let q = match (fetched, &self.cache) {
             (Ok(q), Some(cache)) => {
                 cache.save_quote(&q);
@@ -496,6 +507,49 @@ mod tests {
         assert_eq!(rate_on(&series, d("2025-12-01")), Some(dec!(0.030)), "before history");
         assert_eq!(rate_on(&[], d("2026-01-01")), None);
         assert!(is_convertible("PTT.BK") && !is_convertible("^GSPC") && !is_convertible("USDTHB=X"));
+    }
+
+    /// Answers AAPL at 200 until `online` is off, then never answers.
+    struct Hangs {
+        online: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl QuoteGateway for Hangs {
+        async fn subscribe(&self) -> Receiver<QuoteUpdateEvent> {
+            tokio::sync::broadcast::channel(1).1
+        }
+        async fn add_ticker(&mut self, _: TickerSymbol) -> Result<(), QuoteGateWayError> {
+            Ok(())
+        }
+        async fn remove_ticker(&mut self, _: &TickerSymbol) -> Result<(), QuoteGateWayError> {
+            Ok(())
+        }
+        async fn get_chart(&self, _: TickerSymbol, _: Range, _: Interval, _: bool) -> Result<Vec<Candle>, QuoteGateWayError> {
+            std::future::pending().await
+        }
+        async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
+            if !self.online.load(Ordering::SeqCst) {
+                std::future::pending::<()>().await;
+            }
+            Flaky { online: self.online.clone() }.get_quote(ticker).await
+        }
+        async fn search(&self, _: &str) -> Result<Vec<dtos::watch::SearchHit>, QuoteGateWayError> {
+            Ok(vec![])
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_provider_that_never_answers_falls_back_to_saved_prices() {
+        let online = Arc::new(AtomicBool::new(true));
+        let service = QuoteService::new(Arc::new(RwLock::new(Hangs { online: online.clone() })))
+            .with_cache(Arc::new(SqliteQuoteCache::new(Database::in_memory().unwrap())));
+        let aapl = TickerSymbol::new("AAPL").unwrap();
+        service.get_quote(aapl.clone()).await.unwrap();
+        online.store(false, Ordering::SeqCst);
+        let q = service.get_quote(aapl.clone()).await.unwrap();
+        assert!(q.stale && q.current_price == dec!(200));
+        assert!(service.get_chart(aapl, Range::M1, Interval::D1, false).await.is_err(), "times out, nothing saved");
     }
 
     struct OneFund;
