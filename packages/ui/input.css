@@ -12,6 +12,146 @@
   }
 }
 
+/* Calm, native-feeling basics for a desktop app. `<html>` carries the
+   theme flavour class (see theme.rs), so the page scrollbar, selection
+   and native controls match the theme too. */
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html.latte { color-scheme: light; }
+  html.frappe,
+  html.macchiato,
+  html.mocha { color-scheme: dark; }
+  body {
+    background-color: var(--catppuccin-color-base);
+  }
+  /* Everything clickable looks clickable. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  select,
+  label[for] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--catppuccin-color-mauve) 32%, transparent);
+    color: inherit;
+  }
+  /* Slim scrollbars in the theme's colours, fuller while you hover them. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--catppuccin-color-surface1) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+    background-color: var(--catppuccin-color-surface1);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    border-width: 2px;
+    background-color: var(--catppuccin-color-surface2);
+  }
+}
+
+/* Where you are in the sidebar: a short accent bar beside the page. */
+aside .nav-active::before {
+  content: "";
+  position: absolute;
+  left: -0.25rem;
+  top: 50%;
+  width: 3px;
+  height: 1.1rem;
+  translate: 0 -50%;
+  border-radius: 999px;
+  background: var(--catppuccin-color-mauve);
+}
+
+/* Items only shown in the collapsed sidebar rail. */
+.sidebar-rail-only {
+  display: none;
+}
+
+/* Collapsed sidebar (Ctrl/⌘+B): an icon rail. Labels become flyouts on
+   hover or keyboard focus, so nothing is lost, just tucked away. */
+@media (width >= 48rem) {
+  [data-sidebar="collapsed"] {
+    width: 4.5rem;
+    padding-inline: 0.75rem;
+  }
+  [data-sidebar="collapsed"] [data-sidebar-hide] {
+    display: none;
+  }
+  [data-sidebar="collapsed"] .sidebar-rail-only {
+    display: flex;
+  }
+  [data-sidebar="collapsed"] .sidebar-head {
+    flex-direction: column;
+    padding-inline: 0;
+  }
+  [data-sidebar="collapsed"] nav {
+    overflow: visible;
+  }
+  [data-sidebar="collapsed"] nav > a {
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+  }
+  [data-sidebar="collapsed"] nav > a > svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+  [data-sidebar="collapsed"] [data-nav-section] {
+    height: 0;
+    margin: 0.6rem 0.6rem;
+    padding: 0;
+    overflow: hidden;
+    border-top: 1px solid var(--catppuccin-color-surface0);
+  }
+  [data-sidebar="collapsed"] [data-nav-section]:first-child {
+    display: none;
+  }
+  [data-sidebar="collapsed"] .nav-label {
+    position: absolute;
+    left: calc(100% + 0.75rem);
+    top: 50%;
+    z-index: 60;
+    translate: -4px -50%;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--catppuccin-color-surface1);
+    border-radius: 0.5rem;
+    background: var(--catppuccin-color-surface0);
+    color: var(--catppuccin-color-text);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    box-shadow: 0 6px 20px -6px color-mix(in oklab, var(--catppuccin-color-crust) 70%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease-out, translate 0.12s ease-out;
+  }
+  [data-sidebar="collapsed"] a:hover > .nav-label,
+  [data-sidebar="collapsed"] a:focus-visible > .nav-label {
+    opacity: 1;
+    translate: 0 -50%;
+  }
+}
+
 /* Keyboard users can always see where they are. */
 :focus-visible {
   outline: 2px solid var(--catppuccin-color-mauve);
