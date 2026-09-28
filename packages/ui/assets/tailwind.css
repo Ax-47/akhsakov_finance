@@ -2022,6 +2022,10 @@
     min-height: calc(var(--spacing) * 16);
   }
 
+  .min-h-24 {
+    min-height: calc(var(--spacing) * 24);
+  }
+
   .min-h-28 {
     min-height: calc(var(--spacing) * 28);
   }
@@ -2706,6 +2710,16 @@
   @supports (color: color-mix(in lab, red, red)) {
     .bg-ctp-crust\/20 {
       background-color: color-mix(in oklab, var(--catppuccin-color-crust) 20%, transparent);
+    }
+  }
+
+  .bg-ctp-crust\/30 {
+    background-color: var(--catppuccin-color-crust);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .bg-ctp-crust\/30 {
+      background-color: color-mix(in oklab, var(--catppuccin-color-crust) 30%, transparent);
     }
   }
 
@@ -3578,6 +3592,10 @@
 
   .whitespace-pre-line {
     white-space: pre-line;
+  }
+
+  .whitespace-pre-wrap {
+    white-space: pre-wrap;
   }
 
   .text-ctp-blue {

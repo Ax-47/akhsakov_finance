@@ -954,7 +954,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                     p { class: "text-xs text-ctp-peach", {tr("Run AI trader executes paper orders immediately. It can access only this AI portfolio.")} }
                     div { class: "flex justify-end gap-2",
                         GhostButton { label: tr("Save strategy"), onclick: save_trader }
-                        ActionButton { label: if running() { tr("Running…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
+                        ActionButton { label: if running() { tr("Run in progress…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
                     }
                     for run in runs().into_iter().take(5) {
                         div { key: "{run.id}", class: "rounded-xl bg-ctp-crust/30 p-3 text-xs",

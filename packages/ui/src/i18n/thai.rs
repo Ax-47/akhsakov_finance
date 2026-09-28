@@ -893,7 +893,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Run AI trader executes paper orders immediately. It can access only this AI portfolio.", "Run AI trader จะส่งคำสั่งจำลองทันทีและเข้าถึงได้เฉพาะพอร์ต AI นี้"),
     ("Save strategy", "บันทึกกลยุทธ์"),
     ("Run AI trader", "เรียก AI trader"),
-    ("Running…", "กำลังทำงาน…"),
+    ("Run in progress…", "กำลังทำงาน…"),
     ("Streamable HTTP endpoint", "Streamable HTTP endpoint"),
     ("Use this URL with an Authorization: Bearer header.", "ใช้ URL นี้พร้อม header Authorization: Bearer"),
     ("URL-only fallback", "ทางเลือกที่ใช้เฉพาะ URL"),
