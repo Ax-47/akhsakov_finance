@@ -4,9 +4,13 @@
 //! writes is marked as written by AI.
 
 use super::trading::{Book as MyBook, Side, Size, Trading};
-use crate::{portfolio::PortfolioService, thesis::ThesisService, watchlist::WatchlistService};
+use crate::{
+    planning::PlanningService, portfolio::PortfolioService, settings::SettingsService, thesis::ThesisService,
+    watchlist::WatchlistService,
+};
 use dtos::{
     compute_positions,
+    planning::{project_goal, Goal},
     portfolio::{GetDashBoardResponse, GetPortfolioResponse},
     thesis::{Author, Thesis, ThesisEntry, ThesisStatus},
     Position,
@@ -113,6 +117,13 @@ pub fn definitions() -> Value {
             "annotations": { "readOnlyHint": true, "openWorldHint": true },
         },
         {
+            "name": "get_my_goals",
+            "title": "Your portfolios' goals",
+            "description": "The goals the user set for the portfolios you manage: target amount, date and planned monthly contribution, with the portfolio's value now, the value projected at the date at the user's assumed yearly return, whether that's on track, and the yearly return still needed. All of your portfolios, or the one named. Read only: goals belong to the user. Amounts are USD.",
+            "inputSchema": { "type": "object", "properties": { "portfolio": mine } },
+            "annotations": { "readOnlyHint": true, "openWorldHint": true },
+        },
+        {
             "name": "get_quote",
             "title": "Get a live price",
             "description": "The latest price of a stock, ETF or fund, in its own currency and in USD, with the change since the previous close.",
@@ -146,6 +157,8 @@ pub struct Tools {
     portfolios: PortfolioService,
     watchlist: WatchlistService,
     trading: Trading,
+    planning: PlanningService,
+    settings: SettingsService,
 }
 
 /// Everything the tools look at, read once per call.
@@ -268,6 +281,26 @@ fn position_json(p: &Position, first_bought: Option<String>) -> Value {
     })
 }
 
+/// A goal with where `value` (USD) is heading at `yearly` return.
+fn goal_json(g: &Goal, value: f64, today: &str, yearly: f64) -> Value {
+    let p = project_goal(g, value, today, yearly);
+    let target = g.target.to_f64().unwrap_or(0.0);
+    let pct = |v: f64| Decimal::from_f64(v * 100.0).map(|d| num(d, 1));
+    json!({
+        "name": g.name,
+        "target": num(g.target, 2),
+        "date": g.date,
+        "monthly_contribution": num(g.monthly, 2),
+        "months_left": p.months,
+        "progress_pct": if target > 0.0 { pct(value / target) } else { None },
+        "projected_value": Decimal::from_f64(p.projected).map(|d| num(d, 2)),
+        "on_track": p.on_track,
+        "required_return_pct": p.required_return.and_then(pct),
+        "reachable_without_growth": value + g.monthly.to_f64().unwrap_or(0.0) * f64::from(p.months) >= target,
+        "reached": value >= target,
+    })
+}
+
 /// A text field: `null` clears it.
 fn text(v: &Value, field: &str) -> Result<String, String> {
     match v {
@@ -283,12 +316,16 @@ impl Tools {
         portfolios: PortfolioService,
         watchlist: WatchlistService,
         trading: Trading,
+        planning: PlanningService,
+        settings: SettingsService,
     ) -> Self {
         Self {
             theses,
             portfolios,
             watchlist,
             trading,
+            planning,
+            settings,
         }
     }
 
@@ -302,6 +339,7 @@ impl Tools {
             "save_thesis" => self.save_thesis(args),
             "add_thesis_note" => self.add_note(args),
             "get_my_portfolio" => self.my_portfolio(args).await,
+            "get_my_goals" => self.my_goals(args).await,
             "get_quote" => self.quote(args).await,
             "place_order" => self.place_order(args).await,
             _ => return None,
@@ -489,6 +527,46 @@ impl Tools {
         Ok(json!({
             "portfolios": portfolios,
             "note": "Paper money the user gave you to manage; each portfolio has its own cash. Orders fill at the latest price with no fee, so results are a little better than a real broker's.",
+        }))
+    }
+
+    async fn my_goals(&self, args: &Value) -> ToolResult {
+        let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+        let books = match wanted {
+            Some(_) => vec![self.trading.book(wanted).map_err(|e| e.to_string())?],
+            None => self.trading.books().map_err(|e| e.to_string())?,
+        };
+        if books.is_empty() {
+            return Err(NO_PORTFOLIO.into());
+        }
+        let goals = self.planning.goals().map_err(|e| e.to_string())?;
+        // Stored as a percentage, e.g. 7 for 7% a year.
+        let assumed = self.settings.get().map_err(|e| e.to_string())?.assumed_return;
+        let yearly = assumed.to_f64().unwrap_or(7.0) / 100.0;
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let mut portfolios = Vec::with_capacity(books.len());
+        for book in &books {
+            let value = self.book_json(book).await["total_value"].as_f64().unwrap_or(0.0);
+            let mine: Vec<Value> = goals
+                .iter()
+                .filter(|g| g.portfolio_id == Some(book.id))
+                .map(|g| goal_json(g, value, &today, yearly))
+                .collect();
+            let mut out = json!({
+                "portfolio": { "id": book.id, "name": book.name },
+                "total_value": num(Decimal::from_f64(value).unwrap_or_default(), 2),
+                "goals": mine,
+            });
+            if mine.is_empty() {
+                out["hint"] = json!("No goal for this portfolio yet. The user can set one on the portfolio page, Plan tab.");
+            }
+            portfolios.push(out);
+        }
+        Ok(json!({
+            "today": today,
+            "assumed_return_pct": num(assumed, 2),
+            "portfolios": portfolios,
+            "note": "Goals are set by the user; you can read them but not change them. Projections add the planned monthly contribution and grow at the assumed return, which is a planning assumption, not a forecast.",
         }))
     }
 
@@ -798,5 +876,53 @@ mod tests {
         // One left: it needn't be named.
         call(&s, "place_order", json!({"ticker":"PTT.BK","side":"buy","amount_usd":50,"reason":"x"})).await.unwrap();
         assert_eq!(s.trading().infos().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn goals_of_its_own_portfolios_only() {
+        let s = service();
+        assert!(call(&s, "get_my_goals", json!({})).await.is_err(), "no portfolio of its own yet");
+
+        let info = s.trading().start("Growth", dec!(1000)).await.unwrap();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let in_ten_years = dtos::planning::add_days(&today, 3653).unwrap();
+        let goal = |name: &str, target, portfolio_id| dtos::planning::Goal {
+            id: uuid::Uuid::new_v4(),
+            name: name.into(),
+            target,
+            date: in_ten_years.clone(),
+            monthly: rust_decimal::Decimal::ZERO,
+            portfolio_id,
+        };
+        let planning = &s.tools.planning;
+        planning.save_goal(goal("Double it", dec!(2000), Some(info.portfolio_id))).unwrap();
+        planning.save_goal(goal("Keep it", dec!(500), Some(info.portfolio_id))).unwrap();
+        let main = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        planning.save_goal(goal("House", dec!(90000), Some(main))).unwrap();
+        planning.save_goal(goal("Retire", dec!(1000000), None)).unwrap();
+
+        let out = call(&s, "get_my_goals", json!({})).await.unwrap();
+        assert_eq!(out["assumed_return_pct"].as_f64(), Some(7.0));
+        let mine = &out["portfolios"].as_array().unwrap()[0];
+        assert_eq!(mine["portfolio"]["name"], "Growth");
+        assert_eq!(mine["total_value"].as_f64(), Some(1000.0));
+        let goals = mine["goals"].as_array().unwrap();
+        assert_eq!(goals.len(), 2, "the user's own goals stay out: {goals:?}");
+
+        // $1,000 at 7% for ten years is about $1,967: just short of $2,000.
+        let double = goals.iter().find(|g| g["name"] == "Double it").unwrap();
+        assert_eq!(double["months_left"], 120);
+        assert_eq!(double["progress_pct"].as_f64(), Some(50.0));
+        assert_eq!(double["on_track"], false);
+        assert_eq!(double["reached"], false);
+        let needed = double["required_return_pct"].as_f64().unwrap();
+        assert!((7.0..7.5).contains(&needed), "{needed}");
+
+        let keep = goals.iter().find(|g| g["name"] == "Keep it").unwrap();
+        assert_eq!((keep["on_track"].as_bool(), keep["reached"].as_bool()), (Some(true), Some(true)));
+
+        assert!(call(&s, "get_my_goals", json!({"portfolio": "Main"})).await.is_err(), "not the user's");
+        let named = call(&s, "get_my_goals", json!({"portfolio": "growth"})).await.unwrap();
+        assert_eq!(named["portfolios"].as_array().unwrap().len(), 1);
     }
 }

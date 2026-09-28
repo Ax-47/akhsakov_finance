@@ -36,7 +36,8 @@ labelled as written by AI and logged in the journal.\n\
 - The user may have given you portfolios of your own, each with its own paper money, to manage \
 yourself (get_my_portfolio). Decide what to buy and sell in each, and trade with place_order (naming the \
 portfolio when you have more than one), giving a short reason each time; the reason is kept in that \
-holding's journal. Invest for the long run, spread the risk, and \
+holding's journal. The user may have set goals for those portfolios (get_my_goals): aim for them, \
+but you can't change them. Invest for the long run, spread the risk, and \
 don't trade just to be busy. place_order can't touch the user's other portfolios; never present your \
 own portfolio's trades as advice to copy.";
 
@@ -195,7 +196,9 @@ pub(crate) mod tests {
             infrastructures::{SqliteAiPortfolioRepository, SqliteKeyRepository},
             repositories::{LivePrices, LiveQuote},
         },
+        planning::planning_services_setup,
         portfolio::portfolio_services_setup,
+        settings::settings_services_setup,
         thesis::thesis_services_setup,
         watchlist::watchlist_services_setup,
     };
@@ -264,6 +267,8 @@ pub(crate) mod tests {
             portfolios,
             watchlist_services_setup(db.clone()),
             trading.clone(),
+            planning_services_setup(db.clone()),
+            settings_services_setup(db.clone()),
         );
         McpService::new(Arc::new(SqliteKeyRepository::new(db)), tools, trading)
     }
@@ -310,7 +315,7 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(
             names,
-            ["list_portfolios", "list_theses", "get_thesis", "save_thesis", "add_thesis_note", "get_my_portfolio", "get_quote", "place_order"]
+            ["list_portfolios", "list_theses", "get_thesis", "save_thesis", "add_thesis_note", "get_my_portfolio", "get_my_goals", "get_quote", "place_order"]
         );
 
         let unknown = s.handle(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"rm_rf"}})).await.unwrap();

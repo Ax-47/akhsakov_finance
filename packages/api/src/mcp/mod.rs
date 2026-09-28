@@ -35,11 +35,15 @@ pub fn mcp_services_setup(
         portfolios.clone(),
         Arc::new(infrastructures::QuotePrices(quotes)),
     );
-    McpService::new(
-        Arc::new(infrastructures::SqliteKeyRepository::new(db)),
-        services::tools::Tools::new(theses, portfolios, watchlist, trading.clone()),
-        trading,
-    )
+    let tools = services::tools::Tools::new(
+        theses,
+        portfolios,
+        watchlist,
+        trading.clone(),
+        crate::planning::planning_services_setup(db.clone()),
+        crate::settings::settings_services_setup(db.clone()),
+    );
+    McpService::new(Arc::new(infrastructures::SqliteKeyRepository::new(db)), tools, trading)
 }
 
 /// Adds the endpoint: `/mcp` with the key in `Authorization: Bearer …`, and
