@@ -2022,6 +2022,10 @@
     min-height: calc(var(--spacing) * 16);
   }
 
+  .min-h-20 {
+    min-height: calc(var(--spacing) * 20);
+  }
+
   .min-h-24 {
     min-height: calc(var(--spacing) * 24);
   }
@@ -2457,6 +2461,10 @@
     :where(.divide-ctp-surface0\/70 > :not(:last-child)) {
       border-color: color-mix(in oklab, var(--catppuccin-color-surface0) 70%, transparent);
     }
+  }
+
+  .self-center {
+    align-self: center;
   }
 
   .self-start {
