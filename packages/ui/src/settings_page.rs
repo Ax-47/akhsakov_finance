@@ -797,6 +797,43 @@ fn AiPortfolioCard() -> Element {
 }
 
 /// One AI paper portfolio: funding, model strategy, runs and audit history.
+fn poll_ai_run(
+    run_id: Uuid,
+    portfolio_id: Uuid,
+    mut runs: Signal<Vec<AiRun>>,
+    mut running: Signal<bool>,
+    mut memory: Signal<TraderMemory>,
+    mut error: Signal<Option<String>>,
+    refresh: DataRefresh,
+) {
+    spawn(async move {
+        for _ in 0..150 {
+            crate::notify::poll_delay(1_000).await;
+            match api::get_ai_trader_run(run_id).await {
+                Ok(updated) => {
+                    if let Some(item) = runs.write().iter_mut().find(|run| run.id == run_id) {
+                        *item = updated.clone();
+                    }
+                    if updated.status != AiRunStatus::Running {
+                        running.set(false);
+                        if let Ok(saved) = api::get_trader_memory(portfolio_id).await {
+                            memory.set(saved);
+                        }
+                        refresh.reload();
+                        return;
+                    }
+                }
+                Err(e) => {
+                    error.set(Some(server_message(e)));
+                    running.set(false);
+                    return;
+                }
+            }
+        }
+        running.set(false);
+    });
+}
+
 #[component]
 fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change: EventHandler<()>) -> Element {
     let PortfolioScope(mut scope) = use_context::<PortfolioScope>();
@@ -819,8 +856,15 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                 Err(e) => error.set(Some(server_message(e))),
             }
             if let Ok(value) = api::get_ai_trader_runs(id).await {
-                running.set(value.first().is_some_and(|r| r.status == AiRunStatus::Running));
+                let active = value
+                    .iter()
+                    .find(|run| run.status == AiRunStatus::Running)
+                    .map(|run| run.id);
+                running.set(active.is_some());
                 runs.set(value);
+                if let Some(run_id) = active {
+                    poll_ai_run(run_id, id, runs, running, memory, error, refresh);
+                }
             }
             match api::get_trader_memory(id).await {
                 Ok(value) => memory.set(value),
@@ -902,33 +946,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                         running.set(true);
                         error.set(None);
                         runs.write().insert(0, run.clone());
-                        let run_id = run.id;
-                        spawn(async move {
-                            for _ in 0..120 {
-                                let _ = document::eval("await new Promise(resolve => setTimeout(resolve, 1000)); return 'ok';")
-                                    .join::<String>().await;
-                                match api::get_ai_trader_run(run_id).await {
-                                    Ok(updated) => {
-                                        if let Some(item) = runs.write().iter_mut().find(|r| r.id == run_id) {
-                                            *item = updated.clone();
-                                        }
-                                        if updated.status != AiRunStatus::Running {
-                                            running.set(false);
-                                            if let Ok(saved) = api::get_trader_memory(id).await {
-                                                memory.set(saved);
-                                            }
-                                            refresh.reload();
-                                            break;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error.set(Some(server_message(e)));
-                                        running.set(false);
-                                        break;
-                                    }
-                                }
-                            }
-                        });
+                        poll_ai_run(run.id, id, runs, running, memory, error, refresh);
                     }
                 }
             }
@@ -974,19 +992,23 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                         Field { label: tr("Model connection"),
                             select {
                                 class: INPUT,
-                                value: trader().profile_id.map(|id| id.to_string()).unwrap_or_default(),
                                 onchange: move |e| {
                                     trader.write().profile_id = Uuid::parse_str(&e.value()).ok();
                                 },
-                                option { value: "", {tr("Choose a connection")} }
+                                option { value: "", selected: trader().profile_id.is_none(), {tr("Choose a connection")} }
                                 for profile in profiles.iter() {
-                                    option { key: "{profile.id}", value: "{profile.id}", "{profile.name} · {profile.model}" }
+                                    option {
+                                        key: "{profile.id}",
+                                        value: "{profile.id}",
+                                        selected: trader().profile_id == Some(profile.id),
+                                        "{profile.name} · {profile.model}"
+                                    }
                                 }
                             }
                         }
                         Field { label: tr("Trading strategy"),
                             textarea {
-                                class: "{INPUT} min-h-24",
+                                class: "{INPUT} min-h-40",
                                 value: trader().strategy,
                                 oninput: move |e| trader.write().strategy = e.value(),
                             }
@@ -1073,21 +1095,13 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                         ActionButton { label: if running() { tr("Run in progress…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
                     }
                     for run in runs().into_iter().take(5) {
-                        div { key: "{run.id}", class: "rounded-xl bg-ctp-crust/30 p-3 text-xs",
+                        div { key: "{run.id}", class: "min-w-0 rounded-xl bg-ctp-crust/30 p-3 text-xs",
                             div { class: "flex flex-wrap justify-between gap-2",
-                                span { class: "font-medium text-ctp-text", "{run.status.label()} · {run.model}" }
+                                span { class: "font-medium text-ctp-text", "{run.status.label()}" }
                                 span { class: "text-ctp-overlay1", "{run.started_at}" }
                             }
-                            if let Some(text) = run.final_response { p { class: "mt-2 whitespace-pre-wrap text-ctp-subtext0", "{text}" } }
-                            if let Some(message) = run.error { p { class: "mt-2 text-ctp-red", "{message}" } }
-                            for event in run.events {
-                                div { class: "mt-2 border-t border-ctp-surface0 pt-2 text-ctp-subtext0",
-                                    "#{event.sequence} {event.tool} · "
-                                    if event.success { "ok" } else { "failed" }
-                                    code { class: "mt-1 block break-all text-ctp-overlay1", "{event.arguments}" }
-                                    if event.detail != "Completed" { p { class: "mt-1 break-all", "{event.detail}" } }
-                                }
-                            }
+                            if let Some(text) = run.final_response { p { class: "mt-2 break-words whitespace-pre-wrap text-ctp-subtext0", "{text}" } }
+                            if let Some(message) = run.error { p { class: "mt-2 break-words text-ctp-red", "{message}" } }
                         }
                     }
                 }

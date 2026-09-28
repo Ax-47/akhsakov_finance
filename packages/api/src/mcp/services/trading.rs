@@ -181,7 +181,7 @@ impl Trading {
         if books.is_empty() {
             return Err(invalid(
                 "You don't have a portfolio of your own yet. The user can give you one, with starting \
-                 cash, in the app under Settings → AI connector.",
+                 cash, in the app under Settings → AI paper portfolios.",
             ));
         }
         let names = || books.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ");

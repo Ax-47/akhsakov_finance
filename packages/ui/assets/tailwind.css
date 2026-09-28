@@ -2026,12 +2026,12 @@
     min-height: calc(var(--spacing) * 20);
   }
 
-  .min-h-24 {
-    min-height: calc(var(--spacing) * 24);
-  }
-
   .min-h-28 {
     min-height: calc(var(--spacing) * 28);
+  }
+
+  .min-h-40 {
+    min-height: calc(var(--spacing) * 40);
   }
 
   .min-h-screen {
@@ -3588,6 +3588,10 @@
   .tracking-wider {
     --tw-tracking: var(--tracking-wider);
     letter-spacing: var(--tracking-wider);
+  }
+
+  .break-words {
+    overflow-wrap: break-word;
   }
 
   .break-all {

@@ -3,7 +3,10 @@ use dtos::ai_models::{AiRun, AiRunEvent, AiRunStatus, ModelProfile, TraderConfig
 use reqwest::Url;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use uuid::Uuid;
 
 const MAX_TURNS: usize = 12;
@@ -14,6 +17,7 @@ const MAX_MEMORY_CHARS: u32 = 50_000;
 const MIN_CONTEXT_TOKENS: u32 = 8_192;
 const MAX_CONTEXT_TOKENS: u32 = 1_000_000;
 const CONTEXT_SAFETY_TOKENS: usize = 512;
+const RUN_HISTORY_LIMIT: usize = 5;
 const ALLOWED_TOOLS: [&str; 5] = [
     "list_theses",
     "get_thesis",
@@ -140,8 +144,7 @@ impl ModelService {
                 "description":"Confirms tool calling works.",
                 "parameters":{"type":"object","properties":{}}
             }}],
-            "tool_choice": {"type":"function","function":{"name":"connection_test"}},
-            "max_tokens": 32
+            "tool_choice": {"type":"function","function":{"name":"connection_test"}}
         });
         let response = self.request(&connection, &body).await?;
         let called = response["choices"][0]["message"]["tool_calls"]
@@ -334,18 +337,28 @@ impl ModelService {
             })?;
         let runner = self.clone();
         tokio::spawn(async move {
+            let usage = Arc::new(Mutex::new(Usage::default()));
             let result = tokio::time::timeout(
                 RUN_TIMEOUT,
-                runner.run_loop(run_id, portfolio_id, &config, &memory, connection),
+                runner.run_loop(
+                    run_id,
+                    portfolio_id,
+                    &config,
+                    &memory,
+                    connection,
+                    usage.clone(),
+                ),
             )
             .await;
+            let usage = usage_snapshot(&usage);
             match result {
-                Ok(Ok(done)) => runner.finish(run_id, done, None),
-                Ok(Err(e)) => runner.finish(run_id, None, Some(e.to_string())),
+                Ok(Ok(response)) => runner.finish(run_id, Some(response), None, usage),
+                Ok(Err(e)) => runner.finish(run_id, None, Some(e.to_string()), usage),
                 Err(_) => runner.finish(
                     run_id,
                     None,
                     Some("The model run exceeded two minutes.".into()),
+                    usage,
                 ),
             }
         });
@@ -354,18 +367,20 @@ impl ModelService {
 
     pub fn runs(&self, portfolio_id: Uuid) -> Result<Vec<AiRun>, ServiceError> {
         self.ensure_ai_portfolio(portfolio_id)?;
-        let ids: Vec<Uuid> = self
-            .db
+        self.db
             .with(|c| {
                 c.prepare(
-                    "SELECT id FROM ai_runs WHERE portfolio_id = ?1 ORDER BY started_at DESC",
+                    "SELECT id, portfolio_id, status, profile_name, model, started_at, finished_at,
+                            final_response, error, prompt_tokens, completion_tokens, total_tokens
+                     FROM ai_runs WHERE portfolio_id = ?1 ORDER BY started_at DESC LIMIT ?2",
                 )?
-                .query_map([portfolio_id.to_string()], |r| r.get::<_, String>(0))?
-                .filter_map(|row| row.ok().and_then(|s| Uuid::parse_str(&s).ok()).map(Ok))
+                .query_map(
+                    params![portfolio_id.to_string(), RUN_HISTORY_LIMIT as i64],
+                    run_row,
+                )?
                 .collect()
             })
-            .map_err(storage)?;
-        ids.into_iter().map(|id| self.run(id)).collect()
+            .map_err(storage)
     }
 
     pub fn run(&self, id: Uuid) -> Result<AiRun, ServiceError> {
@@ -373,29 +388,11 @@ impl ModelService {
             .db
             .with(|c| {
                 c.query_row(
-                    "SELECT portfolio_id, status, profile_name, model, started_at, finished_at,
+                    "SELECT id, portfolio_id, status, profile_name, model, started_at, finished_at,
                             final_response, error, prompt_tokens, completion_tokens, total_tokens
                      FROM ai_runs WHERE id = ?1",
                     [id.to_string()],
-                    |r| {
-                        let portfolio: String = r.get(0)?;
-                        let status: String = r.get(1)?;
-                        Ok(AiRun {
-                            id,
-                            portfolio_id: Uuid::parse_str(&portfolio).unwrap_or_default(),
-                            status: parse_status(&status),
-                            profile_name: r.get(2)?,
-                            model: r.get(3)?,
-                            started_at: r.get(4)?,
-                            finished_at: r.get(5)?,
-                            final_response: r.get(6)?,
-                            error: r.get(7)?,
-                            prompt_tokens: r.get::<_, Option<i64>>(8)?.map(|v| v as u64),
-                            completion_tokens: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
-                            total_tokens: r.get::<_, Option<i64>>(10)?.map(|v| v as u64),
-                            events: vec![],
-                        })
-                    },
+                    run_row,
                 )
                 .optional()
             })
@@ -412,9 +409,9 @@ impl ModelService {
         config: &TraderConfig,
         memory: &TraderMemory,
         connection: Connection,
-    ) -> Result<Option<(String, Usage)>, ServiceError> {
+        usage: Arc<Mutex<Usage>>,
+    ) -> Result<String, ServiceError> {
         let portfolio = portfolio_id.to_string();
-        let response_tokens = response_token_budget(config.context_token_limit);
         let memory_budget = memory_prompt_budget(config);
         let memory_context = format_memory(memory, memory_budget);
         let system = format!(
@@ -432,7 +429,6 @@ impl ModelService {
         ];
         let tools = openai_tools();
         let mut tool_count = 0usize;
-        let mut usage = Usage::default();
         for _ in 0..MAX_TURNS {
             compact_messages(&mut messages, &tools, config.context_token_limit);
             let response = self
@@ -442,12 +438,11 @@ impl ModelService {
                         "model": connection.profile.model,
                         "messages": messages,
                         "tools": tools,
-                        "tool_choice": "auto",
-                        "max_tokens": response_tokens
+                        "tool_choice": "auto"
                     }),
                 )
                 .await?;
-            usage.add(&response["usage"]);
+            usage_add(&usage, &response["usage"]);
             let message = response["choices"][0]["message"].clone();
             if !message.is_object() {
                 return Err(ServiceError::Upstream(
@@ -470,11 +465,17 @@ impl ModelService {
                         "The model finished without a response.".into(),
                     ));
                 }
-                let memory_usage = self
-                    .refresh_memory(run_id, portfolio_id, config, memory, &text, &connection)
-                    .await?;
-                usage.merge(memory_usage);
-                return Ok(Some((text, usage)));
+                self.refresh_memory(
+                    run_id,
+                    portfolio_id,
+                    config,
+                    memory,
+                    &text,
+                    &connection,
+                    &usage,
+                )
+                .await?;
+                return Ok(text);
             }
             for call in calls {
                 tool_count += 1;
@@ -483,24 +484,8 @@ impl ModelService {
                 }
                 let call_id = call["id"].as_str().unwrap_or_default();
                 let name = call["function"]["name"].as_str().unwrap_or_default();
-                if !ALLOWED_TOOLS.contains(&name) {
-                    return Err(invalid(format!(
-                        "The model requested unavailable tool {name}."
-                    )));
-                }
                 let raw = call["function"]["arguments"].as_str().unwrap_or("{}");
-                let mut args: Value = serde_json::from_str(raw).map_err(|_| {
-                    invalid(format!("The model returned invalid arguments for {name}."))
-                })?;
-                if !args.is_object() {
-                    args = json!({});
-                }
-                if matches!(
-                    name,
-                    "get_my_portfolio" | "list_theses" | "get_thesis" | "place_order"
-                ) {
-                    args["portfolio"] = json!(portfolio);
-                }
+                let args = scoped_args(name, raw, &portfolio)?;
                 let result = self
                     .mcp
                     .tools()
@@ -530,7 +515,8 @@ impl ModelService {
         previous: &TraderMemory,
         final_response: &str,
         connection: &Connection,
-    ) -> Result<Usage, ServiceError> {
+        usage: &Arc<Mutex<Usage>>,
+    ) -> Result<(), ServiceError> {
         let prompt_chars = memory_prompt_budget(config);
         let prior = format_memory(previous, prompt_chars / 2);
         let latest = clip_chars(final_response, prompt_chars / 2);
@@ -543,13 +529,11 @@ impl ModelService {
                     "Prior memory:\n{prior}\n\nLatest run summary:\n{latest}\n\nKeep the combined text within {} characters.",
                     config.memory_char_limit
                 )}
-            ],
-            "max_tokens": response_token_budget(config.context_token_limit).min(1_024)
+            ]
         });
-        let mut usage = Usage::default();
         let generated = match self.request(connection, &body).await {
             Ok(response) => {
-                usage.add(&response["usage"]);
+                usage_add(usage, &response["usage"]);
                 response["choices"][0]["message"]["content"]
                     .as_str()
                     .and_then(parse_memory_response)
@@ -574,7 +558,7 @@ impl ModelService {
             &questions,
             config.memory_char_limit as usize,
         )?;
-        Ok(usage)
+        Ok(())
     }
 
     fn store_memory(
@@ -625,19 +609,21 @@ impl ModelService {
             ServiceError::Upstream(format!("Couldn't read the model response: {e}"))
         })?;
         if !status.is_success() {
-            let concise: String = text.chars().take(500).collect();
-            return Err(ServiceError::Upstream(format!(
-                "Model endpoint returned {status}: {concise}"
+            return Err(ServiceError::Upstream(upstream_error(
+                status.as_u16(),
+                &text,
+                &connection.api_key,
             )));
         }
         serde_json::from_str(&text)
             .map_err(|_| ServiceError::Upstream("The model endpoint returned invalid JSON.".into()))
     }
 
-    fn finish(&self, id: Uuid, done: Option<(String, Usage)>, error: Option<String>) {
-        let (status, response, usage) = match done {
-            Some((text, usage)) => ("completed", Some(text), usage),
-            None => ("failed", None, Usage::default()),
+    fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
+        let status = if response.is_some() {
+            "completed"
+        } else {
+            "failed"
         };
         let _ = self.db.with(|c| {
             c.execute(
@@ -754,11 +740,21 @@ impl ToolResultExt for Option<Result<Value, String>> {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Usage {
     prompt: Option<u64>,
     completion: Option<u64>,
     total: Option<u64>,
+}
+
+fn usage_add(usage: &Arc<Mutex<Usage>>, value: &Value) {
+    if let Ok(mut usage) = usage.lock() {
+        usage.add(value);
+    }
+}
+
+fn usage_snapshot(usage: &Arc<Mutex<Usage>>) -> Usage {
+    usage.lock().map(|value| value.clone()).unwrap_or_default()
 }
 
 impl Usage {
@@ -766,12 +762,6 @@ impl Usage {
         add_opt(&mut self.prompt, value["prompt_tokens"].as_u64());
         add_opt(&mut self.completion, value["completion_tokens"].as_u64());
         add_opt(&mut self.total, value["total_tokens"].as_u64());
-    }
-
-    fn merge(&mut self, other: Self) {
-        add_opt(&mut self.prompt, other.prompt);
-        add_opt(&mut self.completion, other.completion);
-        add_opt(&mut self.total, other.total);
     }
 }
 
@@ -923,6 +913,101 @@ fn parse_status(value: &str) -> AiRunStatus {
     }
 }
 
+fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AiRun> {
+    let id: String = r.get(0)?;
+    let portfolio: String = r.get(1)?;
+    let status: String = r.get(2)?;
+    Ok(AiRun {
+        id: Uuid::parse_str(&id).unwrap_or_default(),
+        portfolio_id: Uuid::parse_str(&portfolio).unwrap_or_default(),
+        status: parse_status(&status),
+        profile_name: r.get(3)?,
+        model: r.get(4)?,
+        started_at: r.get(5)?,
+        finished_at: r.get(6)?,
+        final_response: r.get(7)?,
+        error: r.get(8)?,
+        prompt_tokens: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+        completion_tokens: r.get::<_, Option<i64>>(10)?.map(|v| v as u64),
+        total_tokens: r.get::<_, Option<i64>>(11)?.map(|v| v as u64),
+        events: vec![],
+    })
+}
+
+fn tool_accepts_portfolio(name: &str) -> bool {
+    crate::mcp::services::tools::definitions()
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|tool| tool["name"] == name)
+        .and_then(|tool| tool["inputSchema"]["properties"].as_object())
+        .is_some_and(|properties| properties.contains_key("portfolio"))
+}
+
+fn scoped_args(name: &str, raw: &str, portfolio: &str) -> Result<Value, ServiceError> {
+    if !ALLOWED_TOOLS.contains(&name) {
+        return Err(invalid(format!(
+            "The model requested unavailable tool {name}."
+        )));
+    }
+    let mut args: Value = serde_json::from_str(raw)
+        .map_err(|_| invalid(format!("The model returned invalid arguments for {name}.")))?;
+    if !args.is_object() {
+        args = json!({});
+    }
+    if tool_accepts_portfolio(name) {
+        args["portfolio"] = json!(portfolio);
+    } else if let Some(args) = args.as_object_mut() {
+        args.remove("portfolio");
+    }
+    Ok(args)
+}
+
+fn upstream_error(status: u16, body: &str, api_key: &str) -> String {
+    let message = serde_json::from_str::<Value>(body).ok().and_then(|value| {
+        value
+            .pointer("/error/message")?
+            .as_str()
+            .map(str::to_string)
+    });
+    match message {
+        Some(message) => format!(
+            "Model endpoint returned {status}: {}",
+            redact_api_key(&message, api_key)
+        ),
+        None => format!("Model endpoint returned {status}."),
+    }
+}
+
+fn redact_api_key(message: &str, api_key: &str) -> String {
+    if api_key.is_empty() {
+        return message.to_string();
+    }
+    let exact = message.replace(api_key, "***");
+    let prefix: String = api_key.chars().take(8).collect();
+    let suffix: String = api_key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    exact
+        .split_whitespace()
+        .map(|word| {
+            if (prefix.chars().count() >= 6 && word.contains(&prefix))
+                || (suffix.chars().count() >= 4 && word.contains(&suffix))
+            {
+                "***"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn openai_tools() -> Vec<Value> {
     crate::mcp::services::tools::definitions()
         .as_array()
@@ -1058,6 +1143,106 @@ mod tests {
         for tool in tools {
             assert!(tool["function"]["parameters"]["properties"]["portfolio"].is_null());
         }
+
+        let trader_portfolio = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        for name in ALLOWED_TOOLS {
+            let args = scoped_args(
+                name,
+                r#"{"portfolio":"Main","ticker":"NVDA"}"#,
+                trader_portfolio,
+            )
+            .unwrap();
+            if tool_accepts_portfolio(name) {
+                assert_eq!(args["portfolio"], trader_portfolio, "{name} must be scoped");
+            } else {
+                assert!(
+                    args.get("portfolio").is_none(),
+                    "{name} must not accept a portfolio"
+                );
+            }
+        }
+        assert!(scoped_args("save_thesis", "{}", trader_portfolio).is_err());
+        assert!(scoped_args("unknown_tool", "{}", trader_portfolio).is_err());
+    }
+
+    #[test]
+    fn provider_errors_are_concise_and_redact_keys() {
+        let key = "sk-test-secret123";
+        let full = upstream_error(
+            401,
+            r#"{"error":{"message":"Incorrect API key sk-test-secret123"},"request":"private"}"#,
+            key,
+        );
+        assert_eq!(full, "Model endpoint returned 401: Incorrect API key ***");
+        let partial = upstream_error(
+            401,
+            r#"{"error":{"message":"Incorrect API key provided: sk-test-***t123."}}"#,
+            key,
+        );
+        assert!(!partial.contains("sk-test") && !partial.contains("t123"));
+        assert_eq!(
+            upstream_error(500, "not json and possibly sensitive", key),
+            "Model endpoint returned 500."
+        );
+    }
+
+    #[test]
+    fn failed_runs_keep_usage() {
+        let (db, service) = service();
+        let id = Uuid::new_v4();
+        db.with(|c| {
+            c.execute(
+                "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model)
+                 VALUES (?1, '11111111-1111-1111-1111-111111111111', 'running', 'test', 'model')",
+                [id.to_string()],
+            )
+        })
+        .unwrap();
+        service.finish(
+            id,
+            None,
+            Some("failed".into()),
+            Usage {
+                prompt: Some(10),
+                completion: Some(2),
+                total: Some(12),
+            },
+        );
+        let run = service.run(id).unwrap();
+        assert_eq!(
+            (run.prompt_tokens, run.completion_tokens, run.total_tokens),
+            (Some(10), Some(2), Some(12))
+        );
+    }
+
+    #[tokio::test]
+    async fn run_history_is_limited_and_omits_events() {
+        let (db, service) = service();
+        let info = service
+            .mcp
+            .trading()
+            .start("History", rust_decimal_macros::dec!(1000))
+            .await
+            .unwrap();
+        for sequence in 0..7 {
+            let id = Uuid::new_v4();
+            db.with(|c| {
+                c.execute(
+                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model, started_at)
+                     VALUES (?1, ?2, 'completed', 'test', 'model', ?3)",
+                    params![id.to_string(), info.portfolio_id.to_string(), format!("2026-01-{:02}", sequence + 1)],
+                )?;
+                c.execute(
+                    "INSERT INTO ai_run_events (run_id, sequence, tool, arguments, success, detail)
+                     VALUES (?1, 1, 'get_quote', '{}', 1, 'Completed')",
+                    [id.to_string()],
+                )
+            }).unwrap();
+        }
+        let runs = service.runs(info.portfolio_id).unwrap();
+        assert_eq!(runs.len(), RUN_HISTORY_LIMIT);
+        assert!(runs.iter().all(|run| run.events.is_empty()));
+        assert_eq!(runs[0].started_at, "2026-01-07");
     }
 
     #[tokio::test]

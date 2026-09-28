@@ -29,7 +29,7 @@ const LIST_JOURNAL: usize = 3;
 const RECENT_TRADES: usize = 10;
 
 const NO_PORTFOLIO: &str = "You don't have a portfolio of your own yet. The user can give you one, with \
-starting cash, in the app under Settings → AI connector.";
+starting cash, in the app under Settings → AI paper portfolios.";
 
 pub fn definitions() -> Value {
     let portfolio = json!({
