@@ -16,6 +16,7 @@ use dtos::{
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
+    mcp::{McpAccessPreset, McpAuditEvent, McpConnection, McpPortfolioScope},
     settings::{Settings, BENCHMARKS, CURRENCIES},
 };
 use rust_decimal::Decimal;
@@ -456,11 +457,19 @@ impl McpExample {
 /// Provider-neutral MCP access. Named clients below are setup examples only.
 #[component]
 fn ConnectorCard() -> Element {
-    let mut key = use_signal(|| None::<String>);
+    let mut connections = use_signal(Vec::<McpConnection>::new);
+    let mut scopes = use_signal(Vec::<McpPortfolioScope>::new);
     let mut loaded = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut address = use_signal(String::new);
-    let mut confirm = use_signal(|| None::<&'static str>);
+    let mut name = use_signal(String::new);
+    let mut preset = use_signal(|| McpAccessPreset::ReadOnly);
+    let mut selected = use_signal(Vec::<Uuid>::new);
+    let mut editing = use_signal(|| None::<Uuid>);
+    let mut editing_enabled = use_signal(|| true);
+    let mut secret = use_signal(|| None::<String>);
+    let mut audit = use_signal(Vec::<McpAuditEvent>::new);
+    let mut audit_for = use_signal(|| None::<Uuid>);
     let mut example = use_signal(|| McpExample::Generic);
     let example_chip = |on: bool| if on {
         "rounded-full border border-ctp-mauve bg-ctp-mauve/15 px-3 py-1.5 text-xs font-medium text-ctp-text cursor-pointer"
@@ -468,10 +477,11 @@ fn ConnectorCard() -> Element {
         "rounded-full border border-ctp-surface0 px-3 py-1.5 text-xs text-ctp-subtext0 cursor-pointer hover:border-ctp-surface1 hover:text-ctp-text"
     };
     use_future(move || async move {
-        match api::get_connector_key().await {
-            Ok(k) => key.set(k),
+        match api::get_mcp_connections().await {
+            Ok(value) => connections.set(value),
             Err(e) => error.set(Some(e.to_string())),
         }
+        if let Ok(value) = api::get_mcp_portfolio_scopes().await { scopes.set(value); }
         loaded.set(true);
         // The desktop app talks to its own server; in a browser, the page's
         // own address is the server.
@@ -486,31 +496,29 @@ fn ConnectorCard() -> Element {
         ServerFnError::ServerError { message, .. } => message,
         e => e.to_string(),
     };
-    let new_key = move |_| async move {
-        confirm.set(None);
-        match api::new_connector_key().await {
-            Ok(k) => {
-                key.set(Some(k));
+    let save = move |_| async move {
+        let result = match editing() {
+            Some(id) => api::update_mcp_connection(id, name(), preset(), editing_enabled(), selected()).await.map(|_| None),
+            None => api::create_mcp_connection(name(), preset(), selected()).await.map(Some),
+        };
+        match result {
+            Ok(created) => {
+                if let Some(created)=created { secret.set(Some(created.token)); }
+                if let Ok(value)=api::get_mcp_connections().await { connections.set(value); }
+                name.set(String::new()); selected.set(vec![]); editing.set(None);
                 error.set(None);
             }
-            Err(e) => error.set(Some(message(e))),
-        }
-    };
-    let turn_off = move |_| async move {
-        confirm.set(None);
-        match api::turn_off_connector().await {
-            Ok(()) => key.set(None),
             Err(e) => error.set(Some(message(e))),
         }
     };
     let base = address().trim().trim_end_matches('/').to_string();
     rsx! {
         Card {
-            title: tr("Connect an AI assistant through MCP"),
-            subtitle: tr("One provider-neutral MCP endpoint works with any compatible client. Pick a client below only to see its setup example.").to_string(),
+            title: tr("MCP connections"),
+            subtitle: tr("Give each assistant its own revocable credential, permissions, and portfolio access.").to_string(),
             if !loaded() {
                 p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
-            } else if let Some(k) = key() {
+            } else {
                 div { class: "grid gap-4 text-sm",
                     Field {
                         label: tr("Address the MCP client uses"),
@@ -521,65 +529,40 @@ fn ConnectorCard() -> Element {
                             oninput: move |e| address.set(e.value()),
                         }
                     }
-                    div { class: "flex flex-wrap gap-2",
-                        for choice in McpExample::ALL {
-                            button {
-                                key: "{choice:?}",
-                                class: example_chip(example() == choice),
-                                onclick: move |_| example.set(choice),
-                                {choice.label()}
+                    for connection in connections() {
+                        div { key: "{connection.id}", class: "rounded-xl border border-ctp-surface0 p-4 grid gap-2",
+                            div { class: "flex flex-wrap items-center justify-between gap-2",
+                                div {
+                                    p { class: "font-medium text-ctp-text", "{connection.name}" }
+                                    p { class: "text-xs text-ctp-subtext0", {format!("{} · {} · {} portfolios · last used {}", if connection.enabled { "enabled" } else { "disabled" }, connection.preset.key(), connection.portfolio_ids.len(), connection.last_used_at.as_deref().unwrap_or("never"))} }
+                                }
+                                div { class: "flex flex-wrap gap-2",
+                                    GhostButton { label: tr("Edit"), onclick: { let c=connection.clone(); move |_| { editing.set(Some(c.id));editing_enabled.set(c.enabled);name.set(c.name.clone());preset.set(c.preset);selected.set(c.portfolio_ids.clone()); } } }
+                                    GhostButton { label: if connection.enabled { tr("Disable") } else { tr("Enable") }, onclick: { let c=connection.clone(); move |_| { let c=c.clone(); async move { let _=api::update_mcp_connection(c.id,c.name,c.preset,!c.enabled,c.portfolio_ids).await; if let Ok(v)=api::get_mcp_connections().await{connections.set(v);} } } } }
+                                    GhostButton { label: tr("Rotate secret"), onclick: { let id=connection.id; move |_| async move { match api::rotate_mcp_connection(id).await { Ok(v)=>secret.set(Some(v.token)),Err(e)=>error.set(Some(message(e))) } } } }
+                                    GhostButton { label: tr("Audit"), onclick: { let id=connection.id; move |_| async move { if let Ok(v)=api::get_mcp_audit_events(id).await {audit.set(v);audit_for.set(Some(id));} } } }
+                                    GhostButton { label: tr("Delete"), onclick: { let id=connection.id; move |_| async move { let _=api::delete_mcp_connection(id).await;if let Ok(v)=api::get_mcp_connections().await{connections.set(v);} } } }
+                                }
                             }
                         }
                     }
-                    match example() {
-                        McpExample::Generic => rsx! {
-                            ConnectorRow { label: tr("Streamable HTTP endpoint"), hint: tr("Use this URL with an Authorization: Bearer header."), shown: format!("{base}/mcp  ·  Bearer {}", masked(&k)), copy: format!("{base}/mcp\nAuthorization: Bearer {k}") }
-                        },
-                        McpExample::Claude => rsx! {
-                            ConnectorRow { label: tr("Claude Code"), hint: tr("Run this in a terminal."), shown: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"", masked(&k)), copy: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\"") }
-                            ConnectorRow { label: tr("Claude web and desktop apps"), hint: tr("Add a custom remote connector. The key is included in the URL for clients that cannot set headers."), shown: format!("{base}/mcp/{}", masked(&k)), copy: format!("{base}/mcp/{k}") }
-                        },
-                        McpExample::Codex => rsx! {
-                            ConnectorRow { label: tr("Codex config.toml"), hint: tr("Add this to ~/.codex/config.toml, then restart Codex."), shown: format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {}\" }}", masked(&k)), copy: format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {k}\" }}") }
-                        },
-                        McpExample::Agy => rsx! {
-                            ConnectorRow { label: tr("Antigravity / agy MCP config"), hint: tr("Put this server under mcpServers in .agents/mcp_config.json or the global MCP config."), shown: format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}", masked(&k)), copy: format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}") }
-                        },
-                        McpExample::Editors => rsx! {
-                            ConnectorRow { label: tr("Cursor / VS Code MCP JSON"), hint: tr("Add this entry beneath mcpServers (Cursor) or servers (VS Code)."), shown: format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}", masked(&k)), copy: format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}") }
-                        },
-                        McpExample::Other => rsx! {
-                            ConnectorRow { label: tr("URL-only fallback"), hint: tr("For compatible clients that accept a URL but cannot set an Authorization header."), shown: format!("{base}/mcp/{}", masked(&k)), copy: format!("{base}/mcp/{k}") }
-                        },
+                    div { class: "rounded-xl border border-ctp-surface0 p-4 grid gap-3",
+                        p { class: "font-medium", if editing().is_some() { "Edit connection" } else { "New connection" } }
+                        Field { label: "Name", input { class: INPUT, value:"{name}", oninput:move|e|name.set(e.value()) } }
+                        div { class:"flex flex-wrap gap-2", for (value,label) in [(McpAccessPreset::ReadOnly,"Read only"),(McpAccessPreset::ThesisEditor,"Thesis editor"),(McpAccessPreset::Trader,"Trader")] { button { class:example_chip(preset()==value),onclick:move |_|preset.set(value),"{label}" } } }
+                        div { class:"grid gap-2", p { class:"text-xs text-ctp-subtext0","Portfolio access (at least one)" } for p in scopes() { label { class:"flex gap-2 items-center", input { r#type:"checkbox", checked:selected().contains(&p.id), onchange:{let id=p.id;move|e|{let mut v=selected();if e.checked(){if !v.contains(&id){v.push(id)}}else{v.retain(|x|*x!=id)}selected.set(v)}} }, "{p.name}", if p.ai { span { class:"text-xs text-ctp-mauve","AI paper" } } } } }
+                        div { class:"flex gap-2", ActionButton { label:if editing().is_some(){"Save"}else{"Create connection"},onclick:save } if editing().is_some(){GhostButton{label:"Cancel",onclick:move |_|{editing.set(None);name.set(String::new());selected.set(vec![])}}} }
                     }
-                    p { class: "text-xs text-ctp-peach",
-                        {tr("The address holds your key: anyone who has it can read your portfolios and change your theses. Keep it private; make a new key if it leaks.")}
-                    }
-                    div { class: "flex flex-wrap items-center gap-2",
-                        match confirm() {
-                            Some("new") => rsx! {
-                                span { class: "text-xs text-ctp-peach", {tr("Connected MCP clients will need the new key. Continue?")} }
-                                GhostButton { label: tr("Make a new key"), onclick: new_key }
-                                GhostButton { label: tr("Cancel"), onclick: move |_| confirm.set(None) }
-                            },
-                            Some(_) => rsx! {
-                                span { class: "text-xs text-ctp-peach", {tr("Connected MCP clients will lose access. Continue?")} }
-                                GhostButton { label: tr("Turn off"), onclick: turn_off }
-                                GhostButton { label: tr("Cancel"), onclick: move |_| confirm.set(None) }
-                            },
-                            None => rsx! {
-                                GhostButton { label: tr("New key"), onclick: move |_| confirm.set(Some("new")) }
-                                GhostButton { label: tr("Turn off"), onclick: move |_| confirm.set(Some("off")) }
-                            },
+                    if let Some(k)=secret() { div { class:"rounded-xl border border-ctp-peach/50 p-4 grid gap-3", p { class:"font-medium text-ctp-peach","Copy this secret now. It will not be shown again." } div { class:"flex flex-wrap gap-2", for choice in McpExample::ALL { button { class:example_chip(example()==choice),onclick:move |_|example.set(choice),"{choice.label()}" } } } match example() { McpExample::Generic=>rsx!{ConnectorRow{label:"Bearer token",hint:"Use this URL and Authorization header.",shown:format!("{base}/mcp · Bearer {}",masked(&k)),copy:format!("{base}/mcp\nAuthorization: Bearer {k}")}}, McpExample::Claude=>rsx!{ConnectorRow{label:"Claude Code",hint:"Run in a terminal.",shown:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"",masked(&k)),copy:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\"")}}, McpExample::Codex=>rsx!{ConnectorRow{label:"Codex config.toml",hint:"Restart Codex after editing.",shown:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {}\" }}",masked(&k)),copy:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {k}\" }}")}}, McpExample::Agy=>rsx!{ConnectorRow{label:"Antigravity / agy MCP config",hint:"Put this beneath mcpServers.",shown:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Editors=>rsx!{ConnectorRow{label:"Cursor / VS Code MCP JSON",hint:"Add this beneath mcpServers or servers.",shown:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Other=>rsx!{ConnectorRow{label:"URL token",hint:"For clients that cannot set headers.",shown:format!("{base}/mcp/{}",masked(&k)),copy:format!("{base}/mcp/{k}")}} } GhostButton { label:"I saved it",onclick:move |_|secret.set(None) } } }
+                    if audit_for().is_some() {
+                        div { class:"rounded-xl border border-ctp-surface0 p-4 grid gap-2",
+                            p { class:"font-medium","Latest audit events" }
+                            if audit().is_empty() { p { class:"text-xs text-ctp-subtext0","No events yet." } }
+                            for event in audit() {
+                                p { key:"{event.id}", class:"text-xs text-ctp-subtext0", {format!("{} · {} {} · {}",event.at,event.method,event.tool.as_deref().unwrap_or(""),if event.success{"success"}else{event.error_category.as_deref().unwrap_or("error")})} }
+                            }
                         }
                     }
-                }
-            } else {
-                div { class: "flex flex-wrap items-center justify-between gap-3 text-sm",
-                    p { class: "max-w-xl text-ctp-subtext0",
-                        {tr("AI assistants connect through MCP with a private key. Until you turn it on, nothing outside the app can reach your data this way.")}
-                    }
-                    ActionButton { label: tr("Turn on"), onclick: new_key }
                 }
             }
             if let Some(e) = error() {

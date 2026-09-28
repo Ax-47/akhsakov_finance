@@ -2190,10 +2190,6 @@
     max-width: var(--container-sm);
   }
 
-  .max-w-xl {
-    max-width: var(--container-xl);
-  }
-
   .min-w-0 {
     min-width: calc(var(--spacing) * 0);
   }
@@ -2625,8 +2621,14 @@
     border-color: var(--catppuccin-color-overlay1);
   }
 
-  .border-ctp-peach {
+  .border-ctp-peach, .border-ctp-peach\/50 {
     border-color: var(--catppuccin-color-peach);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-ctp-peach\/50 {
+      border-color: color-mix(in oklab, var(--catppuccin-color-peach) 50%, transparent);
+    }
   }
 
   .border-ctp-red {

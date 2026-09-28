@@ -5,7 +5,9 @@
 pub mod tools;
 pub mod trading;
 
-use crate::{mcp::repositories::KeyRepository, shared::ServiceError};
+use crate::{mcp::repositories::{ConnectionRecord, ConnectionRepository}, shared::ServiceError};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
+use dtos::mcp::{McpAccessPreset, McpAuditEvent, McpConnection, McpConnectionSecret, McpPortfolioScope};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tools::Tools;
@@ -44,24 +46,29 @@ own portfolio's trades as advice to copy.";
 /// What a request's key allows.
 #[derive(Debug, PartialEq)]
 pub enum Access {
-    Granted,
+    Granted(AccessContext),
     Denied,
-    /// No key has been made: the connector is off.
-    Off,
     Error(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccessContext {
+    pub connection_id: Uuid,
+    pub preset: McpAccessPreset,
+    pub portfolio_ids: Vec<Uuid>,
 }
 
 #[derive(Clone)]
 pub struct McpService {
-    keys: Arc<dyn KeyRepository>,
+    connections: Arc<dyn ConnectionRepository>,
     tools: Tools,
     trading: Trading,
 }
 
-/// Compares without stopping at the first difference, so response timing
-/// doesn't reveal how much of a guess was right.
-fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+fn hash_secret(secret: &str) -> Result<String, ServiceError> {
+    let salt=SaltString::encode_b64(Uuid::new_v4().as_bytes()).map_err(|e|ServiceError::Storage(e.to_string()))?;
+    Argon2::default().hash_password(secret.as_bytes(), &salt)
+        .map(|v| v.to_string()).map_err(|e| ServiceError::Storage(e.to_string()))
 }
 
 fn reply(id: Value, result: Value) -> Value {
@@ -73,8 +80,8 @@ fn error(id: Value, code: i64, message: &str) -> Value {
 }
 
 impl McpService {
-    pub fn new(keys: Arc<dyn KeyRepository>, tools: Tools, trading: Trading) -> Self {
-        Self { keys, tools, trading }
+    pub fn new(connections: Arc<dyn ConnectionRepository>, tools: Tools, trading: Trading) -> Self {
+        Self { connections, tools, trading }
     }
 
     /// AI paper portfolios, which Settings sets up and funds.
@@ -86,29 +93,44 @@ impl McpService {
         &self.tools
     }
 
-    /// `None` while the connector is off.
-    pub fn key(&self) -> Result<Option<String>, ServiceError> {
-        Ok(self.keys.key()?)
+    pub fn connections(&self) -> Result<Vec<McpConnection>, ServiceError> { Ok(self.connections.list()?) }
+    pub fn portfolio_scopes(&self) -> Result<Vec<McpPortfolioScope>, ServiceError> { self.tools.portfolio_scopes() }
+
+    pub fn create_connection(&self, name: &str, preset: McpAccessPreset, portfolios: Vec<Uuid>) -> Result<McpConnectionSecret, ServiceError> {
+        let name = name.trim();
+        if name.is_empty() { return Err(ServiceError::Validation("Enter a connection name.".into())); }
+        self.validate_portfolios(&portfolios)?;
+        let id = Uuid::new_v4();
+        let secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        let token = format!("akf_mcp_{}_{}", id.simple(), secret);
+        let connection = McpConnection { id, name:name.into(), enabled:true, preset, portfolio_ids:portfolios, created_at:String::new(), updated_at:String::new(), last_used_at:None };
+        self.connections.create(&ConnectionRecord { connection, token_hash: hash_secret(&secret)? })?;
+        let connection = self.connections.find(id)?.ok_or_else(|| ServiceError::Storage("connection was not saved".into()))?.connection;
+        Ok(McpConnectionSecret { connection, token })
     }
 
-    /// Turns the connector on with a fresh key; any old key stops working.
-    pub fn new_key(&self) -> Result<String, ServiceError> {
-        // 244 random bits, hex: URL-safe, so it can go in a path.
-        let key = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-        self.keys.set_key(Some(&key))?;
-        Ok(key)
+    fn validate_portfolios(&self, ids: &[Uuid]) -> Result<(), ServiceError> {
+        if ids.is_empty() { return Err(ServiceError::Validation("Select at least one portfolio.".into())); }
+        let known = self.tools.portfolio_scopes()?;
+        if ids.iter().any(|id| !known.iter().any(|p| p.id == *id)) { return Err(ServiceError::Validation("One or more selected portfolios no longer exist.".into())); }
+        Ok(())
     }
+    pub fn update_connection(&self,id:Uuid,name:&str,preset:McpAccessPreset,enabled:bool,portfolios:Vec<Uuid>)->Result<(),ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}self.validate_portfolios(&portfolios)?;if name.trim().is_empty(){return Err(ServiceError::Validation("Enter a connection name.".into()));}self.connections.update(id,name.trim(),preset,enabled,&portfolios)?;Ok(())}
+    pub fn rotate_connection(&self,id:Uuid)->Result<McpConnectionSecret,ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}let secret=format!("{}{}",Uuid::new_v4().simple(),Uuid::new_v4().simple());self.connections.rotate(id,&hash_secret(&secret)?)?;let connection=self.connections.find(id)?.unwrap().connection;Ok(McpConnectionSecret{connection,token:format!("akf_mcp_{}_{}",id.simple(),secret)})}
+    pub fn delete_connection(&self,id:Uuid)->Result<(),ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}self.connections.delete(id)?;Ok(())}
+    pub fn audit_events(&self,id:Uuid)->Result<Vec<McpAuditEvent>,ServiceError>{Ok(self.connections.events(id,20)?) }
 
-    pub fn turn_off(&self) -> Result<(), ServiceError> {
-        Ok(self.keys.set_key(None)?)
-    }
-
+    fn token_parts(token:&str)->Option<(Uuid,&str)>{let rest=token.trim().strip_prefix("akf_mcp_")?;let (raw,secret)=rest.split_once('_')?;Some((Uuid::parse_str(raw).ok()?,secret))}
     pub fn authorize(&self, presented: Option<&str>) -> Access {
-        match self.keys.key() {
-            Err(e) => Access::Error(e.to_string()),
-            Ok(None) => Access::Off,
-            Ok(Some(key)) if presented.is_some_and(|p| same(p.trim(), &key)) => Access::Granted,
-            Ok(Some(_)) => Access::Denied,
+        let Some((id,secret))=presented.and_then(Self::token_parts) else { return Access::Denied; };
+        match self.connections.find(id) {
+            Err(e)=>Access::Error(e.to_string()),
+            Ok(None)=>Access::Denied,
+            Ok(Some(record)) if !record.connection.enabled=>Access::Denied,
+            Ok(Some(record))=>match PasswordHash::new(&record.token_hash).ok().and_then(|h|Argon2::default().verify_password(secret.as_bytes(),&h).ok()) {
+                Some(())=>{let _=self.connections.touch(id);Access::Granted(AccessContext{connection_id:id,preset:record.connection.preset,portfolio_ids:record.connection.portfolio_ids})},
+                None=>Access::Denied,
+            }
         }
     }
 
@@ -119,21 +141,27 @@ impl McpService {
 
     /// Answers one JSON-RPC message, or a batch of them. `None` when
     /// nothing needs a reply (notifications, responses).
+    /// Trusted internal dispatch used by configured model traders and tests.
     pub async fn handle(&self, message: Value) -> Option<Value> {
+        let access=AccessContext { connection_id:Uuid::nil(), preset:McpAccessPreset::Trader, portfolio_ids:self.tools.portfolio_scopes().unwrap_or_default().into_iter().map(|p|p.id).collect() };
+        self.handle_scoped(message,&access).await
+    }
+
+    pub async fn handle_scoped(&self, message: Value, access: &AccessContext) -> Option<Value> {
         match message {
             Value::Array(batch) if batch.is_empty() => Some(error(Value::Null, INVALID_REQUEST, "Empty batch")),
             Value::Array(batch) => {
                 let mut replies = Vec::with_capacity(batch.len());
                 for m in batch {
-                    replies.extend(self.handle_one(m).await);
+                    replies.extend(self.handle_one(m, access).await);
                 }
                 (!replies.is_empty()).then_some(Value::Array(replies))
             }
-            message => self.handle_one(message).await,
+            message => self.handle_one(message, access).await,
         }
     }
 
-    async fn handle_one(&self, message: Value) -> Option<Value> {
+    async fn handle_one(&self, message: Value, access: &AccessContext) -> Option<Value> {
         if !message.is_object() {
             return Some(error(Value::Null, INVALID_REQUEST, "Invalid request"));
         }
@@ -145,13 +173,16 @@ impl McpService {
         // Notifications (no id), e.g. notifications/initialized, need no reply.
         let id = id?;
         let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
-        Some(match self.dispatch(method, &params).await {
-            Ok(result) => reply(id, result),
-            Err((code, message)) => error(id, code, &message),
-        })
+        let tool=params.get("name").and_then(Value::as_str);
+        let targets=self.tools.audit_targets(access,tool,&params);
+        let dispatched=self.dispatch(method, &params, access).await;
+        let success=dispatched.as_ref().is_ok_and(|value| value.get("isError") != Some(&Value::Bool(true)));
+        let category=if !success { Some(match dispatched.as_ref().err() { Some((code,_)) if *code==INVALID_PARAMS=>"invalid_request",Some(_)=>"protocol_error",None=>"tool_error" }) } else { None };
+        let _=self.connections.audit(access.connection_id,method,tool,&targets,success,category);
+        Some(match dispatched { Ok(result)=>reply(id,result), Err((code,message))=>error(id,code,&message) })
     }
 
-    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
+    async fn dispatch(&self, method: &str, params: &Value, access: &AccessContext) -> Result<Value, (i64, String)> {
         match method {
             "initialize" => {
                 let asked = params.get("protocolVersion").and_then(Value::as_str);
@@ -170,7 +201,7 @@ impl McpService {
                 }))
             }
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools::definitions() })),
+            "tools/list" => Ok(json!({ "tools": tools::definitions_for(access.preset) })),
             "tools/call" => {
                 let name = params
                     .get("name")
@@ -179,7 +210,7 @@ impl McpService {
                 let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 // A tool that fails says why as its result, for the model
                 // to read and correct; only unknown tools are protocol errors.
-                let (text, is_error) = match self.tools.call(name, &args).await {
+                let (text, is_error) = match self.tools.call_scoped(name, &args, access).await {
                     None => return Err((INVALID_PARAMS, format!("Unknown tool: {name}"))),
                     Some(Ok(value)) => (serde_json::to_string_pretty(&value).unwrap_or_default(), false),
                     Some(Err(message)) => (message, true),
@@ -197,7 +228,7 @@ pub(crate) mod tests {
     use crate::{
         database::Database,
         mcp::{
-            infrastructures::{SqliteAiPortfolioRepository, SqliteKeyRepository},
+            infrastructures::{SqliteAiPortfolioRepository, SqliteConnectionRepository},
             repositories::{LivePrices, LiveQuote},
         },
         planning::planning_services_setup,
@@ -278,23 +309,56 @@ pub(crate) mod tests {
             planning_services_setup(db.clone()),
             settings_services_setup(db.clone()),
         );
-        McpService::new(Arc::new(SqliteKeyRepository::new(db)), tools, trading)
+        McpService::new(Arc::new(SqliteConnectionRepository::new(db)), tools, trading)
     }
 
     #[test]
-    fn keys() {
+    fn named_connections_are_independent() {
         let s = service();
-        assert_eq!(s.authorize(Some("anything")), Access::Off);
-        let key = s.new_key().unwrap();
-        assert_eq!(key.len(), 64);
-        assert_eq!(s.authorize(Some(&key)), Access::Granted);
-        assert_eq!(s.authorize(Some(&key[..63])), Access::Denied);
+        let portfolio=Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        assert_eq!(s.authorize(Some("anything")), Access::Denied);
+        let first=s.create_connection("Reader",McpAccessPreset::ReadOnly,vec![portfolio]).unwrap();
+        let second=s.create_connection("Editor",McpAccessPreset::ThesisEditor,vec![portfolio]).unwrap();
+        assert!(matches!(s.authorize(Some(&first.token)),Access::Granted(_)));
+        assert!(matches!(s.authorize(Some(&second.token)),Access::Granted(_)));
+        assert_eq!(s.authorize(Some(&first.token[..first.token.len()-1])), Access::Denied);
         assert_eq!(s.authorize(None), Access::Denied);
-        let newer = s.new_key().unwrap();
-        assert_eq!(s.authorize(Some(&key)), Access::Denied, "a new key replaces the old");
-        assert_eq!(s.key().unwrap(), Some(newer));
-        s.turn_off().unwrap();
-        assert_eq!(s.authorize(Some(&key)), Access::Off);
+        let rotated=s.rotate_connection(first.connection.id).unwrap();
+        assert_eq!(s.authorize(Some(&first.token)),Access::Denied);
+        assert!(matches!(s.authorize(Some(&rotated.token)),Access::Granted(_)));
+        assert!(matches!(s.authorize(Some(&second.token)),Access::Granted(_)),"rotation is per connection");
+    }
+
+    #[test]
+    fn raw_connection_secret_is_never_stored_or_returned_as_metadata() {
+        let db=Database::in_memory().unwrap();
+        let s=service_with_database(db.clone());
+        let portfolio=Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let made=s.create_connection("Reader",McpAccessPreset::ReadOnly,vec![portfolio]).unwrap();
+        let stored:String=db.with(|c|c.query_row("SELECT token_hash FROM mcp_connections WHERE id=?1",[made.connection.id.to_string()],|r|r.get(0))).unwrap();
+        assert!(stored.starts_with("$argon2")&&!stored.contains(&made.token));
+        assert_eq!(s.connections().unwrap(),vec![made.connection]);
+    }
+
+    #[tokio::test]
+    async fn presets_and_portfolio_scopes_apply_to_listing_and_direct_calls() {
+        let s=service();
+        let main=Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let ai=s.trading().start("Hidden AI",rust_decimal_macros::dec!(1000)).await.unwrap();
+        let made=s.create_connection("Main reader",McpAccessPreset::ReadOnly,vec![main]).unwrap();
+        let Access::Granted(access)=s.authorize(Some(&made.token)) else { panic!("connection should authenticate") };
+
+        let listed=s.handle_scoped(json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),&access).await.unwrap();
+        let names:Vec<&str>=listed["result"]["tools"].as_array().unwrap().iter().filter_map(|v|v["name"].as_str()).collect();
+        assert!(!names.contains(&"save_thesis")&&!names.contains(&"place_order"));
+        let hidden=s.handle_scoped(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"save_thesis","arguments":{"portfolio":main,"ticker":"NVDA"}}}),&access).await.unwrap();
+        assert_eq!(hidden["error"]["code"],INVALID_PARAMS,"hidden tools cannot be called directly");
+
+        let portfolios=s.handle_scoped(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_portfolios","arguments":{}}}),&access).await.unwrap();
+        let text=portfolios["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Main")&&!text.contains(&ai.name));
+        let events=s.audit_events(made.connection.id).unwrap();
+        assert!(events.iter().any(|e|e.tool.as_deref()==Some("list_portfolios")));
     }
 
     #[tokio::test]

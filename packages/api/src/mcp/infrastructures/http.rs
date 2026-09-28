@@ -45,9 +45,18 @@ async fn with_path(
 
 async fn serve(mcp: &McpService, key: Option<&str>, method: Method, body: &[u8]) -> Response {
     match mcp.authorize(key) {
-        Access::Granted => {}
-        Access::Off => {
-            return (StatusCode::NOT_FOUND, "The AI connector is off. Turn it on in Settings.").into_response()
+        Access::Granted(access) => {
+            if method != Method::POST {
+                return (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST")]).into_response();
+            }
+            let (status, reply) = match serde_json::from_slice(body) {
+                Ok(message) => (StatusCode::OK, mcp.handle_scoped(message, &access).await),
+                Err(_) => (StatusCode::BAD_REQUEST, Some(McpService::parse_error())),
+            };
+            return match reply {
+                Some(reply) => (status, [(header::CONTENT_TYPE, "application/json")], reply.to_string()).into_response(),
+                None => StatusCode::ACCEPTED.into_response(),
+            };
         }
         Access::Denied => {
             return (
@@ -58,17 +67,5 @@ async fn serve(mcp: &McpService, key: Option<&str>, method: Method, body: &[u8])
                 .into_response()
         }
         Access::Error(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
-    }
-    if method != Method::POST {
-        return (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST")]).into_response();
-    }
-    let (status, reply) = match serde_json::from_slice(body) {
-        Ok(message) => (StatusCode::OK, mcp.handle(message).await),
-        Err(_) => (StatusCode::BAD_REQUEST, Some(McpService::parse_error())),
-    };
-    match reply {
-        Some(reply) => (status, [(header::CONTENT_TYPE, "application/json")], reply.to_string()).into_response(),
-        // Notifications and responses are acknowledged without a body.
-        None => StatusCode::ACCEPTED.into_response(),
     }
 }

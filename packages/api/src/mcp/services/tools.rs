@@ -23,6 +23,8 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, str::FromStr};
 use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 use uuid::Uuid;
+use dtos::mcp::{McpAccessPreset, McpPortfolioScope};
+use super::AccessContext;
 
 /// Prices captured once per race round and shared by every contestant.
 #[derive(Clone, Default)]
@@ -173,6 +175,20 @@ pub fn definitions() -> Value {
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true },
         },
     ])
+}
+
+pub fn definitions_for(preset: McpAccessPreset) -> Value {
+    let allowed = |name: &str| match preset {
+        McpAccessPreset::ReadOnly => !matches!(name, "save_thesis" | "add_thesis_note" | "place_order"),
+        McpAccessPreset::ThesisEditor => name != "place_order",
+        McpAccessPreset::Trader => true,
+    };
+    Value::Array(definitions().as_array().cloned().unwrap_or_default().into_iter()
+        .filter(|tool| tool["name"].as_str().is_some_and(allowed)).collect())
+}
+
+fn preset_allows(preset: McpAccessPreset, name: &str) -> bool {
+    definitions_for(preset).as_array().is_some_and(|v| v.iter().any(|t| t["name"] == name))
 }
 
 #[derive(Clone)]
@@ -357,17 +373,48 @@ impl Tools {
     /// call, so it says what to fix.
     pub async fn call(&self, name: &str, args: &Value) -> Option<ToolResult> {
         Some(match name {
-            "list_portfolios" => self.list_portfolios(),
-            "list_theses" => self.list_theses(args),
-            "get_thesis" => self.get_thesis(args),
-            "save_thesis" => self.save_thesis(args),
-            "add_thesis_note" => self.add_note(args),
-            "get_my_portfolio" => self.my_portfolio(args).await,
-            "get_my_goals" => self.my_goals(args).await,
+            "list_portfolios" => self.list_portfolios(None),
+            "list_theses" => self.list_theses(args, None),
+            "get_thesis" => self.get_thesis(args, None),
+            "save_thesis" => self.save_thesis(args, None),
+            "add_thesis_note" => self.add_note(args, None),
+            "get_my_portfolio" => self.my_portfolio(args, None).await,
+            "get_my_goals" => self.my_goals(args, None).await,
             "get_quote" => self.quote(args).await,
             "place_order" => self.place_order(args).await,
             _ => return None,
         })
+    }
+
+    pub async fn call_scoped(&self, name: &str, args: &Value, access: &AccessContext) -> Option<ToolResult> {
+        if !preset_allows(access.preset, name) { return None; }
+        let ids = access.portfolio_ids.as_slice();
+        Some(match name {
+            "list_portfolios" => self.list_portfolios(Some(ids)),
+            "list_theses" => self.list_theses(args, Some(ids)),
+            "get_thesis" => self.get_thesis(args, Some(ids)),
+            "save_thesis" => self.save_thesis(args, Some(ids)),
+            "add_thesis_note" => self.add_note(args, Some(ids)),
+            "get_my_portfolio" => self.my_portfolio(args, Some(ids)).await,
+            "get_my_goals" => self.my_goals(args, Some(ids)).await,
+            "get_quote" => self.quote(args).await,
+            "place_order" => self.place_order_scoped(args, ids).await,
+            _ => return None,
+        })
+    }
+
+    pub fn portfolio_scopes(&self) -> Result<Vec<McpPortfolioScope>, ServiceError> {
+        Ok(self.portfolios.dashboard()?.portfolios.into_iter().map(|p| McpPortfolioScope { id:p.id,name:p.name,ai:p.ai }).collect())
+    }
+
+    pub fn audit_targets(&self, access:&AccessContext, tool:Option<&str>, params:&Value)->Vec<Uuid>{
+        if tool.is_none() || tool==Some("get_quote") { return vec![]; }
+        let wanted=params.get("arguments").and_then(|v|v.get("portfolio")).and_then(Value::as_str);
+        match wanted {
+            Some(v)=>self.portfolios.dashboard().ok().and_then(|d|d.portfolios.into_iter().find(|p|access.portfolio_ids.contains(&p.id)&&(p.id.to_string()==v||p.name.eq_ignore_ascii_case(v))).map(|p|vec![p.id])).unwrap_or_default(),
+            None if matches!(tool,Some("get_my_portfolio"|"get_my_goals"|"place_order"))=>self.portfolios.dashboard().map(|d|d.portfolios.into_iter().filter(|p|p.ai&&access.portfolio_ids.contains(&p.id)).map(|p|p.id).collect()).unwrap_or_default(),
+            None=>access.portfolio_ids.clone(),
+        }
     }
 
     pub(crate) async fn call_frozen(&self, name: &str, args: &Value, market: &FrozenMarket) -> Option<ToolResult> {
@@ -382,21 +429,24 @@ impl Tools {
                 let quote = match market.quote(&self.trading, &ticker).await { Ok(value) => value, Err(error) => return Some(Err(error.to_string())) };
                 self.place_order_at(args, ticker, quote).await
             }
-            "get_my_portfolio" => self.my_portfolio_at(args, Some(market)).await,
+            "get_my_portfolio" => self.my_portfolio_at(args, Some(market), None).await,
             _ => return self.call(name, args).await,
         })
     }
 
-    fn book(&self) -> Result<Book, String> {
+    fn book(&self, scope: Option<&[Uuid]>) -> Result<Book, String> {
+        let mut dash=self.portfolios.dashboard().map_err(|e| e.to_string())?;
+        let mut theses=self.theses.theses(None).map_err(|e| e.to_string())?;
+        if let Some(ids)=scope { dash.portfolios.retain(|p|ids.contains(&p.id)); dash.transactions.retain(|t|ids.contains(&t.portfolio_id)); theses.retain(|t|ids.contains(&t.portfolio_id)); }
         Ok(Book {
-            dash: self.portfolios.dashboard().map_err(|e| e.to_string())?,
-            theses: self.theses.theses(None).map_err(|e| e.to_string())?,
+            dash,
+            theses,
             today: chrono::Local::now().format("%Y-%m-%d").to_string(),
         })
     }
 
-    fn list_portfolios(&self) -> ToolResult {
-        let book = self.book()?;
+    fn list_portfolios(&self, scope: Option<&[Uuid]>) -> ToolResult {
+        let book = self.book(scope)?;
         let portfolios: Vec<Value> = book
             .dash
             .portfolios
@@ -425,8 +475,8 @@ impl Tools {
         }))
     }
 
-    fn list_theses(&self, args: &Value) -> ToolResult {
-        let book = self.book()?;
+    fn list_theses(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
+        let book = self.book(scope)?;
         let scope: Vec<&GetPortfolioResponse> = match args.get("portfolio").and_then(Value::as_str) {
             Some(s) if !s.trim().is_empty() => vec![book.portfolio(args, None)?],
             _ => book.dash.portfolios.iter().collect(),
@@ -457,8 +507,8 @@ impl Tools {
         Ok(json!({ "today": book.today, "portfolios": portfolios }))
     }
 
-    fn get_thesis(&self, args: &Value) -> ToolResult {
-        let book = self.book()?;
+    fn get_thesis(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
+        let book = self.book(scope)?;
         let ticker = ticker(args)?;
         let p = book.portfolio(args, Some(&ticker))?;
         Ok(self.holding_json(&book, p, &ticker))
@@ -490,8 +540,8 @@ impl Tools {
         out
     }
 
-    fn save_thesis(&self, args: &Value) -> ToolResult {
-        let book = self.book()?;
+    fn save_thesis(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
+        let book = self.book(scope)?;
         let ticker = ticker(args)?;
         let p = book.portfolio(args, Some(&ticker))?;
         let mut draft = book.thesis(p.id, &ticker).map(|t| t.draft.clone()).unwrap_or_default();
@@ -537,11 +587,11 @@ impl Tools {
         self.theses
             .save(p.id, &ticker, draft, Author::Ai, note)
             .map_err(|e| e.to_string())?;
-        Ok(self.holding_json(&self.book()?, p, &ticker))
+        Ok(self.holding_json(&self.book(scope)?, p, &ticker))
     }
 
-    fn add_note(&self, args: &Value) -> ToolResult {
-        let book = self.book()?;
+    fn add_note(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
+        let book = self.book(scope)?;
         let ticker = ticker(args)?;
         let p = book.portfolio(args, Some(&ticker))?;
         let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
@@ -552,16 +602,15 @@ impl Tools {
         Ok(json!({ "added": true, "portfolio": p.name, "ticker": ticker.as_str(), "text": entry.text }))
     }
 
-    async fn my_portfolio(&self, args: &Value) -> ToolResult {
-        self.my_portfolio_at(args, None).await
+    async fn my_portfolio(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
+        self.my_portfolio_at(args, None, scope).await
     }
 
-    async fn my_portfolio_at(&self, args: &Value, market: Option<&FrozenMarket>) -> ToolResult {
+    async fn my_portfolio_at(&self, args: &Value, market: Option<&FrozenMarket>, scope: Option<&[Uuid]>) -> ToolResult {
         let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-        let books = match wanted {
-            Some(_) => vec![self.trading.book(wanted).map_err(|e| e.to_string())?],
-            None => self.trading.books().map_err(|e| e.to_string())?,
-        };
+        let mut allowed=self.trading.books().map_err(|e|e.to_string())?;
+        if let Some(ids)=scope { allowed.retain(|b|ids.contains(&b.id)); }
+        let books=match wanted { Some(w)=>vec![allowed.into_iter().find(|b|b.id.to_string()==w||b.name.eq_ignore_ascii_case(w)).ok_or("Portfolio unavailable.".to_string())?], None=>allowed };
         if books.is_empty() {
             return Err(NO_PORTFOLIO.into());
         }
@@ -575,12 +624,11 @@ impl Tools {
         }))
     }
 
-    async fn my_goals(&self, args: &Value) -> ToolResult {
+    async fn my_goals(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
         let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
-        let books = match wanted {
-            Some(_) => vec![self.trading.book(wanted).map_err(|e| e.to_string())?],
-            None => self.trading.books().map_err(|e| e.to_string())?,
-        };
+        let mut allowed=self.trading.books().map_err(|e|e.to_string())?;
+        if let Some(ids)=scope { allowed.retain(|b|ids.contains(&b.id)); }
+        let books=match wanted { Some(w)=>vec![allowed.into_iter().find(|b|b.id.to_string()==w||b.name.eq_ignore_ascii_case(w)).ok_or("Portfolio unavailable.".to_string())?], None=>allowed };
         if books.is_empty() {
             return Err(NO_PORTFOLIO.into());
         }
@@ -708,6 +756,13 @@ impl Tools {
         let ticker = ticker(args)?;
         let quote = self.trading.quote(&ticker).await.map_err(|e| e.to_string())?;
         self.place_order_at(args, ticker, quote).await
+    }
+
+    async fn place_order_scoped(&self,args:&Value,scope:&[Uuid])->ToolResult{
+        let wanted=args.get("portfolio").and_then(Value::as_str);
+        let mut books=self.trading.books().map_err(|e|e.to_string())?;books.retain(|b|scope.contains(&b.id));
+        let chosen=match wanted {Some(w)=>books.into_iter().find(|b|b.id.to_string()==w||b.name.eq_ignore_ascii_case(w)),None if books.len()==1=>books.into_iter().next(),_=>None}.ok_or("Choose an available AI paper portfolio.".to_string())?;
+        let mut scoped=args.clone();scoped["portfolio"]=json!(chosen.id.to_string());self.place_order(&scoped).await
     }
 
     async fn place_order_at(&self, args: &Value, ticker: TickerSymbol, quote: crate::mcp::repositories::LiveQuote) -> ToolResult {
@@ -927,7 +982,7 @@ mod tests {
         assert!(s.trading().start("main", dec!(5)).await.is_err(), "names stay unique");
 
         let unsure = call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
-        assert!(unsure.contains("US growth") && unsure.contains("AI"), "{unsure}");
+        assert!(unsure.contains("Choose an available"), "{unsure}");
         assert!(call(&s, "place_order", json!({"portfolio":"Main","ticker":"NVDA","side":"buy","shares":1,"reason":"x"})).await.is_err(), "not the user's");
 
         // $200 fits the US portfolio's $500 but not the other's $100.

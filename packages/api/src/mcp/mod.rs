@@ -1,10 +1,10 @@
 //! The AI connector: a provider-neutral MCP (Model Context Protocol) server
 //! at `/mcp`, so any compatible client can read your portfolios, read and
 //! write your theses, and trade in a portfolio of
-//! its own with paper money you give it. It's off until you turn it on in
-//! Settings, which creates the key every request must carry.
+//! its own with paper money you give it. Settings creates independently
+//! scoped named connections whose credentials every external request carries.
 //!
-//! `repositories` is the key store port, `infrastructures` its SQLite
+//! `repositories` is the connection store port, `infrastructures` its SQLite
 //! adapter and the HTTP endpoint, `services` the protocol and its tools,
 //! and `controller` the server functions Settings uses.
 
@@ -43,7 +43,7 @@ pub fn mcp_services_setup(
         crate::planning::planning_services_setup(db.clone()),
         crate::settings::settings_services_setup(db.clone()),
     );
-    McpService::new(Arc::new(infrastructures::SqliteKeyRepository::new(db)), tools, trading)
+    McpService::new(Arc::new(infrastructures::SqliteConnectionRepository::new(db)), tools, trading)
 }
 
 /// Adds the endpoint: `/mcp` with the key in `Authorization: Bearer …`, and

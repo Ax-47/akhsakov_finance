@@ -1,9 +1,9 @@
-//! Server functions for turning the AI connector on and off in Settings,
-//! and for creating AI-managed paper portfolios. Under `/api/`, so they
+//! Server functions for managing named MCP connections in Settings, and for
+//! creating AI-managed paper portfolios. Under `/api/`, so they
 //! need a session once sign-in is on.
 
 use dioxus::prelude::*;
-use dtos::ai_portfolio::AiPortfolioInfo;
+use dtos::{ai_portfolio::AiPortfolioInfo, mcp::{McpAccessPreset, McpAuditEvent, McpConnection, McpConnectionSecret, McpPortfolioScope}};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -12,21 +12,32 @@ use super::McpService;
 #[cfg(feature = "server")]
 use dioxus::server::axum::Extension;
 
-/// The connector's key, or `None` while it's off.
-#[post("/api/connector/key", service: Extension<McpService>)]
-pub async fn get_connector_key() -> Result<Option<String>, ServerFnError> {
-    Ok(service.key()?)
+#[post("/api/connector/connections", service: Extension<McpService>)]
+pub async fn get_mcp_connections() -> Result<Vec<McpConnection>, ServerFnError> {
+    Ok(service.connections()?)
 }
 
-/// Turns the connector on with a new key; the old one stops working.
-#[post("/api/connector/new-key", service: Extension<McpService>)]
-pub async fn new_connector_key() -> Result<String, ServerFnError> {
-    Ok(service.new_key()?)
-}
+#[post("/api/connector/portfolio-scopes", service: Extension<McpService>)]
+pub async fn get_mcp_portfolio_scopes() -> Result<Vec<McpPortfolioScope>, ServerFnError> { Ok(service.portfolio_scopes()?) }
 
-#[post("/api/connector/off", service: Extension<McpService>)]
-pub async fn turn_off_connector() -> Result<(), ServerFnError> {
-    Ok(service.turn_off()?)
+#[post("/api/connector/connections/create", service: Extension<McpService>)]
+pub async fn create_mcp_connection(name:String,preset:McpAccessPreset,portfolio_ids:Vec<Uuid>) -> Result<McpConnectionSecret,ServerFnError>{Ok(service.create_connection(&name,preset,portfolio_ids)?)}
+
+#[post("/api/connector/connections/update", service: Extension<McpService>)]
+pub async fn update_mcp_connection(id:Uuid,name:String,preset:McpAccessPreset,enabled:bool,portfolio_ids:Vec<Uuid>)->Result<(),ServerFnError>{Ok(service.update_connection(id,&name,preset,enabled,portfolio_ids)?)}
+
+#[post("/api/connector/connections/rotate", service: Extension<McpService>)]
+pub async fn rotate_mcp_connection(id:Uuid)->Result<McpConnectionSecret,ServerFnError>{Ok(service.rotate_connection(id)?)}
+
+#[post("/api/connector/connections/delete", service: Extension<McpService>)]
+pub async fn delete_mcp_connection(id:Uuid)->Result<(),ServerFnError>{Ok(service.delete_connection(id)?)}
+
+#[post("/api/connector/connections/audit", service: Extension<McpService>)]
+pub async fn get_mcp_audit_events(id:Uuid)->Result<Vec<McpAuditEvent>,ServerFnError>{Ok(service.audit_events(id)?)}
+
+#[post("/api/connector/enabled", service: Extension<McpService>)]
+pub async fn has_mcp_connections() -> Result<bool, ServerFnError> {
+    Ok(service.connections()?.iter().any(|c|c.enabled))
 }
 
 /// AI-managed paper portfolios, oldest first.
