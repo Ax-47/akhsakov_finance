@@ -2,7 +2,7 @@
 
 แอปติดตามพอร์ตการลงทุนส่วนตัว เขียนด้วย Rust + [Dioxus 0.7](https://dioxuslabs.com/learn/0.7) ใช้ได้ทั้งเว็บ เดสก์ท็อป และมือถือ ข้อมูลเก็บใน SQLite บนเครื่องที่รันเซิร์ฟเวอร์ ราคาดึงจาก Yahoo Finance หน้าจอมีภาษาไทยและอังกฤษ
 
-รายการฟีเจอร์ทั้งหมดอยู่ใน [docs/FEATURES.md](docs/FEATURES.md) วิธีต่อกับ Claude อยู่ใน [docs/CLAUDE_CONNECTOR.md](docs/CLAUDE_CONNECTOR.md)
+รายการฟีเจอร์ทั้งหมดอยู่ใน [docs/FEATURES.md](docs/FEATURES.md) วิธีเชื่อมต่อผู้ช่วย AI อยู่ใน [docs/AI_CONNECTOR.md](docs/AI_CONNECTOR.md)
 
 ## ฟีเจอร์หลัก
 
@@ -17,7 +17,7 @@
 - **ข้อมูลเข้า-ออก**: Import CSV พร้อม preset สำหรับ Streaming, Dime!, Webull, Interactive Brokers, Export CSV, Backup / Restore
 - **โหมดออฟไลน์**: เก็บพอร์ต ราคา และข้อมูลหน้าไว้ในเครื่อง ถ้าต่อเซิร์ฟเวอร์ไม่ได้ก็ยังเปิดดูได้
 - **มือถือ**: บนจอเล็กมีแถบเมนูด้านล่างแบบแอป และแสดงการแจ้งเตือนผ่านระบบของเครื่องได้
-- **เชื่อมต่อ Claude (MCP)**: ให้ Claude อ่านพอร์ตและช่วยจด thesis ได้ และให้เงินสมมติกับ Claude ไปบริหารพอร์ตของตัวเองได้
+- **AI connector**: MCP แบบ provider-neutral พร้อมตัวอย่างสำหรับหลายไคลเอนต์ และรองรับโมเดลผ่าน API ที่เข้ากันได้กับ OpenAI เพื่อบริหารพอร์ตเงินสมมติ
 - ล็อกอินหลายผู้ใช้, 13 สกุลเงินแสดงผล, ธีม Catppuccin, โหมด Lite, คีย์ลัดแบบ Vim
 
 ## ติดตั้ง

@@ -97,8 +97,8 @@ impl Database {
     }
 
     /// A consistent copy of the whole database as SQLite file bytes,
-    /// without sign-in sessions or the AI connector's key (a backup must
-    /// not carry live tokens).
+    /// without sign-in sessions, connector keys or model API keys (a
+    /// backup must not carry live tokens).
     pub fn export(&self) -> Result<Vec<u8>, DatabaseError> {
         let path = std::env::temp_dir().join(format!("akhsakov-export-{}.db", uuid::Uuid::new_v4()));
         let result = (|| {
@@ -107,6 +107,7 @@ impl Database {
                 let copy = Connection::open(&path)?;
                 copy.execute("DELETE FROM sessions", [])?;
                 copy.execute("DELETE FROM mcp_access", [])?;
+                copy.execute("DELETE FROM ai_model_secrets", [])?;
                 copy.execute_batch("VACUUM")?;
             }
             std::fs::read(&path).map_err(|e| DatabaseError::File(e.to_string()))
@@ -391,10 +392,62 @@ const MIGRATIONS: &[&str] = &[
         last_done      TEXT,
         last_reminded  TEXT
     );",
-    // 12: the portfolios Claude manages itself, each with its own paper money
+    // 12: AI-managed portfolios, each with its own paper money
     "CREATE TABLE ai_portfolios (
         portfolio_id  TEXT PRIMARY KEY REFERENCES portfolios(id) ON DELETE CASCADE,
         created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
+    // 13: provider-neutral model connections, trader configuration and run audit
+    "CREATE TABLE ai_model_profiles (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        base_url    TEXT NOT NULL,
+        model       TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE ai_model_secrets (
+        profile_id  TEXT PRIMARY KEY REFERENCES ai_model_profiles(id) ON DELETE CASCADE,
+        api_key     TEXT NOT NULL
+    );
+    CREATE TABLE ai_trader_configs (
+        portfolio_id  TEXT PRIMARY KEY REFERENCES ai_portfolios(portfolio_id) ON DELETE CASCADE,
+        profile_id    TEXT REFERENCES ai_model_profiles(id) ON DELETE SET NULL,
+        strategy      TEXT NOT NULL
+    );
+    CREATE TABLE ai_runs (
+        id                 TEXT PRIMARY KEY,
+        portfolio_id       TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        status             TEXT NOT NULL,
+        profile_name       TEXT NOT NULL,
+        model              TEXT NOT NULL,
+        started_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at        TEXT,
+        final_response     TEXT,
+        error              TEXT,
+        prompt_tokens      INTEGER,
+        completion_tokens  INTEGER,
+        total_tokens       INTEGER
+    );
+    CREATE UNIQUE INDEX ai_runs_one_active ON ai_runs(portfolio_id) WHERE status = 'running';
+    CREATE TABLE ai_run_events (
+        run_id      TEXT NOT NULL REFERENCES ai_runs(id) ON DELETE CASCADE,
+        sequence    INTEGER NOT NULL,
+        tool        TEXT NOT NULL,
+        arguments   TEXT NOT NULL,
+        success     INTEGER NOT NULL,
+        detail      TEXT NOT NULL,
+        PRIMARY KEY (run_id, sequence)
+    );",
+    // 14: durable, portfolio-scoped trader memory and context budgets
+    "ALTER TABLE ai_trader_configs ADD COLUMN memory_char_limit INTEGER NOT NULL DEFAULT 8000;
+    ALTER TABLE ai_trader_configs ADD COLUMN context_token_limit INTEGER NOT NULL DEFAULT 32768;
+    CREATE TABLE ai_trader_memory (
+        portfolio_id          TEXT PRIMARY KEY REFERENCES ai_portfolios(portfolio_id) ON DELETE CASCADE,
+        decision_summary      TEXT NOT NULL DEFAULT '',
+        unresolved_questions  TEXT NOT NULL DEFAULT '',
+        updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        source_run_id          TEXT REFERENCES ai_runs(id) ON DELETE SET NULL
     );",
 ];
 

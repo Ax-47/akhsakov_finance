@@ -1,4 +1,4 @@
-//! Claude's own portfolios: paper money you give it, each with its own
+//! AI-managed portfolios: paper money you give an assistant, each with its own
 //! cash, which it trades through the connector at live prices. Orders only
 //! ever go into those portfolios; yours stay read-only to the AI.
 
@@ -52,7 +52,7 @@ pub struct Fill {
     pub cash_after: Decimal,
 }
 
-/// Claude's portfolio as it stands: its transactions and live prices.
+/// An AI portfolio as it stands: its transactions and live prices.
 pub struct Book {
     pub id: Uuid,
     pub name: String,
@@ -153,7 +153,7 @@ impl Trading {
         }
     }
 
-    /// Every portfolio you've given Claude, oldest first.
+    /// Every AI-managed portfolio, oldest first.
     pub fn books(&self) -> Result<Vec<Book>, ServiceError> {
         let ids = self.repo.ai_portfolios()?;
         let dash = self.portfolios.dashboard()?;
@@ -174,14 +174,14 @@ impl Trading {
             .collect())
     }
 
-    /// The portfolio of Claude's named by `wanted` (name or id), or the
+    /// The AI portfolio named by `wanted` (name or id), or the
     /// only one when it's left out.
     pub fn book(&self, wanted: Option<&str>) -> Result<Book, ServiceError> {
         let mut books = self.books()?;
         if books.is_empty() {
             return Err(invalid(
                 "You don't have a portfolio of your own yet. The user can give you one, with starting \
-                 cash, in the app under Settings → Connect Claude.",
+                 cash, in the app under Settings → AI paper portfolios.",
             ));
         }
         let names = || books.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ");
@@ -206,8 +206,8 @@ impl Trading {
         self.book(Some(&id.to_string())).map(|b| b.info())
     }
 
-    /// Makes a new portfolio for Claude with `starting_cash` USD in it,
-    /// called `name` (or "Claude", "Claude 2" … when it's blank).
+    /// Makes a new AI portfolio with `starting_cash` USD in it,
+    /// called `name` (or "AI", "AI 2" … when it's blank).
     pub async fn start(&self, name: &str, starting_cash: Decimal) -> Result<AiPortfolioInfo, ServiceError> {
         check_amount(starting_cash)?;
         let name = match name.trim() {
@@ -232,7 +232,7 @@ impl Trading {
         self.info_of(id)
     }
 
-    /// Gives one of Claude's portfolios more cash to invest.
+    /// Gives one of the AI portfolios more cash to invest.
     pub async fn add_funds(&self, id: Uuid, amount: Decimal) -> Result<AiPortfolioInfo, ServiceError> {
         check_amount(amount)?;
         let book = self.book(Some(&id.to_string()))?;
@@ -240,7 +240,7 @@ impl Trading {
         self.info_of(id)
     }
 
-    /// Takes a portfolio back: Claude can't trade in it any more. It and
+    /// Takes a portfolio back: AI clients can't trade in it any more. It and
     /// its history stay, as an ordinary portfolio.
     pub fn stop(&self, id: Uuid) -> Result<(), ServiceError> {
         Ok(self.repo.remove_ai_portfolio(id)?)
@@ -252,7 +252,7 @@ impl Trading {
         })
     }
 
-    /// Buys or sells in one of Claude's portfolios at the live price, with
+    /// Buys or sells in one of the AI portfolios at the live price, with
     /// no fee. Each portfolio trades with its own cash.
     pub async fn order(
         &self,

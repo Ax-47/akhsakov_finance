@@ -1,6 +1,6 @@
 # Akhsakov Finance: รายการฟีเจอร์
 
-อ้างอิงจากโค้ดบน branch `claude/missing-features-6plcc7` (26 ก.ย. 2026)
+อ้างอิงจากโค้ดปัจจุบัน (28 ก.ย. 2026)
 แอปเขียนด้วย Rust + Dioxus 0.7 ใช้ได้ทั้งเว็บและเดสก์ท็อป ข้อมูลเก็บใน SQLite บนเซิร์ฟเวอร์ ราคาหุ้นดึงจาก Yahoo Finance
 
 ---
@@ -74,10 +74,12 @@
 - **รายงานประจำเดือน** (แท็บ Activity): มูลค่าต้นเดือน → สิ้นเดือน, เงินที่ลงเพิ่ม, กำไรจากตลาดและผลตอบแทนของเดือน, ปันผลและภาษี, ค่าธรรมเนียม, จำนวนซื้อ/ขาย, หุ้นที่ขึ้น/ลงมากสุด เลือกย้อนหลังได้ 12 เดือน ดาวน์โหลดเป็นข้อความ พิมพ์เป็น PDF หรือกด "ส่งตอนนี้" และตั้งให้ส่งรายงานเดือนก่อนเข้า ntfy / Telegram / webhook อัตโนมัติทุกวันที่ 1
 - Backup ดาวน์โหลด และ Restore
 
-### 12. เชื่อมต่อ Claude (MCP)
-- MCP server ที่ `/mcp` ให้ Claude (claude.ai / แอป Claude บน Pro, Claude Desktop, Claude Code) อ่านพอร์ตและ thesis และเพิ่มบันทึกติดตามได้
-- พอร์ตของ Claude เอง: ใส่เงินต้น (เงินสมมติ) ใน Settings แล้วให้ Claude ดูราคาและซื้อขายเองผ่าน `get_quote` / `get_my_portfolio` / `place_order` โดยแตะพอร์ตอื่นไม่ได้ ดูผลเทียบ benchmark ได้ในหน้าพอร์ต
-- เปิด/ปิด และสร้างคีย์ใหม่ได้ใน Settings, สิ่งที่ AI เขียนจะมีป้าย AI กำกับ, วิธีตั้งค่าอยู่ใน [CLAUDE_CONNECTOR.md](CLAUDE_CONNECTOR.md)
+### 12. AI connector และ model connections
+- MCP server แบบ provider-neutral ที่ `/mcp` ใช้กับไคลเอนต์ที่รองรับ Streamable HTTP พร้อมตัวอย่าง Generic, Claude, Codex, Antigravity / `agy`, Cursor / VS Code และ Other
+- บันทึก profile ของ API ที่เข้ากันได้กับ OpenAI Chat Completions ได้หลายชุด โดยไม่มี preset หรือโค้ดเฉพาะผู้ให้บริการ
+- พอร์ตเงินสมมติของ AI เลือก profile และกลยุทธ์ได้ กด Run AI trader เพื่อให้โมเดลดู thesis/ราคาและซื้อขายเฉพาะพอร์ตนั้น พร้อม audit log
+- persistent memory แยกต่อพอร์ต เก็บสรุปการตัดสินใจและคำถามค้างไว้ข้ามรอบ ตรวจ แก้ไข หรือล้างได้ พร้อมกำหนดขนาด memory/context window และย่อ tool context เก่าอัตโนมัติ
+- เปิด/ปิด MCP และสร้างคีย์ใหม่ได้ใน Settings สิ่งที่ AI เขียนมีป้าย AI กำกับ วิธีตั้งค่าอยู่ใน [AI_CONNECTOR.md](AI_CONNECTOR.md)
 
 ### 13. ความปลอดภัยและผู้ใช้
 - ตั้งรหัสผ่านครั้งแรก, ล็อกอิน / ล็อกเอาต์, เปลี่ยนรหัสผ่าน

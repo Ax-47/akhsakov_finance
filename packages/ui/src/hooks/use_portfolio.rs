@@ -174,7 +174,7 @@ fn day_change_pct(current: Decimal, previous_close: Decimal) -> Decimal {
 /// Only the transactions of one portfolio, or everything for `None`.
 pub fn scoped_data(data: &GetDashBoardResponse, scope: Option<&str>) -> GetDashBoardResponse {
     match scope {
-        // All holdings are your own: Claude's paper money is kept apart.
+        // All holdings are your own: AI paper money is kept apart.
         None => data.without_ai(),
         Some(id) => GetDashBoardResponse {
             portfolios: data

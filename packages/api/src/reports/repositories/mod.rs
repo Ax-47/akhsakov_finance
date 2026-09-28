@@ -9,7 +9,7 @@ use types::{range::Range, ticker_symbol::TickerSymbol};
 #[async_trait]
 pub trait ReportData: Send + Sync {
     fn transactions(&self) -> Result<Vec<Transaction>, String>;
-    /// Portfolios left out of an all-portfolio report: Claude's paper money.
+    /// Portfolios left out of an all-portfolio report: AI paper money.
     fn ai_portfolios(&self) -> Result<Vec<uuid::Uuid>, String> {
         Ok(vec![])
     }

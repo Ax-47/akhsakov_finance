@@ -69,7 +69,7 @@ pub fn PortfoliosCard(
             }
         })
         .collect();
-    // Claude's paper money is listed apart and left out of the shares.
+    // AI paper money is listed apart and left out of the shares.
     let (ai_rows, rows): (Vec<PortfolioRow>, Vec<PortfolioRow>) = rows.into_iter().partition(|r| r.ai);
     let grand_total: Decimal = rows.iter().map(|r| r.value).sum();
 
@@ -104,7 +104,7 @@ pub fn PortfoliosCard(
                         tbody {
                             tr { class: "border-t border-ctp-surface0",
                                 td { class: "pl-6 pr-4 pt-4 pb-1.5 text-xs font-medium text-ctp-mauve", colspan: "6",
-                                    {tr("Claude's portfolio · paper money, not counted in your totals")}
+                                    {tr("AI portfolio · paper money, not counted in your totals")}
                                 }
                             }
                             for row in ai_rows {

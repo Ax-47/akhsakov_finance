@@ -23,3 +23,4 @@ pub mod thai_tax;
 pub mod dca;
 pub mod report;
 pub mod ai_portfolio;
+pub mod ai_models;

@@ -1,4 +1,4 @@
-//! Portfolios Claude manages itself through the connector, each with the
+//! Portfolios an AI assistant manages through the connector, each with the
 //! paper money you give it.
 
 use rust_decimal::Decimal;
@@ -10,7 +10,7 @@ use uuid::Uuid;
 pub const DEFAULT_STARTING_CASH: Decimal = dec!(10000);
 
 /// Name given to a new AI portfolio (a number is added if it's taken).
-pub const AI_PORTFOLIO_NAME: &str = "Claude";
+pub const AI_PORTFOLIO_NAME: &str = "AI";
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AiPortfolioInfo {

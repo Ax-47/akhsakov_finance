@@ -7,7 +7,7 @@ pub struct GetPortfolioResponse {
     pub id: Uuid,
     pub name: String,
     pub assets: Vec<GetAssetResponse>,
-    /// Claude manages it itself, with paper money (see `ai_portfolio`).
+    /// An AI assistant manages it with paper money (see `ai_portfolio`).
     #[serde(default)]
     pub ai: bool,
 }
@@ -19,12 +19,12 @@ pub struct GetDashBoardResponse {
 }
 
 impl GetDashBoardResponse {
-    /// Ids of the portfolios Claude manages with paper money.
+    /// Ids of the AI-managed paper portfolios.
     pub fn ai_ids(&self) -> Vec<Uuid> {
         self.portfolios.iter().filter(|p| p.ai).map(|p| p.id).collect()
     }
 
-    /// Only your own money: Claude's paper-money portfolios and their
+    /// Only your own money: AI paper portfolios and their
     /// transactions left out, for "all holdings" totals, tax and reports.
     pub fn without_ai(&self) -> GetDashBoardResponse {
         let ai = self.ai_ids();
@@ -73,15 +73,15 @@ mod tests {
 
     #[test]
     fn without_ai_keeps_only_your_money() {
-        let (mine, claude) = (Uuid::new_v4(), Uuid::new_v4());
+        let (mine, ai) = (Uuid::new_v4(), Uuid::new_v4());
         let data = GetDashBoardResponse {
             portfolios: vec![
                 GetPortfolioResponse { id: mine, name: "Main".into(), ..Default::default() },
-                GetPortfolioResponse { id: claude, name: "Claude".into(), ai: true, ..Default::default() },
+                GetPortfolioResponse { id: ai, name: "AI".into(), ai: true, ..Default::default() },
             ],
-            transactions: vec![tx(mine), tx(claude), tx(claude)],
+            transactions: vec![tx(mine), tx(ai), tx(ai)],
         };
-        assert_eq!(data.ai_ids(), vec![claude]);
+        assert_eq!(data.ai_ids(), vec![ai]);
         let yours = data.without_ai();
         assert_eq!(yours.portfolios.len(), 1);
         assert_eq!(yours.portfolios[0].id, mine);

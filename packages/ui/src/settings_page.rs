@@ -12,6 +12,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::{
+    ai_models::{AiRun, AiRunStatus, ModelProfile, TraderConfig, TraderMemory},
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
@@ -20,6 +21,7 @@ use dtos::{
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use types::ticker_symbol::TickerSymbol;
+use uuid::Uuid;
 
 
 #[component]
@@ -30,6 +32,8 @@ pub fn SettingsPage() -> Element {
     let data = use_context::<Signal<GetDashBoardResponse>>();
     // Peeked only when exporting, so prices moving don't re-render the page.
     let portfolio = use_portfolio_memo(None);
+    let model_profiles = use_signal(Vec::<ModelProfile>::new);
+    use_context_provider(|| model_profiles);
 
     let mut draft = use_signal(move || saved.peek().clone());
     let mut risk_free = use_signal(move || saved.peek().risk_free.normalize().to_string());
@@ -171,6 +175,7 @@ pub fn SettingsPage() -> Element {
                 crate::auth::SecurityCard {}
                 NotificationSettings {}
                 ConnectorCard {}
+                ModelProfilesCard {}
                 AiPortfolioCard {}
                 Card { title: tr("Your data"),
                     div { class: "grid gap-4 text-sm",
@@ -422,8 +427,32 @@ fn Appearance() -> Element {
     }
 }
 
-/// The AI connector: lets Claude (claude.ai, the Claude apps, Claude Code)
-/// read your portfolios and theses and add to the journals, over MCP.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum McpExample {
+    Generic,
+    Claude,
+    Codex,
+    Agy,
+    Editors,
+    Other,
+}
+
+impl McpExample {
+    const ALL: [Self; 6] = [Self::Generic, Self::Claude, Self::Codex, Self::Agy, Self::Editors, Self::Other];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Generic => "Generic MCP",
+            Self::Claude => "Claude",
+            Self::Codex => "Codex",
+            Self::Agy => "Antigravity / agy",
+            Self::Editors => "Cursor / VS Code",
+            Self::Other => "Other",
+        }
+    }
+}
+
+/// Provider-neutral MCP access. Named clients below are setup examples only.
 #[component]
 fn ConnectorCard() -> Element {
     let mut key = use_signal(|| None::<String>);
@@ -431,6 +460,12 @@ fn ConnectorCard() -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut address = use_signal(String::new);
     let mut confirm = use_signal(|| None::<&'static str>);
+    let mut example = use_signal(|| McpExample::Generic);
+    let example_chip = |on: bool| if on {
+        "rounded-full border border-ctp-mauve bg-ctp-mauve/15 px-3 py-1.5 text-xs font-medium text-ctp-text cursor-pointer"
+    } else {
+        "rounded-full border border-ctp-surface0 px-3 py-1.5 text-xs text-ctp-subtext0 cursor-pointer hover:border-ctp-surface1 hover:text-ctp-text"
+    };
     use_future(move || async move {
         match api::get_connector_key().await {
             Ok(k) => key.set(k),
@@ -470,38 +505,51 @@ fn ConnectorCard() -> Element {
     let base = address().trim().trim_end_matches('/').to_string();
     rsx! {
         Card {
-            title: tr("Connect Claude"),
-            subtitle: tr("Let Claude read your portfolios and theses, and add what it learns to the journals. Works with Claude Pro.").to_string(),
+            title: tr("Connect an AI assistant through MCP"),
+            subtitle: tr("One provider-neutral MCP endpoint works with any compatible client. Pick a client below only to see its setup example.").to_string(),
             if !loaded() {
                 p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
             } else if let Some(k) = key() {
                 div { class: "grid gap-4 text-sm",
                     Field {
-                        label: tr("Address Claude uses"),
-                        hint: tr("claude.ai needs an https address it can reach over the internet, e.g. a Cloudflare Tunnel or Tailscale Funnel to this app. Claude Code and Claude Desktop on this computer can use the local address."),
+                        label: tr("Address the MCP client uses"),
+                        hint: tr("Cloud clients need an HTTPS address they can reach. Clients on this computer can use the local address."),
                         input {
                             class: INPUT,
                             value: "{address}",
                             oninput: move |e| address.set(e.value()),
                         }
                     }
-                    ConnectorRow {
-                        label: tr("claude.ai and the Claude apps"),
-                        hint: tr("Customize → Connectors → Add custom connector, and paste this URL. Leave the OAuth fields empty."),
-                        shown: format!("{base}/mcp/{}", masked(&k)),
-                        copy: format!("{base}/mcp/{k}"),
+                    div { class: "flex flex-wrap gap-2",
+                        for choice in McpExample::ALL {
+                            button {
+                                key: "{choice:?}",
+                                class: example_chip(example() == choice),
+                                onclick: move |_| example.set(choice),
+                                {choice.label()}
+                            }
+                        }
                     }
-                    ConnectorRow {
-                        label: tr("Claude Code"),
-                        hint: tr("Run this in a terminal."),
-                        shown: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"", masked(&k)),
-                        copy: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\""),
-                    }
-                    ConnectorRow {
-                        label: tr("Claude Desktop, config file"),
-                        hint: tr("Settings → Developer → Edit Config, add this under mcpServers, then restart Claude. Needs Node.js."),
-                        shown: format!("\"akhsakov\": {{ \"command\": \"npx\", \"args\": [\"-y\", \"mcp-remote\", \"{base}/mcp/{}\"] }}", masked(&k)),
-                        copy: format!("\"akhsakov\": {{ \"command\": \"npx\", \"args\": [\"-y\", \"mcp-remote\", \"{base}/mcp/{k}\"] }}"),
+                    match example() {
+                        McpExample::Generic => rsx! {
+                            ConnectorRow { label: tr("Streamable HTTP endpoint"), hint: tr("Use this URL with an Authorization: Bearer header."), shown: format!("{base}/mcp  ·  Bearer {}", masked(&k)), copy: format!("{base}/mcp\nAuthorization: Bearer {k}") }
+                        },
+                        McpExample::Claude => rsx! {
+                            ConnectorRow { label: tr("Claude Code"), hint: tr("Run this in a terminal."), shown: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"", masked(&k)), copy: format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\"") }
+                            ConnectorRow { label: tr("Claude web and desktop apps"), hint: tr("Add a custom remote connector. The key is included in the URL for clients that cannot set headers."), shown: format!("{base}/mcp/{}", masked(&k)), copy: format!("{base}/mcp/{k}") }
+                        },
+                        McpExample::Codex => rsx! {
+                            ConnectorRow { label: tr("Codex config.toml"), hint: tr("Add this to ~/.codex/config.toml, then restart Codex."), shown: format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {}\" }}", masked(&k)), copy: format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {k}\" }}") }
+                        },
+                        McpExample::Agy => rsx! {
+                            ConnectorRow { label: tr("Antigravity / agy MCP config"), hint: tr("Put this server under mcpServers in .agents/mcp_config.json or the global MCP config."), shown: format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}", masked(&k)), copy: format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}") }
+                        },
+                        McpExample::Editors => rsx! {
+                            ConnectorRow { label: tr("Cursor / VS Code MCP JSON"), hint: tr("Add this entry beneath mcpServers (Cursor) or servers (VS Code)."), shown: format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}", masked(&k)), copy: format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}") }
+                        },
+                        McpExample::Other => rsx! {
+                            ConnectorRow { label: tr("URL-only fallback"), hint: tr("For compatible clients that accept a URL but cannot set an Authorization header."), shown: format!("{base}/mcp/{}", masked(&k)), copy: format!("{base}/mcp/{k}") }
+                        },
                     }
                     p { class: "text-xs text-ctp-peach",
                         {tr("The address holds your key: anyone who has it can read your portfolios and change your theses. Keep it private; make a new key if it leaks.")}
@@ -509,12 +557,12 @@ fn ConnectorCard() -> Element {
                     div { class: "flex flex-wrap items-center gap-2",
                         match confirm() {
                             Some("new") => rsx! {
-                                span { class: "text-xs text-ctp-peach", {tr("Claude will need the new address. Continue?")} }
+                                span { class: "text-xs text-ctp-peach", {tr("Connected MCP clients will need the new key. Continue?")} }
                                 GhostButton { label: tr("Make a new key"), onclick: new_key }
                                 GhostButton { label: tr("Cancel"), onclick: move |_| confirm.set(None) }
                             },
                             Some(_) => rsx! {
-                                span { class: "text-xs text-ctp-peach", {tr("Claude will lose access. Continue?")} }
+                                span { class: "text-xs text-ctp-peach", {tr("Connected MCP clients will lose access. Continue?")} }
                                 GhostButton { label: tr("Turn off"), onclick: turn_off }
                                 GhostButton { label: tr("Cancel"), onclick: move |_| confirm.set(None) }
                             },
@@ -528,7 +576,7 @@ fn ConnectorCard() -> Element {
             } else {
                 div { class: "flex flex-wrap items-center justify-between gap-3 text-sm",
                     p { class: "max-w-xl text-ctp-subtext0",
-                        {tr("Claude connects through MCP with a private key. Until you turn it on, nothing outside the app can reach your data this way.")}
+                        {tr("AI assistants connect through MCP with a private key. Until you turn it on, nothing outside the app can reach your data this way.")}
                     }
                     ActionButton { label: tr("Turn on"), onclick: new_key }
                 }
@@ -540,11 +588,120 @@ fn ConnectorCard() -> Element {
     }
 }
 
-/// Portfolios Claude manages itself through the connector, each with its
+/// Reusable, provider-neutral OpenAI-compatible connections.
+#[component]
+fn ModelProfilesCard() -> Element {
+    let mut profiles = use_context::<Signal<Vec<ModelProfile>>>();
+    let mut loaded = use_signal(|| false);
+    let mut editing = use_signal(|| None::<Uuid>);
+    let mut name = use_signal(String::new);
+    let mut base_url = use_signal(String::new);
+    let mut model = use_signal(String::new);
+    let mut api_key = use_signal(String::new);
+    let mut status = use_signal(|| None::<Result<String, String>>);
+    let reload = move || {
+        spawn(async move {
+            match api::get_model_profiles().await {
+                Ok(list) => profiles.set(list),
+                Err(e) => status.set(Some(Err(server_message(e)))),
+            }
+            loaded.set(true);
+        });
+    };
+    use_hook(reload);
+    let mut clear = move || {
+        editing.set(None);
+        name.set(String::new());
+        base_url.set(String::new());
+        model.set(String::new());
+        api_key.set(String::new());
+    };
+    let save = move |_| async move {
+        let key = (!api_key().trim().is_empty()).then(|| api_key());
+        match api::save_model_profile(editing(), name(), base_url(), model(), key).await {
+            Ok(saved) => {
+                status.set(Some(Ok(format!("Saved {}", saved.name))));
+                clear();
+                reload();
+            }
+            Err(e) => status.set(Some(Err(server_message(e)))),
+        }
+    };
+    rsx! {
+        Card {
+            title: tr("Model connections"),
+            subtitle: tr("Reusable OpenAI-compatible API connections. The app stores API keys separately and never shows them again.").to_string(),
+            if !loaded() {
+                p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
+            } else {
+                div { class: "grid gap-4",
+                    for profile in profiles() {
+                        div { key: "{profile.id}", class: "flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ctp-surface0 p-4",
+                            div {
+                                div { class: "font-medium text-ctp-text", "{profile.name}" }
+                                div { class: "text-xs text-ctp-subtext0", "{profile.model} · {profile.base_url}" }
+                                div { class: "text-xs text-ctp-overlay1", if profile.has_key { "API key saved" } else { "API key required" } }
+                            }
+                            div { class: "flex flex-wrap gap-2",
+                                GhostButton {
+                                    label: tr("Test"),
+                                    onclick: move |_| async move {
+                                        status.set(Some(Ok("Testing connection…".into())));
+                                        match api::test_model_profile(profile.id).await {
+                                            Ok(()) => status.set(Some(Ok("Connection and tool calling work.".into()))),
+                                            Err(e) => status.set(Some(Err(server_message(e)))),
+                                        }
+                                    },
+                                }
+                                GhostButton {
+                                    label: tr("Edit"),
+                                    onclick: move |_| {
+                                        editing.set(Some(profile.id));
+                                        name.set(profile.name.clone());
+                                        base_url.set(profile.base_url.clone());
+                                        model.set(profile.model.clone());
+                                        api_key.set(String::new());
+                                    },
+                                }
+                                GhostButton {
+                                    label: tr("Delete"),
+                                    onclick: move |_| async move {
+                                        match api::delete_model_profile(profile.id).await {
+                                            Ok(()) => { status.set(None); reload(); }
+                                            Err(e) => status.set(Some(Err(server_message(e)))),
+                                        }
+                                    },
+                                }
+                            }
+                        }
+                    }
+                    div { class: "grid gap-3 border-t border-ctp-surface0/60 pt-4 md:grid-cols-2",
+                        Field { label: tr("Connection name"), input { class: INPUT, value: "{name}", oninput: move |e| name.set(e.value()) } }
+                        Field { label: tr("Model identifier"), input { class: INPUT, placeholder: "provider/model-name", value: "{model}", oninput: move |e| model.set(e.value()) } }
+                        Field { label: tr("API base URL"), input { class: INPUT, placeholder: "https://api.example.com/v1", value: "{base_url}", oninput: move |e| base_url.set(e.value()) } }
+                        Field { label: if editing().is_some() { tr("New API key (leave blank to keep current)") } else { tr("API key") }, input { class: INPUT, r#type: "password", value: "{api_key}", oninput: move |e| api_key.set(e.value()) } }
+                    }
+                    div { class: "flex justify-end gap-2",
+                        if editing().is_some() { GhostButton { label: tr("Cancel"), onclick: move |_| clear() } }
+                        ActionButton { label: if editing().is_some() { tr("Save changes") } else { tr("Add connection") }, onclick: save }
+                    }
+                    match status() {
+                        Some(Ok(message)) => rsx! { p { class: "text-sm text-ctp-green", "{message}" } },
+                        Some(Err(message)) => rsx! { p { class: "text-sm text-ctp-red", "{message}" } },
+                        None => rsx! {},
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Portfolios an AI assistant manages through MCP or a configured model,
 /// own paper money. Your other portfolios stay read-only to it.
 #[component]
 fn AiPortfolioCard() -> Element {
     let refresh = use_context::<DataRefresh>();
+    let profiles = use_context::<Signal<Vec<ModelProfile>>>();
     let mut infos = use_signal(Vec::<AiPortfolioInfo>::new);
     let mut loaded = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
@@ -579,8 +736,8 @@ fn AiPortfolioCard() -> Element {
     let list = infos();
     rsx! {
         Card {
-            title: tr("Claude's own portfolios"),
-            subtitle: tr("Give Claude paper money to invest by itself through the connector, and see how it does. Each portfolio has its own cash, and it can't trade in your portfolios.").to_string(),
+            title: tr("AI paper portfolios"),
+            subtitle: tr("Give an AI assistant paper money to manage through MCP or a configured model connection. It cannot trade in your real portfolios.").to_string(),
             if !loaded() {
                 p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
             } else {
@@ -589,6 +746,7 @@ fn AiPortfolioCard() -> Element {
                         AiPortfolioRow {
                             key: "{info.portfolio_id}",
                             info,
+                            profiles: profiles(),
                             on_change: move |_| {
                                 reload();
                                 refresh.reload();
@@ -597,7 +755,7 @@ fn AiPortfolioCard() -> Element {
                     }
                     if !list.is_empty() {
                         p { class: "text-xs text-ctp-subtext0",
-                            {tr("Ask Claude, e.g. “Check your portfolios and decide what to buy or sell today.” It trades at the latest price with no fee, and writes why in each holding's journal.")}
+                            {tr("Use an MCP client or Run AI trader below. Paper trades use the latest price with no fee and journal their reason.")}
                         }
                     }
                     div { class: if list.is_empty() { "grid gap-3" } else { "grid gap-3 border-t border-ctp-surface0/60 pt-4" },
@@ -605,7 +763,7 @@ fn AiPortfolioCard() -> Element {
                             Field { label: tr("Name"),
                                 input {
                                     class: "{INPUT} max-w-sm",
-                                    placeholder: "Claude",
+                                    placeholder: "AI",
                                     value: "{name}",
                                     oninput: move |e| name.set(e.value()),
                                 }
@@ -620,11 +778,11 @@ fn AiPortfolioCard() -> Element {
                             }
                         }
                         p { class: "text-xs text-ctp-overlay1",
-                            {tr("Paper money only: nothing is bought at a real broker. Connect Claude above so it can trade.")}
+                            {tr("Paper money only: nothing is bought at a real broker.")}
                         }
                         div { class: "flex justify-end",
                             ActionButton {
-                                label: if list.is_empty() { tr("Give Claude a portfolio") } else { tr("Add another portfolio") },
+                                label: if list.is_empty() { tr("Create an AI portfolio") } else { tr("Add another AI portfolio") },
                                 onclick: start,
                             }
                         }
@@ -638,14 +796,85 @@ fn AiPortfolioCard() -> Element {
     }
 }
 
-/// One of Claude's portfolios: its money, and adding funds or stopping it.
+/// One AI paper portfolio: funding, model strategy, runs and audit history.
+fn poll_ai_run(
+    run_id: Uuid,
+    portfolio_id: Uuid,
+    mut runs: Signal<Vec<AiRun>>,
+    mut running: Signal<bool>,
+    mut memory: Signal<TraderMemory>,
+    mut error: Signal<Option<String>>,
+    refresh: DataRefresh,
+) {
+    spawn(async move {
+        for _ in 0..150 {
+            crate::notify::poll_delay(1_000).await;
+            match api::get_ai_trader_run(run_id).await {
+                Ok(updated) => {
+                    if let Some(item) = runs.write().iter_mut().find(|run| run.id == run_id) {
+                        *item = updated.clone();
+                    }
+                    if updated.status != AiRunStatus::Running {
+                        running.set(false);
+                        if let Ok(saved) = api::get_trader_memory(portfolio_id).await {
+                            memory.set(saved);
+                        }
+                        refresh.reload();
+                        return;
+                    }
+                }
+                Err(e) => {
+                    error.set(Some(server_message(e)));
+                    running.set(false);
+                    return;
+                }
+            }
+        }
+        running.set(false);
+    });
+}
+
 #[component]
-fn AiPortfolioRow(info: AiPortfolioInfo, on_change: EventHandler<()>) -> Element {
+fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change: EventHandler<()>) -> Element {
     let PortfolioScope(mut scope) = use_context::<PortfolioScope>();
+    let refresh = use_context::<DataRefresh>();
     let mut amount = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
     let mut confirm_stop = use_signal(|| false);
+    let mut trader = use_signal(|| TraderConfig::new(info.portfolio_id));
+    let mut memory = use_signal(|| TraderMemory::empty(info.portfolio_id));
+    let mut runs = use_signal(Vec::<AiRun>::new);
+    let mut trader_loaded = use_signal(|| false);
+    let mut memory_loaded = use_signal(|| false);
+    let mut running = use_signal(|| false);
+    let mut confirm_clear_memory = use_signal(|| false);
     let id = info.portfolio_id;
+    let load_trader = move || {
+        spawn(async move {
+            match api::get_trader_config(id).await {
+                Ok(value) => trader.set(value),
+                Err(e) => error.set(Some(server_message(e))),
+            }
+            if let Ok(value) = api::get_ai_trader_runs(id).await {
+                let active = value
+                    .iter()
+                    .find(|run| run.status == AiRunStatus::Running)
+                    .map(|run| run.id);
+                running.set(active.is_some());
+                runs.set(value);
+                if let Some(run_id) = active {
+                    poll_ai_run(run_id, id, runs, running, memory, error, refresh);
+                }
+            }
+            match api::get_trader_memory(id).await {
+                Ok(value) => memory.set(value),
+                Err(e) => error.set(Some(server_message(e))),
+            }
+            memory_loaded.set(true);
+            trader_loaded.set(true);
+        });
+    };
+    use_hook(load_trader);
     let fund = move |_| async move {
         let cash = match parse_amount(&amount()) {
             Ok(c) => c,
@@ -665,6 +894,62 @@ fn AiPortfolioRow(info: AiPortfolioInfo, on_change: EventHandler<()>) -> Element
         match api::stop_ai_portfolio(id).await {
             Ok(()) => on_change.call(()),
             Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let save_trader = move |_| async move {
+        match api::save_trader_config(trader()).await {
+            Ok(saved) => {
+                trader.set(saved);
+                error.set(None);
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let save_memory = move |_| async move {
+        match api::save_trader_config(trader()).await {
+            Ok(saved) => trader.set(saved),
+            Err(e) => return error.set(Some(server_message(e))),
+        }
+        let draft = memory();
+        match api::save_trader_memory(
+            id,
+            draft.decision_summary,
+            draft.unresolved_questions,
+        )
+        .await
+        {
+            Ok(saved) => {
+                memory.set(saved);
+                error.set(None);
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let clear_memory = move |_| async move {
+        confirm_clear_memory.set(false);
+        match api::clear_trader_memory(id).await {
+            Ok(cleared) => {
+                memory.set(cleared);
+                error.set(None);
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let run_trader = move |_| async move {
+        match api::save_trader_config(trader()).await {
+            Err(e) => error.set(Some(server_message(e))),
+            Ok(saved) => {
+                trader.set(saved);
+                match api::start_ai_trader_run(id).await {
+                    Err(e) => error.set(Some(server_message(e))),
+                    Ok(run) => {
+                        running.set(true);
+                        error.set(None);
+                        runs.write().insert(0, run.clone());
+                        poll_ai_run(run.id, id, runs, running, memory, error, refresh);
+                    }
+                }
+            }
         }
     };
     rsx! {
@@ -694,11 +979,131 @@ fn AiPortfolioRow(info: AiPortfolioInfo, on_change: EventHandler<()>) -> Element
                 }
                 GhostButton { label: tr("Add funds"), onclick: fund }
                 if confirm_stop() {
-                    span { class: "text-xs text-ctp-peach", {tr("Claude will stop trading; the portfolio and its history stay. Continue?")} }
+                    span { class: "text-xs text-ctp-peach", {tr("AI trading will stop; the portfolio and its history stay. Continue?")} }
                     GhostButton { label: tr("Stop"), onclick: stop }
                     GhostButton { label: tr("Cancel"), onclick: move |_| confirm_stop.set(false) }
                 } else {
-                    GhostButton { label: tr("Stop Claude trading"), onclick: move |_| confirm_stop.set(true) }
+                    GhostButton { label: tr("Stop AI trading"), onclick: move |_| confirm_stop.set(true) }
+                }
+            }
+            if trader_loaded() {
+                div { class: "grid gap-3 border-t border-ctp-surface0 pt-3",
+                    div { class: "grid gap-3 md:grid-cols-2",
+                        Field { label: tr("Model connection"),
+                            select {
+                                class: INPUT,
+                                onchange: move |e| {
+                                    trader.write().profile_id = Uuid::parse_str(&e.value()).ok();
+                                },
+                                option { value: "", selected: trader().profile_id.is_none(), {tr("Choose a connection")} }
+                                for profile in profiles.iter() {
+                                    option {
+                                        key: "{profile.id}",
+                                        value: "{profile.id}",
+                                        selected: trader().profile_id == Some(profile.id),
+                                        "{profile.name} · {profile.model}"
+                                    }
+                                }
+                            }
+                        }
+                        Field { label: tr("Trading strategy"),
+                            textarea {
+                                class: "{INPUT} min-h-40",
+                                value: trader().strategy,
+                                oninput: move |e| trader.write().strategy = e.value(),
+                            }
+                        }
+                    }
+                    div { class: "grid gap-3 md:grid-cols-2",
+                        Field { label: tr("Memory size (characters)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "1000",
+                                max: "50000",
+                                value: "{trader().memory_char_limit}",
+                                oninput: move |e| {
+                                    if let Ok(value) = e.value().parse() {
+                                        trader.write().memory_char_limit = value;
+                                    }
+                                },
+                            }
+                        }
+                        Field { label: tr("Model context window (tokens)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "8192",
+                                max: "1000000",
+                                step: "1024",
+                                value: "{trader().context_token_limit}",
+                                oninput: move |e| {
+                                    if let Ok(value) = e.value().parse() {
+                                        trader.write().context_token_limit = value;
+                                    }
+                                },
+                            }
+                        }
+                    }
+                    p { class: "text-xs text-ctp-overlay1",
+                        {tr("Older tool turns are compacted automatically before the configured context window is exceeded.")}
+                    }
+                    if memory_loaded() {
+                        div { class: "grid gap-3 rounded-xl border border-ctp-surface0/70 bg-ctp-crust/20 p-3",
+                            div { class: "flex flex-wrap items-center justify-between gap-2",
+                                div {
+                                    div { class: "font-medium text-ctp-text", {tr("Persistent trader memory")} }
+                                    p { class: "text-xs text-ctp-overlay1",
+                                        {trf("{} of {} characters used", &[&memory().used_chars(), &trader().memory_char_limit])}
+                                    }
+                                }
+                                if let Some(updated) = memory().updated_at {
+                                    span { class: "text-xs text-ctp-overlay1", {trf("Updated {}", &[&updated])} }
+                                }
+                            }
+                            Field { label: tr("Decision summary"),
+                                textarea {
+                                    class: "{INPUT} min-h-28",
+                                    placeholder: tr("Important decisions, constraints, and reasons retained across runs"),
+                                    value: memory().decision_summary,
+                                    oninput: move |e| memory.write().decision_summary = e.value(),
+                                }
+                            }
+                            Field { label: tr("Unresolved questions"),
+                                textarea {
+                                    class: "{INPUT} min-h-20",
+                                    placeholder: tr("Evidence or questions the next run should revisit"),
+                                    value: memory().unresolved_questions,
+                                    oninput: move |e| memory.write().unresolved_questions = e.value(),
+                                }
+                            }
+                            div { class: "flex flex-wrap justify-end gap-2",
+                                if confirm_clear_memory() {
+                                    span { class: "self-center text-xs text-ctp-peach", {tr("Clear all saved trader memory?")} }
+                                    GhostButton { label: tr("Clear memory"), onclick: clear_memory }
+                                    GhostButton { label: tr("Cancel"), onclick: move |_| confirm_clear_memory.set(false) }
+                                } else {
+                                    GhostButton { label: tr("Clear memory"), onclick: move |_| confirm_clear_memory.set(true) }
+                                }
+                                ActionButton { label: tr("Save memory"), onclick: save_memory }
+                            }
+                        }
+                    }
+                    p { class: "text-xs text-ctp-peach", {tr("Run AI trader executes paper orders immediately. It can access only this AI portfolio.")} }
+                    div { class: "flex justify-end gap-2",
+                        GhostButton { label: tr("Save strategy"), onclick: save_trader }
+                        ActionButton { label: if running() { tr("Run in progress…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
+                    }
+                    for run in runs().into_iter().take(5) {
+                        div { key: "{run.id}", class: "min-w-0 rounded-xl bg-ctp-crust/30 p-3 text-xs",
+                            div { class: "flex flex-wrap justify-between gap-2",
+                                span { class: "font-medium text-ctp-text", "{run.status.label()}" }
+                                span { class: "text-ctp-overlay1", "{run.started_at}" }
+                            }
+                            if let Some(text) = run.final_response { p { class: "mt-2 break-words whitespace-pre-wrap text-ctp-subtext0", "{text}" } }
+                            if let Some(message) = run.error { p { class: "mt-2 break-words text-ctp-red", "{message}" } }
+                        }
+                    }
                 }
             }
             if let Some(e) = error() {
