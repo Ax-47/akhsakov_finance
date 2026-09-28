@@ -550,7 +550,58 @@ fn ConnectorCard() -> Element {
                         p { class: "font-medium", if editing().is_some() { "Edit connection" } else { "New connection" } }
                         Field { label: "Name", input { class: INPUT, value:"{name}", oninput:move|e|name.set(e.value()) } }
                         div { class:"flex flex-wrap gap-2", for (value,label) in [(McpAccessPreset::ReadOnly,"Read only"),(McpAccessPreset::ThesisEditor,"Thesis editor"),(McpAccessPreset::Trader,"Trader")] { button { class:example_chip(preset()==value),onclick:move |_|preset.set(value),"{label}" } } }
-                        div { class:"grid gap-2", p { class:"text-xs text-ctp-subtext0","Portfolio access (at least one)" } for p in scopes() { label { class:"flex gap-2 items-center", input { r#type:"checkbox", checked:selected().contains(&p.id), onchange:{let id=p.id;move|e|{let mut v=selected();if e.checked(){if !v.contains(&id){v.push(id)}}else{v.retain(|x|*x!=id)}selected.set(v)}} }, "{p.name}", if p.ai { span { class:"text-xs text-ctp-mauve","AI paper" } } } } }
+                        div { class: "grid gap-2",
+                            div { class: "flex flex-wrap items-end justify-between gap-2",
+                                div {
+                                    p { class: "text-sm font-medium text-ctp-text", "Portfolio access" }
+                                    p { class: "text-xs text-ctp-subtext0", "Choose one or more portfolios · {selected().len()} selected" }
+                                }
+                                div { class: "flex gap-2",
+                                    button {
+                                        r#type: "button",
+                                        class: "text-xs text-ctp-mauve hover:underline",
+                                        onclick: move |_| selected.set(scopes().into_iter().map(|portfolio| portfolio.id).collect()),
+                                        "Select all"
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: "text-xs text-ctp-subtext0 hover:text-ctp-text hover:underline",
+                                        disabled: selected().is_empty(),
+                                        onclick: move |_| selected.set(Vec::new()),
+                                        "Clear"
+                                    }
+                                }
+                            }
+                            div { class: "grid gap-2 sm:grid-cols-2",
+                                for portfolio in scopes() {
+                                    label {
+                                        key: "{portfolio.id}",
+                                        class: if selected().contains(&portfolio.id) {
+                                            "flex cursor-pointer items-center gap-3 rounded-lg border border-ctp-mauve bg-ctp-mauve/10 px-3 py-2"
+                                        } else {
+                                            "flex cursor-pointer items-center gap-3 rounded-lg border border-ctp-surface0 px-3 py-2 hover:border-ctp-surface1"
+                                        },
+                                        input {
+                                            r#type: "checkbox",
+                                            checked: selected().contains(&portfolio.id),
+                                            onchange: move |event| {
+                                                if event.checked() {
+                                                    if !selected().contains(&portfolio.id) {
+                                                        selected.write().push(portfolio.id);
+                                                    }
+                                                } else {
+                                                    selected.write().retain(|id| *id != portfolio.id);
+                                                }
+                                            }
+                                        }
+                                        span { class: "min-w-0 flex-1 truncate", "{portfolio.name}" }
+                                        if portfolio.ai {
+                                            span { class: "shrink-0 text-xs text-ctp-mauve", "AI paper" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         div { class:"flex gap-2", ActionButton { label:if editing().is_some(){"Save"}else{"Create connection"},onclick:save } if editing().is_some(){GhostButton{label:"Cancel",onclick:move |_|{editing.set(None);name.set(String::new());selected.set(vec![])}}} }
                     }
                     if let Some(k)=secret() { div { class:"rounded-xl border border-ctp-peach/50 p-4 grid gap-3", p { class:"font-medium text-ctp-peach","Copy this secret now. It will not be shown again." } div { class:"flex flex-wrap gap-2", for choice in McpExample::ALL { button { class:example_chip(example()==choice),onclick:move |_|example.set(choice),"{choice.label()}" } } } match example() { McpExample::Generic=>rsx!{ConnectorRow{label:"Bearer token",hint:"Use this URL and Authorization header.",shown:format!("{base}/mcp · Bearer {}",masked(&k)),copy:format!("{base}/mcp\nAuthorization: Bearer {k}")}}, McpExample::Claude=>rsx!{ConnectorRow{label:"Claude Code",hint:"Run in a terminal.",shown:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"",masked(&k)),copy:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\"")}}, McpExample::Codex=>rsx!{ConnectorRow{label:"Codex config.toml",hint:"Restart Codex after editing.",shown:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {}\" }}",masked(&k)),copy:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {k}\" }}")}}, McpExample::Agy=>rsx!{ConnectorRow{label:"Antigravity / agy MCP config",hint:"Put this beneath mcpServers.",shown:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Editors=>rsx!{ConnectorRow{label:"Cursor / VS Code MCP JSON",hint:"Add this beneath mcpServers or servers.",shown:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Other=>rsx!{ConnectorRow{label:"URL token",hint:"For clients that cannot set headers.",shown:format!("{base}/mcp/{}",masked(&k)),copy:format!("{base}/mcp/{k}")}} } GhostButton { label:"I saved it",onclick:move |_|secret.set(None) } } }
