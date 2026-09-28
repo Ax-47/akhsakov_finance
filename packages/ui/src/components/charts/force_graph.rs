@@ -20,6 +20,9 @@ pub const EDGE_THRESHOLD: f64 = 0.3;
 // Physics tuning, per animation frame.
 const SPRING: f64 = 0.08;
 const COLLIDE: f64 = 0.5;
+/// Short-range many-body charge. Unlike collision, this starts separating
+/// nodes before their circles touch while still fading quickly with distance.
+const REPULSION: f64 = 2_000.0;
 const CENTER_PULL: f64 = 0.01;
 const DAMPING: f64 = 0.55;
 const ALPHA_DECAY: f64 = 0.97;
@@ -373,14 +376,27 @@ impl Sim {
             for j in (i + 1)..n {
                 let (a, b) = (self.bodies[i], self.bodies[j]);
                 let (dx, dy) = (b.x - a.x, b.y - a.y);
-                let dist = dx.hypot(dy).max(0.01);
+                let raw_dist = dx.hypot(dy);
+                // Give coincident nodes a stable direction to separate in.
+                // Without this, dx/dist and dy/dist are both zero and no
+                // amount of collision or charge can move the pair apart.
+                let (ux, uy, dist) = if raw_dist < 0.01 {
+                    let angle = (i * 31 + j * 17) as f64 * 2.399_963_229_728_653;
+                    (angle.cos(), angle.sin(), 0.01)
+                } else {
+                    (dx / raw_dist, dy / raw_dist, raw_dist)
+                };
                 // Positive pulls the pair together, negative pushes apart.
                 let mut f = k * (dist - targets[i][j]);
                 let min_gap = radii[i] + radii[j] + 6.0;
+                // Clamp the denominator so an overlapping pair gets a strong
+                // but bounded impulse rather than an unstable singularity.
+                let charge_dist = dist.max(min_gap * 0.5);
+                f -= REPULSION / charge_dist.powi(2);
                 if dist < min_gap {
                     f -= COLLIDE * (min_gap - dist);
                 }
-                let (fx, fy) = (dx / dist * f, dy / dist * f);
+                let (fx, fy) = (ux * f, uy * f);
                 force[i].0 += fx;
                 force[i].1 += fy;
                 force[j].0 -= fx;
@@ -545,6 +561,52 @@ mod tests {
         let p: Vec<_> = sim.bodies.iter().map(Body::pos).collect();
         assert!(dist(p[0], p[1]) < dist(p[0], p[2]));
         assert!(dist(p[0], p[1]) < dist(p[1], p[2]));
+    }
+
+    #[test]
+    fn simulation_separates_coincident_nodes() {
+        let corr = vec![vec![1.0, 0.9], vec![0.9, 1.0]];
+        let radii = vec![16.0; 2];
+        let mut sim = Sim {
+            bodies: vec![Body::at(300.0, 190.0), Body::at(300.0, 190.0)],
+            alpha: 1.0,
+            dragged: None,
+        };
+        let mut frames = 0;
+        while sim.step(&spring_lengths(&corr), &radii) {
+            frames += 1;
+            assert!(frames < 1000, "simulation never settled");
+        }
+
+        let separation = dist(sim.bodies[0].pos(), sim.bodies[1].pos());
+        assert!(separation >= radii[0] + radii[1] + 4.0);
+        assert!(sim.bodies.iter().all(|body| body.x.is_finite() && body.y.is_finite()));
+    }
+
+    #[test]
+    fn dense_simulation_stays_finite_and_in_bounds() {
+        let count = 12;
+        let mut corr = vec![vec![0.0; count]; count];
+        for (i, row) in corr.iter_mut().enumerate() {
+            row[i] = 1.0;
+        }
+        let radii = vec![16.0; count];
+        let mut sim = Sim {
+            bodies: vec![Body::at(VIEW_W / 2.0, VIEW_H / 2.0); count],
+            alpha: 1.0,
+            dragged: None,
+        };
+        let mut frames = 0;
+        while sim.step(&spring_lengths(&corr), &radii) {
+            frames += 1;
+            assert!(frames < 1000, "simulation never settled");
+        }
+
+        for (body, radius) in sim.bodies.iter().zip(radii) {
+            assert!(body.x.is_finite() && body.y.is_finite());
+            assert!((radius + 4.0..=VIEW_W - radius - 4.0).contains(&body.x));
+            assert!((radius + 4.0..=VIEW_H - radius - 4.0).contains(&body.y));
+        }
     }
 
     #[test]

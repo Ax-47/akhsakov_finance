@@ -1374,10 +1374,28 @@ fn ConnectorRow(label: String, hint: String, shown: String, copy: String) -> Ele
                         Some(false) => tr("Couldn't copy"),
                         None => tr("Copy"),
                     },
-                    onclick: move |_| {
-                        let text = copy.clone();
-                        spawn(async move { copied.set(Some(crate::files::copy_to_clipboard(&text).await)) });
+                    onclick: {
+                        let copy = copy.clone();
+                        move |_| {
+                            let text = copy.clone();
+                            spawn(async move { copied.set(Some(crate::files::copy_to_clipboard(&text).await)) });
+                        }
                     },
+                }
+            }
+            // The row shows a masked secret, so when copying fails give the
+            // full text to copy by hand.
+            if copied() == Some(false) {
+                div { class: "mt-2 grid gap-1",
+                    div { class: "text-xs text-ctp-peach", {tr("Select the text below and copy it yourself (Ctrl+C).")} }
+                    textarea {
+                        class: "w-full resize-none rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-2 font-mono text-xs text-ctp-subtext1",
+                        readonly: true,
+                        rows: copy.lines().count().max(2) as i64,
+                        value: "{copy}",
+                        onmounted: move |e| async move { let _ = e.set_focus(true).await; },
+                        onfocus: move |_| { document::eval("document.activeElement?.select?.()"); },
+                    }
                 }
             }
         }

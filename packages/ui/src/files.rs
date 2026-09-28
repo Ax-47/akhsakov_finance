@@ -59,9 +59,32 @@ pub fn download_base64(filename: &str, mime: &str, data: &str) {
 }
 
 /// Copies text to the clipboard; resolves to whether it worked.
+/// `navigator.clipboard` only exists on HTTPS or localhost, so over plain
+/// HTTP (a self-hosted LAN address) or in some webviews this falls back to
+/// selecting a hidden textarea and `execCommand('copy')`.
 pub async fn copy_to_clipboard(text: &str) -> bool {
     let script = format!(
-        "try {{ await navigator.clipboard.writeText({}); return true; }} catch (e) {{ return false; }}",
+        "const t = {};
+         try {{
+             if (navigator.clipboard && window.isSecureContext) {{
+                 await navigator.clipboard.writeText(t);
+                 return true;
+             }}
+         }} catch (e) {{}}
+         try {{
+             const ta = document.createElement('textarea');
+             ta.value = t;
+             ta.setAttribute('readonly', '');
+             ta.style.position = 'fixed';
+             ta.style.top = '-1000px';
+             ta.style.opacity = '0';
+             document.body.appendChild(ta);
+             ta.select();
+             ta.setSelectionRange(0, t.length);
+             const ok = document.execCommand('copy');
+             ta.remove();
+             return ok;
+         }} catch (e) {{ return false; }}",
         js_string(text)
     );
     document::eval(&script)

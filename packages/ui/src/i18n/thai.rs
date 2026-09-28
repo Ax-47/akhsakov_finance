@@ -867,6 +867,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("The address holds your key: anyone who has it can read your portfolios and change your theses. Keep it private; make a new key if it leaks.", "ที่อยู่นี้มีคีย์ของคุณอยู่ ใครได้ไปจะอ่านพอร์ตและแก้ thesis ได้ เก็บเป็นความลับ ถ้าหลุดให้สร้างคีย์ใหม่"),
     ("Copied ✓", "คัดลอกแล้ว ✓"),
     ("Couldn't copy", "คัดลอกไม่สำเร็จ"),
+    ("Select the text below and copy it yourself (Ctrl+C).", "เลือกข้อความด้านล่างแล้วคัดลอกเอง (Ctrl+C)"),
     ("AI paper portfolios", "พอร์ตเงินสมมติของ AI"),
     ("Give an AI assistant paper money to manage through MCP or a configured model connection. It cannot trade in your real portfolios.", "ให้ผู้ช่วย AI บริหารเงินสมมติผ่าน MCP หรือการเชื่อมต่อโมเดล โดยซื้อขายในพอร์ตจริงของคุณไม่ได้"),
     ("Add another portfolio", "เพิ่มพอร์ตอีกพอร์ต"),
