@@ -1,6 +1,7 @@
 use crate::mcp::services::tools::FrozenMarket;
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
 use dtos::ai_models::{AiRun, AiRunEvent, AiRunStatus, ModelProfile, TraderConfig, TraderMemory};
+use dtos::mcp::{McpAccessPreset, McpConnection};
 use reqwest::Url;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
@@ -88,6 +89,7 @@ impl ModelService {
             }
             Ok(())
         });
+        service.relock_active_races();
         service
     }
 
@@ -203,14 +205,16 @@ impl ModelService {
         self.db
             .with(|c| {
                 c.query_row(
-                    "SELECT profile_id, strategy, memory_char_limit, context_token_limit
+                    "SELECT profile_id, strategy, memory_char_limit, context_token_limit, mcp_connection_id
                      FROM ai_trader_configs WHERE portfolio_id = ?1",
                     [portfolio_id.to_string()],
                     |r| {
                         let profile: Option<String> = r.get(0)?;
+                        let mcp: Option<String> = r.get(4)?;
                         Ok(TraderConfig {
                             portfolio_id,
                             profile_id: profile.and_then(|s| Uuid::parse_str(&s).ok()),
+                            mcp_connection_id: mcp.and_then(|s| Uuid::parse_str(&s).ok()),
                             strategy: r.get(1)?,
                             memory_char_limit: r.get::<_, i64>(2)? as u32,
                             context_token_limit: r.get::<_, i64>(3)? as u32,
@@ -241,24 +245,34 @@ impl ModelService {
                 "Context window must be between 8,192 and 1,000,000 tokens.",
             ));
         }
+        if config.profile_id.is_some() && config.mcp_connection_id.is_some() {
+            return Err(invalid(
+                "Choose either a model profile or an MCP connection, not both.",
+            ));
+        }
         if let Some(id) = config.profile_id {
             self.profile(id)?;
+        }
+        if let Some(id) = config.mcp_connection_id {
+            self.check_mcp_driver(id, config.portfolio_id)?;
         }
         self.db
             .with(|c| {
                 c.execute(
                     "INSERT INTO ai_trader_configs
-                     (portfolio_id, profile_id, strategy, memory_char_limit, context_token_limit)
-                     VALUES (?1, ?2, ?3, ?4, ?5)
+                     (portfolio_id, profile_id, strategy, memory_char_limit, context_token_limit, mcp_connection_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                      ON CONFLICT(portfolio_id) DO UPDATE SET profile_id=excluded.profile_id,
                      strategy=excluded.strategy, memory_char_limit=excluded.memory_char_limit,
-                     context_token_limit=excluded.context_token_limit",
+                     context_token_limit=excluded.context_token_limit,
+                     mcp_connection_id=excluded.mcp_connection_id",
                     params![
                         config.portfolio_id.to_string(),
                         config.profile_id.map(|id| id.to_string()),
                         config.strategy.trim(),
                         config.memory_char_limit,
-                        config.context_token_limit
+                        config.context_token_limit,
+                        config.mcp_connection_id.map(|id| id.to_string())
                     ],
                 )
             })
@@ -340,6 +354,40 @@ impl ModelService {
         self.start_run_for(portfolio_id, None, RUN_TIMEOUT).await
     }
 
+    /// An MCP connection may drive `portfolio` only if it is enabled, can
+    /// trade, and can reach that portfolio.
+    pub(super) fn check_mcp_driver(
+        &self,
+        connection_id: Uuid,
+        portfolio: Uuid,
+    ) -> Result<McpConnection, ServiceError> {
+        let connection = self
+            .mcp
+            .connections()?
+            .into_iter()
+            .find(|c| c.id == connection_id)
+            .ok_or_else(|| ServiceError::NotFound("MCP connection".into()))?;
+        if !connection.enabled {
+            return Err(invalid(format!(
+                "The MCP connection \"{}\" is disabled.",
+                connection.name
+            )));
+        }
+        if connection.preset != McpAccessPreset::Trader {
+            return Err(invalid(format!(
+                "The MCP connection \"{}\" needs the Trader access preset to trade this portfolio.",
+                connection.name
+            )));
+        }
+        if !connection.portfolio_ids.contains(&portfolio) {
+            return Err(invalid(format!(
+                "The MCP connection \"{}\" doesn't have access to this portfolio.",
+                connection.name
+            )));
+        }
+        Ok(connection)
+    }
+
     pub(super) async fn start_run_for(
         &self,
         portfolio_id: Uuid,
@@ -347,6 +395,11 @@ impl ModelService {
         timeout: Duration,
     ) -> Result<AiRun, ServiceError> {
         let config = self.config(portfolio_id)?;
+        if config.mcp_connection_id.is_some() {
+            return Err(invalid(
+                "This portfolio is driven by an MCP client; it trades when that client connects.",
+            ));
+        }
         let profile_id = config
             .profile_id
             .ok_or_else(|| invalid("Choose a model profile first."))?;
@@ -713,7 +766,7 @@ impl ModelService {
             .map_err(|_| ServiceError::Upstream("The model endpoint returned invalid JSON.".into()))
     }
 
-    fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
+    pub(super) fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
         let status = if response.is_some() {
             "completed"
         } else {
@@ -731,7 +784,7 @@ impl ModelService {
         });
     }
 
-    fn record_event(
+    pub(super) fn record_event(
         &self,
         run_id: Uuid,
         sequence: i64,
@@ -835,7 +888,7 @@ impl ToolResultExt for Option<Result<Value, String>> {
 }
 
 #[derive(Clone, Default)]
-struct Usage {
+pub(super) struct Usage {
     prompt: Option<u64>,
     completion: Option<u64>,
     total: Option<u64>,

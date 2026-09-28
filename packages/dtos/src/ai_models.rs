@@ -20,6 +20,10 @@ pub struct ModelProfile {
 pub struct TraderConfig {
     pub portfolio_id: Uuid,
     pub profile_id: Option<Uuid>,
+    /// An MCP connection that drives this portfolio instead of a model
+    /// profile. At most one of `profile_id` and this is set.
+    #[serde(default)]
+    pub mcp_connection_id: Option<Uuid>,
     pub strategy: String,
     pub memory_char_limit: u32,
     pub context_token_limit: u32,
@@ -30,6 +34,7 @@ impl TraderConfig {
         Self {
             portfolio_id,
             profile_id: None,
+            mcp_connection_id: None,
             strategy: DEFAULT_TRADER_STRATEGY.into(),
             memory_char_limit: DEFAULT_MEMORY_CHAR_LIMIT,
             context_token_limit: DEFAULT_CONTEXT_TOKEN_LIMIT,
@@ -144,6 +149,9 @@ pub struct NewAiRace {
 pub struct AiRaceContestant {
     pub portfolio_id: Uuid,
     pub name: String,
+    /// True when an external MCP client trades this contestant.
+    #[serde(default)]
+    pub mcp: bool,
     pub profile_name: String,
     pub model: String,
 }

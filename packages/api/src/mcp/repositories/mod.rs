@@ -20,6 +20,8 @@ pub trait ConnectionRepository: Send + Sync {
     fn touch(&self, id: Uuid) -> Result<(), RepositoryError>;
     fn audit(&self, id: Uuid, method: &str, tool: Option<&str>, portfolios: &[Uuid], success: bool, error: Option<&str>) -> Result<(), RepositoryError>;
     fn events(&self, id: Uuid, limit: usize) -> Result<Vec<McpAuditEvent>, RepositoryError>;
+    /// Whether the connection drives a contestant in a running or paused race.
+    fn in_active_race(&self, id: Uuid) -> Result<bool, RepositoryError>;
 }
 
 /// Which portfolios an AI assistant manages.

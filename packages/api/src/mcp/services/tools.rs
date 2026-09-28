@@ -24,7 +24,7 @@ use std::{collections::HashMap, str::FromStr};
 use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 use uuid::Uuid;
 use dtos::mcp::{McpAccessPreset, McpPortfolioScope};
-use super::AccessContext;
+use super::{race_gate::RaceGate, AccessContext};
 
 /// Prices captured once per race round and shared by every contestant.
 #[derive(Clone, Default)]
@@ -199,6 +199,7 @@ pub struct Tools {
     trading: Trading,
     planning: PlanningService,
     settings: SettingsService,
+    gate: RaceGate,
 }
 
 /// Everything the tools look at, read once per call.
@@ -366,7 +367,12 @@ impl Tools {
             trading,
             planning,
             settings,
+            gate: RaceGate::default(),
         }
+    }
+
+    pub(crate) fn race_gate(&self) -> &RaceGate {
+        &self.gate
     }
 
     /// `None` for an unknown tool. `Err` is shown to the model as a failed
@@ -389,18 +395,28 @@ impl Tools {
     pub async fn call_scoped(&self, name: &str, args: &Value, access: &AccessContext) -> Option<ToolResult> {
         if !preset_allows(access.preset, name) { return None; }
         let ids = access.portfolio_ids.as_slice();
-        Some(match name {
+        let mut target = None;
+        let result = match name {
             "list_portfolios" => self.list_portfolios(Some(ids)),
             "list_theses" => self.list_theses(args, Some(ids)),
             "get_thesis" => self.get_thesis(args, Some(ids)),
             "save_thesis" => self.save_thesis(args, Some(ids)),
             "add_thesis_note" => self.add_note(args, Some(ids)),
-            "get_my_portfolio" => self.my_portfolio(args, Some(ids)).await,
+            "get_my_portfolio" => self.my_portfolio_gated(args, ids).await,
             "get_my_goals" => self.my_goals(args, Some(ids)).await,
-            "get_quote" => self.quote(args).await,
-            "place_order" => self.place_order_scoped(args, ids).await,
+            "get_quote" => match self.gate.connection_market(access.connection_id) {
+                Some(market) => self.frozen_quote(args, &market).await,
+                None => self.quote(args).await,
+            },
+            "place_order" => {
+                let (portfolio, result) = self.place_order_scoped(args, ids, access.connection_id).await;
+                target = portfolio;
+                result
+            }
             _ => return None,
-        })
+        };
+        self.gate.record(access.connection_id, target, name, args, &result);
+        Some(result)
     }
 
     pub fn portfolio_scopes(&self) -> Result<Vec<McpPortfolioScope>, ServiceError> {
@@ -419,17 +435,9 @@ impl Tools {
 
     pub(crate) async fn call_frozen(&self, name: &str, args: &Value, market: &FrozenMarket) -> Option<ToolResult> {
         Some(match name {
-            "get_quote" => {
-                let ticker = match ticker(args) { Ok(value) => value, Err(error) => return Some(Err(error)) };
-                let quote = match market.quote(&self.trading, &ticker).await { Ok(value) => value, Err(error) => return Some(Err(error.to_string())) };
-                self.quote_at(&ticker, quote)
-            }
-            "place_order" => {
-                let ticker = match ticker(args) { Ok(value) => value, Err(error) => return Some(Err(error)) };
-                let quote = match market.quote(&self.trading, &ticker).await { Ok(value) => value, Err(error) => return Some(Err(error.to_string())) };
-                self.place_order_at(args, ticker, quote).await
-            }
-            "get_my_portfolio" => self.my_portfolio_at(args, Some(market), None).await,
+            "get_quote" => self.frozen_quote(args, market).await,
+            "place_order" => self.frozen_order(args, market).await,
+            "get_my_portfolio" => self.my_portfolio_at(args, Some(market), None, false).await,
             _ => return self.call(name, args).await,
         })
     }
@@ -603,10 +611,16 @@ impl Tools {
     }
 
     async fn my_portfolio(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
-        self.my_portfolio_at(args, None, scope).await
+        self.my_portfolio_at(args, None, scope, false).await
     }
 
-    async fn my_portfolio_at(&self, args: &Value, market: Option<&FrozenMarket>, scope: Option<&[Uuid]>) -> ToolResult {
+    /// For an external client: racing portfolios say how their race stands,
+    /// and are valued at the round's frozen prices while their window is open.
+    async fn my_portfolio_gated(&self, args: &Value, scope: &[Uuid]) -> ToolResult {
+        self.my_portfolio_at(args, None, Some(scope), true).await
+    }
+
+    async fn my_portfolio_at(&self, args: &Value, market: Option<&FrozenMarket>, scope: Option<&[Uuid]>, gated: bool) -> ToolResult {
         let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
         let mut allowed=self.trading.books().map_err(|e|e.to_string())?;
         if let Some(ids)=scope { allowed.retain(|b|ids.contains(&b.id)); }
@@ -616,7 +630,16 @@ impl Tools {
         }
         let mut portfolios = Vec::with_capacity(books.len());
         for book in &books {
-            portfolios.push(self.book_json(book, market).await);
+            if !gated {
+                portfolios.push(self.book_json(book, market).await);
+                continue;
+            }
+            let window = self.gate.market_for(book.id);
+            let mut out = self.book_json(book, window.as_ref()).await;
+            if let Some(race) = self.gate.status_json(book.id) {
+                out["race"] = race;
+            }
+            portfolios.push(out);
         }
         Ok(json!({
             "portfolios": portfolios,
@@ -728,6 +751,18 @@ impl Tools {
         out
     }
 
+    async fn frozen_quote(&self, args: &Value, market: &FrozenMarket) -> ToolResult {
+        let ticker = ticker(args)?;
+        let quote = market.quote(&self.trading, &ticker).await.map_err(|e| e.to_string())?;
+        self.quote_at(&ticker, quote)
+    }
+
+    async fn frozen_order(&self, args: &Value, market: &FrozenMarket) -> ToolResult {
+        let ticker = ticker(args)?;
+        let quote = market.quote(&self.trading, &ticker).await.map_err(|e| e.to_string())?;
+        self.place_order_at(args, ticker, quote).await
+    }
+
     async fn quote(&self, args: &Value) -> ToolResult {
         let ticker = ticker(args)?;
         let q = self.trading.quote(&ticker).await.map_err(|e| e.to_string())?;
@@ -758,11 +793,18 @@ impl Tools {
         self.place_order_at(args, ticker, quote).await
     }
 
-    async fn place_order_scoped(&self,args:&Value,scope:&[Uuid])->ToolResult{
+    /// Also returns the portfolio the order went to, once known.
+    async fn place_order_scoped(&self,args:&Value,scope:&[Uuid],connection:Uuid)->(Option<Uuid>,ToolResult){
         let wanted=args.get("portfolio").and_then(Value::as_str);
-        let mut books=self.trading.books().map_err(|e|e.to_string())?;books.retain(|b|scope.contains(&b.id));
-        let chosen=match wanted {Some(w)=>books.into_iter().find(|b|b.id.to_string()==w||b.name.eq_ignore_ascii_case(w)),None if books.len()==1=>books.into_iter().next(),_=>None}.ok_or("Choose an available AI paper portfolio.".to_string())?;
-        let mut scoped=args.clone();scoped["portfolio"]=json!(chosen.id.to_string());self.place_order(&scoped).await
+        let mut books=match self.trading.books() {Ok(b)=>b,Err(e)=>return (None,Err(e.to_string()))};books.retain(|b|scope.contains(&b.id));
+        let Some(chosen)=(match wanted {Some(w)=>books.into_iter().find(|b|b.id.to_string()==w||b.name.eq_ignore_ascii_case(w)),None if books.len()==1=>books.into_iter().next(),_=>None}) else { return (None,Err("Choose an available AI paper portfolio.".to_string())) };
+        let mut scoped=args.clone();scoped["portfolio"]=json!(chosen.id.to_string());
+        let result=match self.gate.order_market(chosen.id,connection) {
+            Ok(None)=>self.place_order(&scoped).await,
+            Ok(Some(market))=>self.frozen_order(&scoped,&market).await,
+            Err(e)=>Err(e),
+        };
+        (Some(chosen.id),result)
     }
 
     async fn place_order_at(&self, args: &Value, ticker: TickerSymbol, quote: crate::mcp::repositories::LiveQuote) -> ToolResult {

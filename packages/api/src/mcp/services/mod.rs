@@ -2,6 +2,7 @@
 //! in, replies out. The tools live in [`tools`]; AI paper portfolios in
 //! [`trading`].
 
+pub mod race_gate;
 pub mod tools;
 pub mod trading;
 
@@ -41,7 +42,10 @@ portfolio when you have more than one), giving a short reason each time; the rea
 holding's journal. The user may have set goals for those portfolios (get_my_goals): aim for them, \
 but you can't change them. Invest for the long run, spread the risk, and \
 don't trade just to be busy. place_order can't touch the user's other portfolios; never present your \
-own portfolio's trades as advice to copy.";
+own portfolio's trades as advice to copy.\n\
+- A portfolio of yours may be entered in an AI race; get_my_portfolio then shows `race`. Trade it only \
+while `race.window_open` is true, before `race.deadline`: prices are frozen for the round and orders \
+outside the window are rejected. Otherwise check back around `race.next_round_at`.";
 
 /// What a request's key allows.
 #[derive(Debug, PartialEq)]
@@ -93,6 +97,11 @@ impl McpService {
         &self.tools
     }
 
+    /// Which portfolios are racing, and their round windows.
+    pub(crate) fn race_gate(&self) -> &race_gate::RaceGate {
+        self.tools.race_gate()
+    }
+
     pub fn connections(&self) -> Result<Vec<McpConnection>, ServiceError> { Ok(self.connections.list()?) }
     pub fn portfolio_scopes(&self) -> Result<Vec<McpPortfolioScope>, ServiceError> { self.tools.portfolio_scopes() }
 
@@ -115,10 +124,17 @@ impl McpService {
         if ids.iter().any(|id| !known.iter().any(|p| p.id == *id)) { return Err(ServiceError::Validation("One or more selected portfolios no longer exist.".into())); }
         Ok(())
     }
-    pub fn update_connection(&self,id:Uuid,name:&str,preset:McpAccessPreset,enabled:bool,portfolios:Vec<Uuid>)->Result<(),ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}self.validate_portfolios(&portfolios)?;if name.trim().is_empty(){return Err(ServiceError::Validation("Enter a connection name.".into()));}self.connections.update(id,name.trim(),preset,enabled,&portfolios)?;Ok(())}
+    pub fn update_connection(&self,id:Uuid,name:&str,preset:McpAccessPreset,enabled:bool,portfolios:Vec<Uuid>)->Result<(),ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}self.ensure_not_racing(id,"changed")?;self.validate_portfolios(&portfolios)?;if name.trim().is_empty(){return Err(ServiceError::Validation("Enter a connection name.".into()));}self.connections.update(id,name.trim(),preset,enabled,&portfolios)?;Ok(())}
     pub fn rotate_connection(&self,id:Uuid)->Result<McpConnectionSecret,ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}let secret=format!("{}{}",Uuid::new_v4().simple(),Uuid::new_v4().simple());self.connections.rotate(id,&hash_secret(&secret)?)?;let connection=self.connections.find(id)?.unwrap().connection;Ok(McpConnectionSecret{connection,token:format!("akf_mcp_{}_{}",id.simple(),secret)})}
-    pub fn delete_connection(&self,id:Uuid)->Result<(),ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}self.connections.delete(id)?;Ok(())}
+    pub fn delete_connection(&self,id:Uuid)->Result<(),ServiceError>{if self.connections.find(id)?.is_none(){return Err(ServiceError::NotFound("MCP connection".into()));}self.ensure_not_racing(id,"deleted")?;self.connections.delete(id)?;Ok(())}
     pub fn audit_events(&self,id:Uuid)->Result<Vec<McpAuditEvent>,ServiceError>{Ok(self.connections.events(id,20)?) }
+
+    fn ensure_not_racing(&self, id: Uuid, action: &str) -> Result<(), ServiceError> {
+        if self.connections.in_active_race(id)? {
+            return Err(ServiceError::Validation(format!("MCP connections that drive a contestant in an active race cannot be {action}.")));
+        }
+        Ok(())
+    }
 
     fn token_parts(token:&str)->Option<(Uuid,&str)>{let rest=token.trim().strip_prefix("akf_mcp_")?;let (raw,secret)=rest.split_once('_')?;Some((Uuid::parse_str(raw).ok()?,secret))}
     pub fn authorize(&self, presented: Option<&str>) -> Access {

@@ -738,6 +738,7 @@ fn AiPortfolioCard() -> Element {
     let refresh = use_context::<DataRefresh>();
     let profiles = use_context::<Signal<Vec<ModelProfile>>>();
     let mut infos = use_signal(Vec::<AiPortfolioInfo>::new);
+    let mut connections = use_signal(Vec::<McpConnection>::new);
     let mut loaded = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut name = use_signal(String::new);
@@ -747,6 +748,9 @@ fn AiPortfolioCard() -> Element {
             match api::get_ai_portfolios().await {
                 Ok(list) => infos.set(list),
                 Err(e) => error.set(Some(e.to_string())),
+            }
+            if let Ok(list) = api::get_mcp_connections().await {
+                connections.set(list);
             }
             loaded.set(true);
         });
@@ -782,6 +786,7 @@ fn AiPortfolioCard() -> Element {
                             key: "{info.portfolio_id}",
                             info,
                             profiles: profiles(),
+                            connections: connections(),
                             on_change: move |_| {
                                 reload();
                                 refresh.reload();
@@ -994,7 +999,12 @@ fn AiRaceCard() -> Element {
                                     } }
                                     tbody { for row in race.leaderboard {
                                         tr { key: "{row.portfolio_id}", class: "border-t border-ctp-surface0/60",
-                                            td { class: "p-2", "{row.rank}" } td { class: "p-2 font-medium text-ctp-text", "{row.name}" }
+                                            td { class: "p-2", "{row.rank}" } td { class: "p-2 font-medium text-ctp-text",
+                                                "{row.name}"
+                                                if race.contestants.iter().any(|c| c.portfolio_id == row.portfolio_id && c.mcp) {
+                                                    span { class: "ml-2 rounded bg-ctp-surface0 px-1.5 py-0.5 text-[10px] text-ctp-subtext0", "MCP" }
+                                                }
+                                            }
                                             td { class: "p-2", "{row.total_return_pct:.2}%" } td { class: "p-2", "{row.max_drawdown_pct:.2}%" }
                                             td { class: "p-2", "{row.volatility_pct:.2}%" } td { class: "p-2", "{row.risk_adjusted_return:.2}" }
                                             td { class: "p-2", "${row.fees:.2}" } td { class: "p-2", "${row.turnover:.2}" }
@@ -1010,6 +1020,9 @@ fn AiRaceCard() -> Element {
                                 }
                             }
                             p { class: "text-xs text-ctp-overlay1", {tr("Slow or rate-limited providers receive the same deadline and count as failed runs. The next synchronized round waits for the current round to close.")} }
+                            if race.contestants.iter().any(|c| c.mcp) {
+                                p { class: "text-xs text-ctp-overlay1", {tr("MCP contestants can trade only while their round window is open, so schedule those clients to check get_my_portfolio often. A round without any call counts as a failed run.")} }
+                            }
                         }
                     }
                 }
@@ -1058,7 +1071,7 @@ fn poll_ai_run(
 }
 
 #[component]
-fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change: EventHandler<()>) -> Element {
+fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connections: Vec<McpConnection>, on_change: EventHandler<()>) -> Element {
     let PortfolioScope(mut scope) = use_context::<PortfolioScope>();
     let refresh = use_context::<DataRefresh>();
     let mut amount = use_signal(String::new);
@@ -1072,6 +1085,12 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
     let mut running = use_signal(|| false);
     let mut confirm_clear_memory = use_signal(|| false);
     let id = info.portfolio_id;
+    // MCP connections that could drive this portfolio.
+    let drivers: Vec<McpConnection> = connections
+        .into_iter()
+        .filter(|c| c.enabled && c.preset == McpAccessPreset::Trader && c.portfolio_ids.contains(&id))
+        .collect();
+    let mcp_driven = trader().mcp_connection_id.is_some();
     let load_trader = move || {
         spawn(async move {
             match api::get_trader_config(id).await {
@@ -1216,17 +1235,41 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                             select {
                                 class: INPUT,
                                 onchange: move |e| {
-                                    trader.write().profile_id = Uuid::parse_str(&e.value()).ok();
+                                    let value = e.value();
+                                    let (kind, raw) = value.split_once(':').unwrap_or_default();
+                                    let chosen = Uuid::parse_str(raw).ok();
+                                    let mut config = trader.write();
+                                    config.profile_id = chosen.filter(|_| kind == "openai");
+                                    config.mcp_connection_id = chosen.filter(|_| kind == "mcp");
                                 },
-                                option { value: "", selected: trader().profile_id.is_none(), {tr("Choose a connection")} }
-                                for profile in profiles.iter() {
-                                    option {
-                                        key: "{profile.id}",
-                                        value: "{profile.id}",
-                                        selected: trader().profile_id == Some(profile.id),
-                                        "{profile.name} · {profile.model}"
+                                option { value: "", selected: trader().profile_id.is_none() && !mcp_driven, {tr("Choose a connection")} }
+                                if !profiles.is_empty() {
+                                    optgroup { label: tr("OpenAI-compatible API"),
+                                        for profile in profiles.iter() {
+                                            option {
+                                                key: "{profile.id}",
+                                                value: "openai:{profile.id}",
+                                                selected: trader().profile_id == Some(profile.id),
+                                                "{profile.name} · {profile.model}"
+                                            }
+                                        }
                                     }
                                 }
+                                if !drivers.is_empty() {
+                                    optgroup { label: tr("MCP connection"),
+                                        for connection in drivers.iter() {
+                                            option {
+                                                key: "{connection.id}",
+                                                value: "mcp:{connection.id}",
+                                                selected: trader().mcp_connection_id == Some(connection.id),
+                                                "{connection.name} · MCP"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            p { class: "mt-1 text-xs text-ctp-overlay1",
+                                {tr("MCP connections appear here when they are enabled, use the Trader preset, and can access this portfolio.")}
                             }
                         }
                         Field { label: tr("Trading strategy"),
@@ -1312,10 +1355,16 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                             }
                         }
                     }
-                    p { class: "text-xs text-ctp-peach", {tr("Run AI trader executes paper orders immediately. It can access only this AI portfolio.")} }
+                    if mcp_driven {
+                        p { class: "text-xs text-ctp-peach", {tr("This portfolio trades when its MCP client connects. In a race, the client must act within each round's window.")} }
+                    } else {
+                        p { class: "text-xs text-ctp-peach", {tr("Run AI trader executes paper orders immediately. It can access only this AI portfolio.")} }
+                    }
                     div { class: "flex justify-end gap-2",
                         GhostButton { label: tr("Save strategy"), onclick: save_trader }
-                        ActionButton { label: if running() { tr("Run in progress…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
+                        if !mcp_driven {
+                            ActionButton { label: if running() { tr("Run in progress…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
+                        }
                     }
                     for run in runs().into_iter().take(5) {
                         div { key: "{run.id}", class: "min-w-0 rounded-xl bg-ctp-crust/30 p-3 text-xs",

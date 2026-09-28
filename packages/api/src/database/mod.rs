@@ -108,6 +108,7 @@ impl Database {
                 copy.execute("DELETE FROM sessions", [])?;
                 copy.execute("DELETE FROM mcp_access", [])?;
                 copy.execute("DELETE FROM mcp_connections", [])?;
+                copy.execute("UPDATE ai_trader_configs SET mcp_connection_id = NULL", [])?;
                 copy.execute("DELETE FROM ai_model_secrets", [])?;
                 copy.execute_batch("VACUUM")?;
             }
@@ -550,6 +551,9 @@ const MIGRATIONS: &[&str] = &[
         error_category  TEXT
     );
     CREATE INDEX mcp_audit_connection ON mcp_audit(connection_id, id DESC);",
+    // 17: an AI portfolio can be driven by an MCP connection instead of a
+    // model profile.
+    "ALTER TABLE ai_trader_configs ADD COLUMN mcp_connection_id TEXT REFERENCES mcp_connections(id) ON DELETE SET NULL;",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

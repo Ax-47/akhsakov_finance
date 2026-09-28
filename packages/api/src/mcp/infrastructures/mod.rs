@@ -62,6 +62,18 @@ impl ConnectionRepository for SqliteConnectionRepository {
     fn touch(&self,id:Uuid)->Result<(),RepositoryError>{self.db.with(|c|c.execute("UPDATE mcp_connections SET last_used_at=datetime('now') WHERE id=?1",[id.to_string()]))?;Ok(())}
     fn audit(&self,id:Uuid,method:&str,tool:Option<&str>,portfolios:&[Uuid],success:bool,error:Option<&str>)->Result<(),RepositoryError>{let ids=serde_json::to_string(portfolios).unwrap_or_else(|_|"[]".into());self.db.transaction(|tx|{tx.execute("INSERT INTO mcp_audit(connection_id,method,tool,portfolio_ids,success,error_category) VALUES(?1,?2,?3,?4,?5,?6)",params![id.to_string(),method,tool,ids,success,error])?;tx.execute("DELETE FROM mcp_audit WHERE connection_id=?1 AND id NOT IN (SELECT id FROM mcp_audit WHERE connection_id=?1 ORDER BY id DESC LIMIT 500)",[id.to_string()])?;Ok(())})?;Ok(())}
     fn events(&self,id:Uuid,limit:usize)->Result<Vec<McpAuditEvent>,RepositoryError>{Ok(self.db.with(|c|c.prepare("SELECT id,at,method,tool,portfolio_ids,success,error_category FROM mcp_audit WHERE connection_id=?1 ORDER BY id DESC LIMIT ?2")?.query_map(params![id.to_string(),limit as i64],|r|{let raw:String=r.get(4)?;Ok(McpAuditEvent{id:r.get(0)?,at:r.get(1)?,method:r.get(2)?,tool:r.get(3)?,portfolio_ids:serde_json::from_str(&raw).unwrap_or_default(),success:r.get::<_,i64>(5)?!=0,error_category:r.get(6)?})})?.collect())?)}
+    fn in_active_race(&self, id: Uuid) -> Result<bool, RepositoryError> {
+        Ok(self.db.with(|c| c.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM ai_trader_configs tc
+                JOIN ai_race_contestants rc ON rc.portfolio_id=tc.portfolio_id
+                JOIN ai_races r ON r.id=rc.race_id
+                WHERE tc.mcp_connection_id=?1 AND r.status IN ('running','paused')
+            )",
+            [id.to_string()],
+            |r| r.get(0),
+        ))?)
+    }
 }
 
 pub struct SqliteAiPortfolioRepository {

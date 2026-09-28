@@ -1,7 +1,10 @@
 //! Synchronized competitions between independently configured AI portfolios.
 
-use super::{service::RaceRunContext, ModelService};
-use crate::mcp::services::tools::FrozenMarket;
+use super::{
+    service::{RaceRunContext, Usage},
+    ModelService,
+};
+use crate::mcp::services::{race_gate::RaceInfo, tools::FrozenMarket};
 use crate::shared::ServiceError;
 use dtos::ai_models::{
     AiRace, AiRaceAuditEvent, AiRaceContestant, AiRaceStanding, AiRaceStatus, NewAiRace,
@@ -106,10 +109,13 @@ impl ModelService {
         }
         for id in &contestants {
             let config = self.config(*id)?;
-            if config.profile_id.is_none() {
+            if config.profile_id.is_none() && config.mcp_connection_id.is_none() {
                 return Err(invalid(format!(
-                    "Portfolio {id} needs a model connection before it can race."
+                    "Portfolio {id} needs a model or MCP connection before it can race."
                 )));
+            }
+            if let Some(connection) = config.mcp_connection_id {
+                self.check_mcp_driver(connection, *id)?;
             }
             if self.race_active_for(*id)? {
                 return Err(invalid(format!(
@@ -268,8 +274,10 @@ impl ModelService {
             "started",
             "Contestant portfolios were reset to identical starting capital.",
         )?;
+        let race = self.race(id)?;
+        self.lock_gates(&race, None);
         self.spawn_race(id);
-        self.race(id)
+        Ok(race)
     }
 
     pub fn pause_race(&self, id: Uuid) -> Result<AiRace, ServiceError> {
@@ -284,6 +292,7 @@ impl ModelService {
 
     pub fn resume_race(&self, id: Uuid) -> Result<AiRace, ServiceError> {
         let race = self.change_race_state(id, "paused", "running", "resumed", "Race resumed.")?;
+        self.lock_gates(&race, None);
         self.spawn_race(id);
         Ok(race)
     }
@@ -311,7 +320,52 @@ impl ModelService {
             "stopped",
             "Stopped by the user; no new rounds will start.",
         )?;
-        self.race(id)
+        let race = self.race(id)?;
+        self.release_gates(&race);
+        Ok(race)
+    }
+
+    fn race_info(race: &AiRace, round: u32) -> RaceInfo {
+        RaceInfo {
+            name: race.name.clone(),
+            round,
+            rounds: race.rounds,
+        }
+    }
+
+    /// Closes every contestant to outside MCP trading until its round
+    /// window opens.
+    fn lock_gates(&self, race: &AiRace, next_round_at: Option<String>) {
+        let info = Self::race_info(race, race.completed_rounds + 1);
+        for contestant in &race.contestants {
+            self.mcp
+                .race_gate()
+                .lock(contestant.portfolio_id, info.clone(), next_round_at.clone());
+        }
+    }
+
+    fn release_gates(&self, race: &AiRace) {
+        for contestant in &race.contestants {
+            self.mcp.race_gate().release(contestant.portfolio_id);
+        }
+    }
+
+    /// After a restart every active race is paused; its portfolios stay
+    /// closed to outside MCP trading until it is resumed or stopped.
+    pub(super) fn relock_active_races(&self) {
+        let ids: Vec<String> = self
+            .db
+            .with(|c| {
+                c.prepare("SELECT id FROM ai_races WHERE status IN ('running','paused')")?
+                    .query_map([], |r| r.get(0))?
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ids.iter().filter_map(|id| Uuid::parse_str(id).ok()) {
+            if let Ok(race) = self.race(id) {
+                self.lock_gates(&race, None);
+            }
+        }
     }
 
     fn change_race_state(
@@ -387,12 +441,24 @@ impl ModelService {
             self.audit(id, "round_started", &format!("Round {round} started; all contestants share one deadline and market snapshot."))?;
             let timeout = Duration::from_secs(u64::from(race.round_timeout_seconds));
             let mut run_ids = Vec::new();
+            let mut mcp_runs = Vec::new();
             for contestant in &race.contestants {
                 let context = RaceRunContext {
                     race_id: id,
                     round,
                     market: market.clone(),
                 };
+                if contestant.mcp {
+                    match self.open_mcp_window(&race, round, contestant.portfolio_id, &market, timeout) {
+                        Ok(run) => mcp_runs.push((contestant.portfolio_id, run)),
+                        Err(error) => self.audit(
+                            id,
+                            "contestant_start_failed",
+                            &format!("{}: {error}", contestant.name),
+                        )?,
+                    }
+                    continue;
+                }
                 match self
                     .start_run_for(contestant.portfolio_id, Some(context), timeout)
                     .await
@@ -415,6 +481,10 @@ impl ModelService {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            for (portfolio, run_id) in &mcp_runs {
+                self.close_mcp_window(*portfolio, *run_id)?;
+                run_ids.push(*run_id);
             }
             let mut snapshot = market.snapshot().await;
             snapshot["frozen_at"] = frozen_at;
@@ -444,6 +514,12 @@ impl ModelService {
                 return Ok(());
             }
             let delay = Duration::from_secs(u64::from(race.trading_frequency_minutes) * 60);
+            let current = self.race(id)?;
+            if matches!(current.status, AiRaceStatus::Running | AiRaceStatus::Paused) {
+                let next = chrono::Utc::now() + chrono::Duration::seconds(delay.as_secs() as i64);
+                let next = (current.status == AiRaceStatus::Running).then(|| next.to_rfc3339());
+                self.lock_gates(&current, next);
+            }
             let until = tokio::time::Instant::now() + delay;
             while tokio::time::Instant::now() < until {
                 tokio::time::sleep(
@@ -546,19 +622,105 @@ impl ModelService {
             "UPDATE ai_races SET status='completed',finished_at=datetime('now') WHERE id=?1 AND status='running'",
             [id.to_string()],
         )).map_err(storage)?;
+        self.release_gates(&self.race(id)?);
         self.audit(id, "completed", "All scheduled rounds completed.")
+    }
+
+    /// Records a run for an MCP contestant and lets its connection trade
+    /// at the round's frozen prices until the shared deadline.
+    fn open_mcp_window(
+        &self,
+        race: &AiRace,
+        round: u32,
+        portfolio: Uuid,
+        market: &FrozenMarket,
+        timeout: Duration,
+    ) -> Result<Uuid, ServiceError> {
+        let connection_id = self
+            .config(portfolio)?
+            .mcp_connection_id
+            .ok_or_else(|| invalid("The contestant no longer has an MCP connection."))?;
+        let connection = self.check_mcp_driver(connection_id, portfolio)?;
+        let run_id = Uuid::new_v4();
+        self.db
+            .with(|c| {
+                c.execute(
+                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model, race_id, race_round)
+                     VALUES (?1, ?2, 'running', ?3, 'MCP client', ?4, ?5)",
+                    params![
+                        run_id.to_string(),
+                        portfolio.to_string(),
+                        connection.name,
+                        race.id.to_string(),
+                        round
+                    ],
+                )
+            })
+            .map_err(storage)?;
+        let deadline = chrono::Utc::now() + chrono::Duration::seconds(timeout.as_secs() as i64);
+        self.mcp.race_gate().open(
+            portfolio,
+            Self::race_info(race, round),
+            connection_id,
+            deadline.to_rfc3339(),
+            market.clone(),
+        );
+        Ok(run_id)
+    }
+
+    /// Ends an MCP contestant's window and settles its run from the calls
+    /// the client made in it.
+    pub(super) fn close_mcp_window(&self, portfolio: Uuid, run_id: Uuid) -> Result<(), ServiceError> {
+        let calls = self.mcp.race_gate().close(portfolio).unwrap_or_default();
+        for (index, call) in calls.iter().enumerate() {
+            self.record_event(
+                run_id,
+                index as i64 + 1,
+                &call.tool,
+                &call.args,
+                call.success,
+                &call.detail,
+            )?;
+        }
+        if !calls.iter().any(|c| c.success) {
+            self.finish(
+                run_id,
+                None,
+                Some("The MCP client did not act before the round deadline.".into()),
+                Usage::default(),
+            );
+        } else {
+            let orders = calls
+                .iter()
+                .filter(|c| c.success && c.tool == "place_order")
+                .count();
+            self.finish(
+                run_id,
+                Some(format!(
+                    "The MCP client made {} tool calls and {orders} orders in this round.",
+                    calls.len()
+                )),
+                None,
+                Usage::default(),
+            );
+        }
+        Ok(())
     }
 
     fn race_contestants(&self, id: Uuid) -> Result<Vec<AiRaceContestant>, ServiceError> {
         self.db
             .with(|c| {
                 c.prepare(
-                    "SELECT rc.portfolio_id,p.name,mp.name,mp.model
+                    "SELECT rc.portfolio_id,p.name,COALESCE(mc.name,mp.name),
+                            CASE WHEN mc.id IS NOT NULL THEN 'MCP client' ELSE mp.model END,
+                            mc.id IS NOT NULL
              FROM ai_race_contestants rc
              JOIN portfolios p ON p.id=rc.portfolio_id
              JOIN ai_trader_configs tc ON tc.portfolio_id=rc.portfolio_id
-             JOIN ai_model_profiles mp ON mp.id=tc.profile_id
-             WHERE rc.race_id=?1 ORDER BY lower(p.name)",
+             LEFT JOIN ai_model_profiles mp ON mp.id=tc.profile_id
+             LEFT JOIN mcp_connections mc ON mc.id=tc.mcp_connection_id
+             WHERE rc.race_id=?1 AND (mp.id IS NOT NULL OR mc.id IS NOT NULL)
+             ORDER BY lower(p.name)",
                 )?
                 .query_map([id.to_string()], |r| {
                     let raw: String = r.get(0)?;
@@ -567,6 +729,7 @@ impl ModelService {
                         name: r.get(1)?,
                         profile_name: r.get(2)?,
                         model: r.get(3)?,
+                        mcp: r.get(4)?,
                     })
                 })?
                 .collect()
@@ -762,5 +925,100 @@ mod tests {
         assert!(service
             .save_config(service.config(first.portfolio_id).unwrap())
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn mcp_contestants_trade_only_inside_their_round_window() {
+        use dtos::mcp::McpAccessPreset;
+        let service = service();
+        let profile = service
+            .save_profile(None, "Model", "https://api.example.invalid/v1", "m", Some("k"))
+            .unwrap();
+        let trading = service.mcp.trading();
+        let first = trading.start("Model racer", rust_decimal::Decimal::from(500)).await.unwrap();
+        let second = trading.start("MCP racer", rust_decimal::Decimal::from(500)).await.unwrap();
+        let (a, b) = (first.portfolio_id, second.portfolio_id);
+        let bot = service
+            .mcp
+            .create_connection("Bot", McpAccessPreset::Trader, vec![b])
+            .unwrap();
+        let reader = service
+            .mcp
+            .create_connection("Reader", McpAccessPreset::ReadOnly, vec![b])
+            .unwrap();
+
+        let mut config = service.config(a).unwrap();
+        config.profile_id = Some(profile.id);
+        service.save_config(config).unwrap();
+        let mut config = service.config(b).unwrap();
+        config.profile_id = Some(profile.id);
+        config.mcp_connection_id = Some(bot.connection.id);
+        assert!(service.save_config(config.clone()).is_err(), "only one driver");
+        config.profile_id = None;
+        config.mcp_connection_id = Some(reader.connection.id);
+        assert!(service.save_config(config.clone()).is_err(), "needs the Trader preset");
+        let mut elsewhere = service.config(a).unwrap();
+        elsewhere.profile_id = None;
+        elsewhere.mcp_connection_id = Some(bot.connection.id);
+        assert!(service.save_config(elsewhere).is_err(), "needs access to the portfolio");
+        config.mcp_connection_id = Some(bot.connection.id);
+        service.save_config(config).unwrap();
+        assert!(service.start_run(b).await.is_err(), "MCP portfolios have no manual run");
+
+        let race = service
+            .create_race(NewAiRace {
+                name: "Mixed".into(),
+                contestant_ids: vec![a, b],
+                starting_capital: 10_000.0,
+                rounds: 3,
+                trading_frequency_minutes: 1,
+                round_timeout_seconds: 15,
+            })
+            .unwrap();
+        assert_eq!(race.contestants.iter().filter(|c| c.mcp).count(), 1);
+        service.start_race(race.id).unwrap();
+        service.pause_race(race.id).unwrap();
+        assert!(service
+            .mcp
+            .update_connection(bot.connection.id, "Bot", McpAccessPreset::Trader, true, vec![b])
+            .is_err());
+        assert!(service.mcp.delete_connection(bot.connection.id).is_err());
+
+        let crate::mcp::services::Access::Granted(access) = service.mcp.authorize(Some(&bot.token)) else {
+            panic!("the connection should authenticate")
+        };
+        let call = |id: i64, name: &str, arguments: Value| {
+            json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}})
+        };
+        let order = json!({"ticker":"NVDA","side":"buy","amount_usd":1000,"reason":"test"});
+        let closed = service.mcp.handle_scoped(call(1, "place_order", order.clone()), &access).await.unwrap();
+        assert_eq!(closed["result"]["isError"], true, "closed between rounds");
+
+        let race = service.race(race.id).unwrap();
+        let market = FrozenMarket::new();
+        let run = service
+            .open_mcp_window(&race, 1, b, &market, Duration::from_secs(15))
+            .unwrap();
+        let mine = service.mcp.handle_scoped(call(2, "get_my_portfolio", json!({})), &access).await.unwrap();
+        assert!(mine["result"]["content"][0]["text"].as_str().unwrap().contains("\"window_open\": true"));
+        let filled = service.mcp.handle_scoped(call(3, "place_order", order.clone()), &access).await.unwrap();
+        assert_eq!(filled["result"]["isError"], false, "{filled}");
+        assert!(market.snapshot().await["prices"]["NVDA"].is_object(), "filled at the frozen price");
+        service.close_mcp_window(b, run).unwrap();
+        let settled = service.run(run).unwrap();
+        assert_eq!(settled.status, dtos::ai_models::AiRunStatus::Completed);
+        assert!(settled.events.iter().any(|e| e.tool == "place_order" && e.success));
+        let again = service.mcp.handle_scoped(call(4, "place_order", order.clone()), &access).await.unwrap();
+        assert_eq!(again["result"]["isError"], true, "closed after the window");
+
+        let idle = service
+            .open_mcp_window(&race, 2, b, &FrozenMarket::new(), Duration::from_secs(15))
+            .unwrap();
+        service.close_mcp_window(b, idle).unwrap();
+        assert_eq!(service.run(idle).unwrap().status, dtos::ai_models::AiRunStatus::Failed);
+
+        service.stop_race(race.id).unwrap();
+        let free = service.mcp.handle_scoped(call(5, "place_order", order), &access).await.unwrap();
+        assert_eq!(free["result"]["isError"], false, "released when the race ends");
     }
 }
