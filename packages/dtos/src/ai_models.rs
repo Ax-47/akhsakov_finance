@@ -105,3 +105,86 @@ pub struct AiRun {
     pub total_tokens: Option<u64>,
     pub events: Vec<AiRunEvent>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiRaceStatus {
+    Draft,
+    Running,
+    Paused,
+    Completed,
+    Stopped,
+}
+
+impl AiRaceStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Draft => "Draft",
+            Self::Running => "Running",
+            Self::Paused => "Paused",
+            Self::Completed => "Completed",
+            Self::Stopped => "Stopped",
+        }
+    }
+}
+
+/// Configuration accepted when a race is created. Contestants must be AI
+/// portfolios with a configured model connection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewAiRace {
+    pub name: String,
+    pub contestant_ids: Vec<Uuid>,
+    pub starting_capital: f64,
+    pub rounds: u32,
+    pub trading_frequency_minutes: u32,
+    pub round_timeout_seconds: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiRaceContestant {
+    pub portfolio_id: Uuid,
+    pub name: String,
+    pub profile_name: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiRaceStanding {
+    pub rank: u32,
+    pub portfolio_id: Uuid,
+    pub name: String,
+    pub total_return_pct: f64,
+    pub max_drawdown_pct: f64,
+    pub volatility_pct: f64,
+    pub risk_adjusted_return: f64,
+    pub fees: f64,
+    pub turnover: f64,
+    pub cash_allocation_pct: f64,
+    pub failed_model_runs: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiRaceAuditEvent {
+    pub sequence: i64,
+    pub at: String,
+    pub kind: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiRace {
+    pub id: Uuid,
+    pub name: String,
+    pub status: AiRaceStatus,
+    pub starting_capital: f64,
+    pub rounds: u32,
+    pub completed_rounds: u32,
+    pub trading_frequency_minutes: u32,
+    pub round_timeout_seconds: u32,
+    pub created_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub contestants: Vec<AiRaceContestant>,
+    pub leaderboard: Vec<AiRaceStanding>,
+    pub audit: Vec<AiRaceAuditEvent>,
+}

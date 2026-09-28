@@ -8,6 +8,8 @@ pub use controller::*;
 mod service;
 #[cfg(feature = "server")]
 pub use service::ModelService;
+#[cfg(feature = "server")]
+mod race;
 
 #[cfg(feature = "server")]
 pub fn model_services_setup(

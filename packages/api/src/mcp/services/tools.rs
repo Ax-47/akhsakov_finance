@@ -6,7 +6,7 @@
 use super::trading::{Book as MyBook, Side, Size, Trading};
 use crate::{
     planning::PlanningService, portfolio::PortfolioService, settings::SettingsService, thesis::ThesisService,
-    watchlist::WatchlistService,
+    watchlist::WatchlistService, shared::ServiceError,
 };
 use dtos::{
     compute_positions,
@@ -23,6 +23,30 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, str::FromStr};
 use types::{ticker_symbol::TickerSymbol, transaction_type::TransactionType};
 use uuid::Uuid;
+
+/// Prices captured once per race round and shared by every contestant.
+#[derive(Clone, Default)]
+pub(crate) struct FrozenMarket(std::sync::Arc<tokio::sync::Mutex<HashMap<String, crate::mcp::repositories::LiveQuote>>>);
+
+impl FrozenMarket {
+    pub(crate) fn new() -> Self { Self::default() }
+
+    async fn quote(&self, trading: &Trading, ticker: &TickerSymbol) -> Result<crate::mcp::repositories::LiveQuote, ServiceError> {
+        let mut prices = self.0.lock().await;
+        if let Some(value) = prices.get(ticker.as_str()).cloned() { return Ok(value); }
+        let value = trading.quote(ticker).await?;
+        prices.insert(ticker.as_str().to_string(), value.clone());
+        Ok(value)
+    }
+
+    pub(crate) async fn snapshot(&self) -> Value {
+        let prices = self.0.lock().await.iter().map(|(ticker, q)| (ticker.clone(), json!({
+            "price": q.price.to_f64(), "currency": q.currency, "usd_per_unit": q.usd_per_unit.to_f64(),
+            "timestamp": q.timestamp
+        }))).collect::<serde_json::Map<_,_>>();
+        json!({"prices": prices})
+    }
+}
 
 type ToolResult = Result<Value, String>;
 
@@ -346,6 +370,23 @@ impl Tools {
         })
     }
 
+    pub(crate) async fn call_frozen(&self, name: &str, args: &Value, market: &FrozenMarket) -> Option<ToolResult> {
+        Some(match name {
+            "get_quote" => {
+                let ticker = match ticker(args) { Ok(value) => value, Err(error) => return Some(Err(error)) };
+                let quote = match market.quote(&self.trading, &ticker).await { Ok(value) => value, Err(error) => return Some(Err(error.to_string())) };
+                self.quote_at(&ticker, quote)
+            }
+            "place_order" => {
+                let ticker = match ticker(args) { Ok(value) => value, Err(error) => return Some(Err(error)) };
+                let quote = match market.quote(&self.trading, &ticker).await { Ok(value) => value, Err(error) => return Some(Err(error.to_string())) };
+                self.place_order_at(args, ticker, quote).await
+            }
+            "get_my_portfolio" => self.my_portfolio_at(args, Some(market)).await,
+            _ => return self.call(name, args).await,
+        })
+    }
+
     fn book(&self) -> Result<Book, String> {
         Ok(Book {
             dash: self.portfolios.dashboard().map_err(|e| e.to_string())?,
@@ -512,6 +553,10 @@ impl Tools {
     }
 
     async fn my_portfolio(&self, args: &Value) -> ToolResult {
+        self.my_portfolio_at(args, None).await
+    }
+
+    async fn my_portfolio_at(&self, args: &Value, market: Option<&FrozenMarket>) -> ToolResult {
         let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
         let books = match wanted {
             Some(_) => vec![self.trading.book(wanted).map_err(|e| e.to_string())?],
@@ -522,7 +567,7 @@ impl Tools {
         }
         let mut portfolios = Vec::with_capacity(books.len());
         for book in &books {
-            portfolios.push(self.book_json(book).await);
+            portfolios.push(self.book_json(book, market).await);
         }
         Ok(json!({
             "portfolios": portfolios,
@@ -546,7 +591,7 @@ impl Tools {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let mut portfolios = Vec::with_capacity(books.len());
         for book in &books {
-            let value = self.book_json(book).await["total_value"].as_f64().unwrap_or(0.0);
+            let value = self.book_json(book, None).await["total_value"].as_f64().unwrap_or(0.0);
             let mine: Vec<Value> = goals
                 .iter()
                 .filter(|g| g.portfolio_id == Some(book.id))
@@ -570,13 +615,17 @@ impl Tools {
         }))
     }
 
-    async fn book_json(&self, book: &MyBook) -> Value {
+    async fn book_json(&self, book: &MyBook, market: Option<&FrozenMarket>) -> Value {
         let positions = book.positions();
         let mut holdings = Vec::with_capacity(positions.len());
         let mut invested = Decimal::ZERO;
         let mut unpriced = vec![];
         for pos in &positions {
-            let price = match self.trading.quote(&pos.ticker).await {
+            let quote = match market {
+                Some(market) => market.quote(&self.trading, &pos.ticker).await,
+                None => self.trading.quote(&pos.ticker).await,
+            };
+            let price = match quote {
                 Ok(q) => Some(q.price * q.usd_per_unit),
                 Err(_) => {
                     unpriced.push(pos.ticker.as_str());
@@ -634,6 +683,10 @@ impl Tools {
     async fn quote(&self, args: &Value) -> ToolResult {
         let ticker = ticker(args)?;
         let q = self.trading.quote(&ticker).await.map_err(|e| e.to_string())?;
+        self.quote_at(&ticker, q)
+    }
+
+    fn quote_at(&self, ticker: &TickerSymbol, q: crate::mcp::repositories::LiveQuote) -> ToolResult {
         let change = if q.previous_close > Decimal::ZERO {
             Some(num((q.price / q.previous_close - Decimal::ONE) * Decimal::ONE_HUNDRED, 2))
         } else {
@@ -653,6 +706,11 @@ impl Tools {
 
     async fn place_order(&self, args: &Value) -> ToolResult {
         let ticker = ticker(args)?;
+        let quote = self.trading.quote(&ticker).await.map_err(|e| e.to_string())?;
+        self.place_order_at(args, ticker, quote).await
+    }
+
+    async fn place_order_at(&self, args: &Value, ticker: TickerSymbol, quote: crate::mcp::repositories::LiveQuote) -> ToolResult {
         let side = match args.get("side").and_then(Value::as_str).map(str::to_lowercase).as_deref() {
             Some("buy") => Side::Buy,
             Some("sell") => Side::Sell,
@@ -678,7 +736,7 @@ impl Tools {
             (None, None) => return Err("Say how much: `shares` or `amount_usd`.".into()),
         };
         let wanted = args.get("portfolio").and_then(Value::as_str);
-        let fill = self.trading.order(wanted, &ticker, side, size).await.map_err(|e| e.to_string())?;
+        let fill = self.trading.order_at(wanted, &ticker, side, size, quote).await.map_err(|e| e.to_string())?;
         let tx = &fill.tx;
         let verb = if side == Side::Buy { "Bought" } else { "Sold" };
         let mut entry = format!(
@@ -710,6 +768,7 @@ impl Tools {
 
 #[cfg(test)]
 mod tests {
+    use super::FrozenMarket;
     use crate::mcp::services::tests::service;
     use rust_decimal_macros::dec;
     use serde_json::{json, Value};
@@ -771,6 +830,21 @@ mod tests {
         assert!(call(&s, "save_thesis", json!({"ticker":"NVDA","conviction":9})).await.is_err());
         assert!(call(&s, "save_thesis", json!({"ticker":"NVDA","status":"great"})).await.is_err());
         assert!(call(&s, "add_thesis_note", json!({"ticker":"NVDA","text":" "})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn race_market_records_the_shared_frozen_price() {
+        let service = service();
+        let market = FrozenMarket::new();
+        let result = service
+            .tools()
+            .call_frozen("get_quote", &json!({"ticker":"NVDA"}), &market)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result["price_usd"], json!(200.0));
+        let snapshot = market.snapshot().await;
+        assert_eq!(snapshot["prices"]["NVDA"]["price"], json!(200.0));
     }
 
     #[tokio::test]

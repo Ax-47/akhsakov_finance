@@ -261,11 +261,24 @@ impl Trading {
         side: Side,
         size: Size,
     ) -> Result<Fill, ServiceError> {
+        let q = self.quote(ticker).await?;
+        self.order_at(portfolio, ticker, side, size, q).await
+    }
+
+    /// Executes against a previously captured quote. Race rounds use this so
+    /// every contestant that trades a ticker receives the same frozen price.
+    pub async fn order_at(
+        &self,
+        portfolio: Option<&str>,
+        ticker: &TickerSymbol,
+        side: Side,
+        size: Size,
+        q: LiveQuote,
+    ) -> Result<Fill, ServiceError> {
         let book = self.book(portfolio)?;
         if ticker.as_str() == CASH_TICKER || !is_convertible(ticker.as_str()) {
             return Err(invalid("Only stocks, funds and other assets can be traded, not cash, indices or currency pairs."));
         }
-        let q = self.quote(ticker).await?;
         if q.stale {
             return Err(ServiceError::Upstream(format!(
                 "Only an old saved price for {ticker} is available right now; try again later."

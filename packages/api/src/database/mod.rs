@@ -449,6 +449,57 @@ const MIGRATIONS: &[&str] = &[
         updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
         source_run_id          TEXT REFERENCES ai_runs(id) ON DELETE SET NULL
     );",
+    // 15: synchronized, auditable competitions between AI portfolios
+    "CREATE TABLE ai_races (
+        id                         TEXT PRIMARY KEY,
+        name                       TEXT NOT NULL,
+        status                     TEXT NOT NULL DEFAULT 'draft',
+        starting_capital           REAL NOT NULL,
+        rounds                     INTEGER NOT NULL,
+        completed_rounds           INTEGER NOT NULL DEFAULT 0,
+        trading_frequency_minutes  INTEGER NOT NULL,
+        round_timeout_seconds      INTEGER NOT NULL,
+        created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+        started_at                 TEXT,
+        finished_at                TEXT
+    );
+    CREATE TABLE ai_race_contestants (
+        race_id       TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        portfolio_id  TEXT NOT NULL REFERENCES ai_portfolios(portfolio_id) ON DELETE RESTRICT,
+        PRIMARY KEY (race_id, portfolio_id)
+    );
+    CREATE TABLE ai_race_rounds (
+        race_id          TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        round_number     INTEGER NOT NULL,
+        status           TEXT NOT NULL,
+        snapshot_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        market_snapshot  TEXT NOT NULL DEFAULT '{}',
+        started_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at      TEXT,
+        PRIMARY KEY (race_id, round_number)
+    );
+    CREATE TABLE ai_race_metrics (
+        race_id             TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        round_number        INTEGER NOT NULL,
+        portfolio_id        TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        portfolio_value     REAL NOT NULL,
+        cash                REAL NOT NULL,
+        fees                REAL NOT NULL,
+        turnover            REAL NOT NULL,
+        failed_model_runs   INTEGER NOT NULL,
+        PRIMARY KEY (race_id, round_number, portfolio_id)
+    );
+    CREATE TABLE ai_race_audit (
+        race_id   TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        sequence  INTEGER NOT NULL,
+        at        TEXT NOT NULL DEFAULT (datetime('now')),
+        kind      TEXT NOT NULL,
+        detail    TEXT NOT NULL,
+        PRIMARY KEY (race_id, sequence)
+    );
+    ALTER TABLE ai_runs ADD COLUMN race_id TEXT REFERENCES ai_races(id) ON DELETE SET NULL;
+    ALTER TABLE ai_runs ADD COLUMN race_round INTEGER;
+    CREATE INDEX ai_runs_race ON ai_runs(race_id, race_round);",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
