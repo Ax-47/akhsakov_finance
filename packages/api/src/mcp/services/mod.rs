@@ -247,6 +247,10 @@ pub(crate) mod tests {
     /// A service over a database with one portfolio, "Main", holding NVDA.
     pub(crate) fn service() -> McpService {
         let db = Database::in_memory().unwrap();
+        service_with_database(db)
+    }
+
+    pub(crate) fn service_with_database(db: Database) -> McpService {
         db.with(|c| {
             c.execute("INSERT INTO portfolios (id, name) VALUES ('11111111-1111-1111-1111-111111111111', 'Main')", [])?;
             c.execute(

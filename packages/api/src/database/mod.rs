@@ -439,6 +439,16 @@ const MIGRATIONS: &[&str] = &[
         detail      TEXT NOT NULL,
         PRIMARY KEY (run_id, sequence)
     );",
+    // 14: durable, portfolio-scoped trader memory and context budgets
+    "ALTER TABLE ai_trader_configs ADD COLUMN memory_char_limit INTEGER NOT NULL DEFAULT 8000;
+    ALTER TABLE ai_trader_configs ADD COLUMN context_token_limit INTEGER NOT NULL DEFAULT 32768;
+    CREATE TABLE ai_trader_memory (
+        portfolio_id          TEXT PRIMARY KEY REFERENCES ai_portfolios(portfolio_id) ON DELETE CASCADE,
+        decision_summary      TEXT NOT NULL DEFAULT '',
+        unresolved_questions  TEXT NOT NULL DEFAULT '',
+        updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        source_run_id          TEXT REFERENCES ai_runs(id) ON DELETE SET NULL
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

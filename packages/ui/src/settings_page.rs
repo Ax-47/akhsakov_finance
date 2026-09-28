@@ -12,7 +12,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRun, AiRunStatus, ModelProfile, TraderConfig},
+    ai_models::{AiRun, AiRunStatus, ModelProfile, TraderConfig, TraderMemory},
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
@@ -805,9 +805,12 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
     let mut error = use_signal(|| None::<String>);
     let mut confirm_stop = use_signal(|| false);
     let mut trader = use_signal(|| TraderConfig::new(info.portfolio_id));
+    let mut memory = use_signal(|| TraderMemory::empty(info.portfolio_id));
     let mut runs = use_signal(Vec::<AiRun>::new);
     let mut trader_loaded = use_signal(|| false);
+    let mut memory_loaded = use_signal(|| false);
     let mut running = use_signal(|| false);
+    let mut confirm_clear_memory = use_signal(|| false);
     let id = info.portfolio_id;
     let load_trader = move || {
         spawn(async move {
@@ -819,6 +822,11 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                 running.set(value.first().is_some_and(|r| r.status == AiRunStatus::Running));
                 runs.set(value);
             }
+            match api::get_trader_memory(id).await {
+                Ok(value) => memory.set(value),
+                Err(e) => error.set(Some(server_message(e))),
+            }
+            memory_loaded.set(true);
             trader_loaded.set(true);
         });
     };
@@ -853,6 +861,36 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
             Err(e) => error.set(Some(server_message(e))),
         }
     };
+    let save_memory = move |_| async move {
+        match api::save_trader_config(trader()).await {
+            Ok(saved) => trader.set(saved),
+            Err(e) => return error.set(Some(server_message(e))),
+        }
+        let draft = memory();
+        match api::save_trader_memory(
+            id,
+            draft.decision_summary,
+            draft.unresolved_questions,
+        )
+        .await
+        {
+            Ok(saved) => {
+                memory.set(saved);
+                error.set(None);
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let clear_memory = move |_| async move {
+        confirm_clear_memory.set(false);
+        match api::clear_trader_memory(id).await {
+            Ok(cleared) => {
+                memory.set(cleared);
+                error.set(None);
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
     let run_trader = move |_| async move {
         match api::save_trader_config(trader()).await {
             Err(e) => error.set(Some(server_message(e))),
@@ -876,6 +914,9 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                                         }
                                         if updated.status != AiRunStatus::Running {
                                             running.set(false);
+                                            if let Ok(saved) = api::get_trader_memory(id).await {
+                                                memory.set(saved);
+                                            }
                                             refresh.reload();
                                             break;
                                         }
@@ -948,6 +989,81 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                                 class: "{INPUT} min-h-24",
                                 value: trader().strategy,
                                 oninput: move |e| trader.write().strategy = e.value(),
+                            }
+                        }
+                    }
+                    div { class: "grid gap-3 md:grid-cols-2",
+                        Field { label: tr("Memory size (characters)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "1000",
+                                max: "50000",
+                                value: "{trader().memory_char_limit}",
+                                oninput: move |e| {
+                                    if let Ok(value) = e.value().parse() {
+                                        trader.write().memory_char_limit = value;
+                                    }
+                                },
+                            }
+                        }
+                        Field { label: tr("Model context window (tokens)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "8192",
+                                max: "1000000",
+                                step: "1024",
+                                value: "{trader().context_token_limit}",
+                                oninput: move |e| {
+                                    if let Ok(value) = e.value().parse() {
+                                        trader.write().context_token_limit = value;
+                                    }
+                                },
+                            }
+                        }
+                    }
+                    p { class: "text-xs text-ctp-overlay1",
+                        {tr("Older tool turns are compacted automatically before the configured context window is exceeded.")}
+                    }
+                    if memory_loaded() {
+                        div { class: "grid gap-3 rounded-xl border border-ctp-surface0/70 bg-ctp-crust/20 p-3",
+                            div { class: "flex flex-wrap items-center justify-between gap-2",
+                                div {
+                                    div { class: "font-medium text-ctp-text", {tr("Persistent trader memory")} }
+                                    p { class: "text-xs text-ctp-overlay1",
+                                        {trf("{} of {} characters used", &[&memory().used_chars(), &trader().memory_char_limit])}
+                                    }
+                                }
+                                if let Some(updated) = memory().updated_at {
+                                    span { class: "text-xs text-ctp-overlay1", {trf("Updated {}", &[&updated])} }
+                                }
+                            }
+                            Field { label: tr("Decision summary"),
+                                textarea {
+                                    class: "{INPUT} min-h-28",
+                                    placeholder: tr("Important decisions, constraints, and reasons retained across runs"),
+                                    value: memory().decision_summary,
+                                    oninput: move |e| memory.write().decision_summary = e.value(),
+                                }
+                            }
+                            Field { label: tr("Unresolved questions"),
+                                textarea {
+                                    class: "{INPUT} min-h-20",
+                                    placeholder: tr("Evidence or questions the next run should revisit"),
+                                    value: memory().unresolved_questions,
+                                    oninput: move |e| memory.write().unresolved_questions = e.value(),
+                                }
+                            }
+                            div { class: "flex flex-wrap justify-end gap-2",
+                                if confirm_clear_memory() {
+                                    span { class: "self-center text-xs text-ctp-peach", {tr("Clear all saved trader memory?")} }
+                                    GhostButton { label: tr("Clear memory"), onclick: clear_memory }
+                                    GhostButton { label: tr("Cancel"), onclick: move |_| confirm_clear_memory.set(false) }
+                                } else {
+                                    GhostButton { label: tr("Clear memory"), onclick: move |_| confirm_clear_memory.set(true) }
+                                }
+                                ActionButton { label: tr("Save memory"), onclick: save_memory }
                             }
                         }
                     }
