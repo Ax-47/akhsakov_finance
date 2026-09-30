@@ -3,9 +3,10 @@ name: Release
 # Builds the desktop app for Linux, macOS and Windows, with the server inside
 # each bundle (packages/desktop/Dioxus.toml), the standalone servers, and the
 # Android app. Pushing a tag like v0.2.0 publishes them as a GitHub release,
-# which installer.sh and installer.ps1 install from. Pull requests that touch
-# the installers or the packaging build everything and try the installers on
-# each system, without publishing.
+# which installer.sh and installer.ps1 install from, after the CI checks pass
+# on the tagged commit. A tag with a suffix (v0.2.0-rc.1) is published as a
+# pre-release. Pull requests that touch the installers or the packaging build
+# everything and try the installers on each system, without publishing.
 
 on:
   push:
@@ -17,6 +18,8 @@ on:
       - .github/workflows/release.yml
       - packages/desktop/Dioxus.toml
       - packages/desktop/src/local_server.rs
+      - packages/desktop/src/build_id.rs
+      - packages/desktop/build.rs
       - packages/mobile/Dioxus.toml
   workflow_dispatch:
 
@@ -35,8 +38,39 @@ env:
   DX_VERSION: 0.7.9
 
 jobs:
+  # A release is only published from a commit that passes CI.
+  checks:
+    name: CI
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+
+  # The version the bundles carry: the tag's (v0.2.0-rc.1 → 0.2.0, since
+  # Windows installers only take numbers), else the one in Cargo.toml.
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      number: ${{ steps.version.outputs.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+            if ! [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Release tags look like v1.2.3 or v1.2.3-rc.1, not $tag"
+              exit 1
+            fi
+            number="${BASH_REMATCH[1]}"
+          else
+            number="$(sed -n 's/^version = "\(.*\)"/\1/p' packages/desktop/Cargo.toml | head -n 1)"
+          fi
+          echo "Version: $number"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
   desktop:
     name: Desktop (${{ matrix.name }})
+    needs: version
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -85,8 +119,22 @@ jobs:
             dx --version 2>/dev/null | grep -qF "$DX_VERSION" ||
               cargo install dioxus-cli --version "$DX_VERSION" --locked --force
           else
-            cargo binstall "dioxus-cli@$DX_VERSION" --no-confirm --force
+            # For this machine's own architecture: on Apple silicon binstall
+            # otherwise may pick the Intel build, which needs Intel Homebrew's
+            # OpenSSL and crashes. Without a prebuilt one it compiles dx.
+            host="$(rustc -vV | sed -n 's/^host: //p')"
+            dx --version 2>/dev/null | grep -qF "$DX_VERSION" ||
+              cargo binstall "dioxus-cli@$DX_VERSION" --targets "$host" --no-confirm --force
           fi
+          dx --version
+
+      - name: Set the version
+        env:
+          VERSION: ${{ needs.version.outputs.number }}
+        run: |
+          perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/m' packages/desktop/Cargo.toml
+          perl -0pi -e 's/(name = "desktop"\r?\nversion = )"[^"]*"/$1"$ENV{VERSION}"/' Cargo.lock
+          grep -m1 '^version' packages/desktop/Cargo.toml
 
       # dx builds the server along with the app (the app has the fullstack
       # feature), so the first pass provides it. The second puts it inside
@@ -235,7 +283,12 @@ jobs:
           if (& $status 8080) { throw 'the server kept running after the app closed' }
 
           & $cli uninstall --purge
+          if ($LASTEXITCODE -ne 0) { throw "uninstall failed ($LASTEXITCODE)" }
           if (Test-Path (Join-Path $env:LOCALAPPDATA 'Programs\AkhsakovFinance\akhsakov-finance.exe')) { throw 'uninstall left the app behind' }
+          # The command's own folder goes once its cmd has ended.
+          $data = Join-Path $env:LOCALAPPDATA 'akhsakov-finance'
+          for ($i = 0; $i -lt 20 -and (Test-Path $data); $i++) { Start-Sleep 1 }
+          if (Test-Path $data) { throw 'uninstall --purge left the data folder behind' }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -245,6 +298,7 @@ jobs:
 
   android:
     name: Android (arm64)
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -262,6 +316,13 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - name: Install dx
         run: cargo binstall dioxus-cli@${{ env.DX_VERSION }} --no-confirm --force
+      - name: Set the version
+        env:
+          VERSION: ${{ needs.version.outputs.number }}
+        run: |
+          perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/m' packages/mobile/Cargo.toml
+          perl -0pi -e 's/(name = "mobile"\r?\nversion = )"[^"]*"/$1"$ENV{VERSION}"/' Cargo.lock
+          grep -m1 '^version' packages/mobile/Cargo.toml
       # Without AKHSAKOV_SERVER_URL the app asks for the server's address on
       # first launch (packages/ui/src/server_address.rs).
       - name: Build the APK
@@ -302,7 +363,7 @@ jobs:
   publish:
     name: Publish the release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [desktop, android]
+    needs: [checks, desktop, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -311,10 +372,27 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # installer.sh and installer.ps1 look for these names.
+      - name: Check every file is there
+        working-directory: dist
+        run: |
+          missing=0
+          for name in \
+            akhsakov-finance-linux-x86_64.AppImage akhsakov-finance-server-linux-x86_64 \
+            akhsakov-finance-macos-aarch64.zip akhsakov-finance-server-macos-aarch64 \
+            akhsakov-finance-macos-x86_64.zip akhsakov-finance-server-macos-x86_64 \
+            akhsakov-finance-windows-x86_64-setup.exe akhsakov-finance-server-windows-x86_64.exe \
+            akhsakov-finance-android-arm64.apk; do
+            if [ ! -s "$name" ]; then echo "::error::$name is missing"; missing=1; fi
+          done
+          ls -la
+          exit "$missing"
       - name: Checksums
         working-directory: dist
         run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true

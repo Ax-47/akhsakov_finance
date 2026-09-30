@@ -192,6 +192,26 @@ function Remove-FromPath {
     [Environment]::SetEnvironmentVariable('Path', ($kept -join ';'), 'User')
 }
 
+# Deletes the folder $Path now, or, when this was started by the
+# akhsakov-finance.cmd inside it, once that cmd has ended. cmd opens the .cmd
+# again after PowerShell returns (its `exit /b` is a `goto :eof`); with the
+# folder gone it prints "The system cannot find the path specified." and
+# fails. A hidden PowerShell waits for cmd, then deletes the folder.
+function Remove-WhenFree([string]$Path) {
+    $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $PID" -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-Process -Id $_.ParentProcessId -ErrorAction SilentlyContinue }
+    if (-not $parent -or $parent.ProcessName -ne 'cmd') {
+        Remove-Item -Recurse -Force -LiteralPath $Path -ErrorAction SilentlyContinue
+        return
+    }
+    $literal = "'" + ($Path -replace "'", "''") + "'"
+    $script = "Wait-Process -Id $($parent.Id) -ErrorAction SilentlyContinue; " +
+        "Remove-Item -Recurse -Force -LiteralPath $literal -ErrorAction SilentlyContinue"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden `
+        -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded
+}
+
 function Remove-App([string[]]$Options) {
     $purge = $false
     foreach ($option in $Options) {
@@ -208,13 +228,14 @@ function Remove-App([string[]]$Options) {
     Remove-Item -Path $UninstallKey -Recurse -Force -ErrorAction SilentlyContinue
     Remove-FromPath
     Remove-Item -Force -Path (Join-Path $DataDir 'VERSION') -ErrorAction SilentlyContinue
-    # Safe while the .cmd that started this runs: it has already read the
-    # line that ends it.
-    Remove-Item -Recurse -Force -Path $BinDir -ErrorAction SilentlyContinue
     if ($purge) {
-        Remove-Item -Recurse -Force -Path $DataDir -ErrorAction SilentlyContinue
+        Get-ChildItem -Force -LiteralPath $DataDir -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName.TrimEnd('\') -ne $BinDir.TrimEnd('\') } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-WhenFree $DataDir
         Write-Host "OK. $AppName and its data were removed."
     } else {
+        Remove-WhenFree $BinDir
         Write-Host "OK. $AppName was removed."
         Write-Host "  Your data is still in $DataDir"
         Write-Host "  (to delete it too: & ([scriptblock]::Create((irm $InstallerUrl))) -Purge)"
