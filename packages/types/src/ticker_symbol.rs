@@ -1,12 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::{fmt, ops::Deref};
+/// Longest ticker accepted, in bytes.
+pub const MAX_LEN: usize = 20;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TickerSymbol(String);
 
 impl TickerSymbol {
     pub fn new(raw: &str) -> Result<Self, TickerSymbolError> {
         let s = raw.trim().to_uppercase();
-        if s.is_empty() || s.len() > 10 {
+        // Long enough for Thai fund codes like K-CHANGE-SSF or SCBRMS&P500.
+        if s.is_empty() || s.len() > MAX_LEN {
             return Err(TickerSymbolError::InvalidTicker(raw.to_string()));
         }
         Ok(Self(s))
@@ -38,4 +42,17 @@ impl fmt::Display for TickerSymbol {
 pub enum TickerSymbolError {
     #[error("Invalid ticker symbol: '{0}'")]
     InvalidTicker(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_long_fund_codes() {
+        assert_eq!(TickerSymbol::new(" k-change-ssf ").unwrap().as_str(), "K-CHANGE-SSF");
+        assert!(TickerSymbol::new("SCBRMS&P500").is_ok());
+        assert!(TickerSymbol::new("").is_err());
+        assert!(TickerSymbol::new(&"X".repeat(MAX_LEN + 1)).is_err());
+    }
 }
