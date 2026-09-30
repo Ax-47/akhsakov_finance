@@ -82,13 +82,33 @@ impl ModelService {
                 .query_map([], |r| r.get(0))?
                 .collect::<rusqlite::Result<_>>()?;
             tx.execute("UPDATE ai_races SET status='paused' WHERE status='running'", [])?;
-            for id in ids {
+            let audit = |id: &str, kind: &str, detail: &str| {
                 tx.execute(
                     "INSERT INTO ai_race_audit (race_id,sequence,kind,detail)
-                     VALUES (?1,COALESCE((SELECT MAX(sequence)+1 FROM ai_race_audit WHERE race_id=?1),1),
-                             'recovered','The app restarted, so the race was paused safely.')",
-                    [id],
+                     VALUES (?1,COALESCE((SELECT MAX(sequence)+1 FROM ai_race_audit WHERE race_id=?1),1),?2,?3)",
+                    params![id, kind, detail],
+                )
+            };
+            for id in ids {
+                audit(&id, "recovered", "The app restarted, so the race was paused safely.")?;
+            }
+            // A round the restart cut short would stay claimed, and Resume
+            // would find nothing to run: the race would never move again.
+            // Forget it so it runs again, in full, after Resume.
+            let interrupted: Vec<(String, i64)> = tx
+                .prepare(
+                    "SELECT r.race_id, r.round_number FROM ai_race_rounds r
+                     JOIN ai_races a ON a.id = r.race_id
+                     WHERE r.status = 'running' AND a.status = 'paused'",
+                )?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            for (id, round) in interrupted {
+                tx.execute(
+                    "DELETE FROM ai_race_rounds WHERE race_id=?1 AND round_number=?2",
+                    params![id, round],
                 )?;
+                audit(&id, "round_interrupted", &format!("Round {round} was cut short by the restart; it runs again after Resume."))?;
             }
             Ok(())
         });

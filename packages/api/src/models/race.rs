@@ -928,6 +928,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_round_cut_short_by_a_restart_runs_again_after_resume() {
+        let service = service();
+        let profile = service
+            .save_profile(None, "Model", "https://api.example.invalid/v1", "m", Some("k"))
+            .unwrap();
+        let mut ids = vec![];
+        for name in ["First", "Second"] {
+            let p = service.mcp.trading().start(name, rust_decimal::Decimal::from(500)).await.unwrap();
+            let mut config = service.config(p.portfolio_id).unwrap();
+            config.profile_id = Some(profile.id);
+            service.save_config(config).unwrap();
+            ids.push(p.portfolio_id);
+        }
+        let race = service
+            .create_race(NewAiRace {
+                name: "Restart".into(),
+                contestant_ids: ids,
+                starting_capital: 1_000.0,
+                rounds: 3,
+                trading_frequency_minutes: 1,
+                round_timeout_seconds: 15,
+            })
+            .unwrap();
+        // As if the app died during round 1: the race is running and the
+        // round is claimed, with nothing left to finish it.
+        service.db.with(|c| {
+            c.execute("UPDATE ai_races SET status='running' WHERE id=?1", [race.id.to_string()])?;
+            c.execute(
+                "INSERT INTO ai_race_rounds (race_id,round_number,status) VALUES (?1,1,'running')",
+                [race.id.to_string()],
+            )
+        }).unwrap();
+
+        let restarted = ModelService::new(service.db.clone(), service.mcp.clone());
+        let after = restarted.race(race.id).unwrap();
+        assert_eq!(after.status, AiRaceStatus::Paused);
+        let claimed: i64 = restarted
+            .db
+            .with(|c| c.query_row("SELECT COUNT(*) FROM ai_race_rounds WHERE race_id=?1", [race.id.to_string()], |r| r.get(0)))
+            .unwrap();
+        assert_eq!(claimed, 0, "round 1 must be free to run again");
+        assert!(after.audit.iter().any(|e| e.kind == "round_interrupted"));
+    }
+
+    #[tokio::test]
     async fn mcp_contestants_trade_only_inside_their_round_window() {
         use dtos::mcp::McpAccessPreset;
         let service = service();
