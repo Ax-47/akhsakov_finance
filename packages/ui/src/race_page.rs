@@ -90,7 +90,9 @@ pub fn RacePage() -> Element {
                     {tr("Let your AI portfolios compete with the same paper money and the same prices, round by round, and see which strategy does best.")}
                 }
             }
-            div { class: "mt-10 grid gap-5 motion-safe:animate-rise",
+            // minmax(0, 1fr): the wide leaderboard scrolls inside its box
+            // instead of widening the page on a phone.
+            div { class: "mt-10 grid grid-cols-[minmax(0,1fr)] gap-5 motion-safe:animate-rise",
                 if let Some(message) = error() {
                     p { class: "text-sm text-ctp-red break-words", "{message}" }
                 }
@@ -282,7 +284,7 @@ fn RaceCard(
                     } }
                 }
             },
-            div { class: "grid gap-5",
+            div { class: "grid grid-cols-[minmax(0,1fr)] gap-5",
                 RaceSummary { race: race.clone() }
                 if race.completed_rounds > 0 {
                     RaceChart { race: race.clone() }
@@ -392,6 +394,7 @@ fn RaceChart(race: AiRace) -> Element {
     rsx! {
         div {
             div { class: "mb-2 text-xs font-semibold uppercase tracking-wide text-ctp-subtext0", {tr("Value by round")} }
+            document::Script { src: asset!("/assets/js/growth_chart.js") }
             GrowthChart { chart_dates: labels, series, height: Decimal::from(240) }
         }
     }
