@@ -137,19 +137,17 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
                     onclick: move |_| on_edit.call(edit.clone()),
                     "✎"
                 }
-                button {
-                    class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                    "aria-label": "Forget {asset.ticker}",
-                    onclick: move |_| {
+                crate::components::card::DeleteButton {
+                    title: crate::i18n::trf("Forget {}", &[&asset.ticker]),
+                    onconfirm: move |_| {
                         let del = del.clone();
-                        async move {
+                        spawn(async move {
                             if api::delete_asset(del).await.is_ok() {
                                 refresh.reload();
                                 reprice();
                             }
-                        }
+                        });
                     },
-                    "🗑"
                 }
             }
             if let Some(e) = error() {

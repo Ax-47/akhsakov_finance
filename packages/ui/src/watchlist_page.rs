@@ -536,15 +536,16 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
                     if let Some(when) = &a.triggered_at {
                         span { class: "text-xs text-ctp-overlay1", "{when}" }
                     }
-                    button {
-                        class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 opacity-40 cursor-pointer transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-ctp-surface0 hover:text-ctp-red",
+                    crate::components::card::DeleteButton {
                         title: tr("Delete alert"),
-                        onclick: move |_| async move {
-                            if api::delete_alert(a.id).await.is_ok() {
-                                refresh.reload();
-                            }
+                        icon: "×",
+                        onconfirm: move |_| {
+                            spawn(async move {
+                                if api::delete_alert(a.id).await.is_ok() {
+                                    refresh.reload();
+                                }
+                            });
                         },
-                        "×"
                     }
                 }
             }

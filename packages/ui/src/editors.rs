@@ -799,7 +799,7 @@ fn CoverDialog(id: Uuid, name: String, on_close: EventHandler<()>) -> Element {
                 use base64::Engine;
                 let mime = file.content_type().unwrap_or_else(|| "image/jpeg".into());
                 let raw = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
-                let mut js = document::eval(RESIZE_JS);
+                let js = document::eval(RESIZE_JS);
                 let _ = js.send(raw);
                 js.join::<String>().await.ok().filter(|s| !s.is_empty())
             }

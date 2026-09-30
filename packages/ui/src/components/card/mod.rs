@@ -351,3 +351,41 @@ pub fn ActionButton(
         }
     }
 }
+
+/// A delete button that asks first: the first tap turns it into "Delete?",
+/// the second deletes. Moving away cancels.
+#[component]
+pub fn DeleteButton(
+    /// Tooltip and screen-reader label, e.g. "Delete alert".
+    title: String,
+    onconfirm: EventHandler<()>,
+    /// Shown before the first tap.
+    #[props(default = "🗑".to_string())]
+    icon: String,
+) -> Element {
+    let mut armed = use_signal(|| false);
+    rsx! {
+        button {
+            r#type: "button",
+            class: if armed() {
+                "rounded-full bg-ctp-red/15 px-2.5 py-1 text-xs font-semibold text-ctp-red cursor-pointer"
+            } else {
+                "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-red"
+            },
+            title: "{title}",
+            "aria-label": "{title}",
+            onclick: move |e| {
+                e.stop_propagation();
+                if armed() {
+                    armed.set(false);
+                    onconfirm.call(());
+                } else {
+                    armed.set(true);
+                }
+            },
+            onmouseleave: move |_| armed.set(false),
+            onblur: move |_| armed.set(false),
+            if armed() { {tr("Delete?")} } else { "{icon}" }
+        }
+    }
+}

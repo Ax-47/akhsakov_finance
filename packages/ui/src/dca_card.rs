@@ -167,15 +167,15 @@ fn PlanRow(plan: DcaPlan, today: String, on_edit: EventHandler<DcaPlan>) -> Elem
                             onclick: move |_| on_edit.call(edit.clone()),
                             "✎"
                         }
-                        button {
-                            class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                            "aria-label": "Delete plan",
-                            onclick: move |_| async move {
-                                if api::delete_dca_plan(id).await.is_ok() {
-                                    refresh.reload();
-                                }
+                        crate::components::card::DeleteButton {
+                            title: tr("Delete plan"),
+                            onconfirm: move |_| {
+                                spawn(async move {
+                                    if api::delete_dca_plan(id).await.is_ok() {
+                                        refresh.reload();
+                                    }
+                                });
                             },
-                            "🗑"
                         }
                     }
                 }

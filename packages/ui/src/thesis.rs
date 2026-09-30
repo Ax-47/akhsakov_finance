@@ -484,16 +484,17 @@ fn Journal(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -> Ele
                                 span { class: "{BADGE} shrink-0 bg-ctp-surface0 text-ctp-subtext0", {tr("You")} }
                             }
                             span { class: "min-w-0 flex-1 whitespace-pre-line text-ctp-subtext1", "{e.text}" }
-                            button {
-                                class: "rounded-full px-2 py-0.5 text-ctp-subtext0 opacity-40 cursor-pointer transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-ctp-surface0 hover:text-ctp-red",
-                                "aria-label": tr("Delete entry"),
-                                onclick: move |_| async move {
-                                    match api::delete_thesis_entry(e.id).await {
-                                        Ok(()) => reload.bump(),
-                                        Err(err) => error.set(Some(error_text(err))),
-                                    }
+                            crate::components::card::DeleteButton {
+                                title: tr("Delete entry"),
+                                icon: "×",
+                                onconfirm: move |_| {
+                                    spawn(async move {
+                                        match api::delete_thesis_entry(e.id).await {
+                                            Ok(()) => reload.bump(),
+                                            Err(err) => error.set(Some(error_text(err))),
+                                        }
+                                    });
                                 },
-                                "×"
                             }
                         }
                     }

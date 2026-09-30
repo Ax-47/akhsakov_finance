@@ -663,13 +663,15 @@ fn ModelProfilesCard() -> Element {
                                         api_key.set(String::new());
                                     },
                                 }
-                                GhostButton {
-                                    label: tr("Delete"),
-                                    onclick: move |_| async move {
-                                        match api::delete_model_profile(profile.id).await {
-                                            Ok(()) => { status.set(None); reload(); }
-                                            Err(e) => status.set(Some(Err(server_message(e)))),
-                                        }
+                                crate::components::card::DeleteButton {
+                                    title: tr("Delete connection"),
+                                    onconfirm: move |_| {
+                                        spawn(async move {
+                                            match api::delete_model_profile(profile.id).await {
+                                                Ok(()) => { status.set(None); reload(); }
+                                                Err(e) => status.set(Some(Err(server_message(e)))),
+                                            }
+                                        });
                                     },
                                 }
                             }

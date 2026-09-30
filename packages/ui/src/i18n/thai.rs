@@ -1118,4 +1118,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("A wide photo works best. It's shrunk to fit before saving.", "ภาพแนวนอนจะดูดีที่สุด ระบบจะย่อขนาดให้ก่อนบันทึก"),
     ("Remove cover", "ลบภาพปก"),
     ("Couldn't read that picture. Try a JPEG or PNG.", "อ่านรูปนี้ไม่ได้ ลองใช้ไฟล์ JPEG หรือ PNG"),
+    ("Forget {}", "ลบ {}"),
+    ("Delete plan", "ลบแผน"),
+    ("Delete goal", "ลบเป้าหมาย"),
+    ("Delete connection", "ลบการเชื่อมต่อ"),
 ];
