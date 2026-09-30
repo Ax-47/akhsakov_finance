@@ -81,18 +81,23 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            host: x86_64-unknown-linux-gnu
             package: appimage
           - name: macos-aarch64
             runner: macos-latest
             target: aarch64-apple-darwin
+            host: aarch64-apple-darwin
             package: macos
           - name: macos-x86_64
             runner: macos-latest
             target: x86_64-apple-darwin
+            # macos-latest is Apple silicon: this one is a cross build.
+            host: aarch64-apple-darwin
             package: macos
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
+            host: x86_64-pc-windows-msvc
             package: nsis
     defaults:
       run:
@@ -152,6 +157,12 @@ jobs:
           dx bundle --platform desktop --release \
             --target ${{ matrix.target }} --package-types ${{ matrix.package }} \
             --out-dir ../../bundle
+      # dx builds that server for the runner's own CPU, not --target: on the
+      # Apple silicon runner the "x86_64" server was an arm64 binary that an
+      # Intel Mac can't run. Cross builds get their server from cargo.
+      - name: Build the server for the target
+        if: matrix.target != matrix.host
+        run: cargo build --release -p desktop --features server --target ${{ matrix.target }}
       - name: Put the server inside the app
         run: |
           ls -la bundle
@@ -160,8 +171,12 @@ jobs:
             cp bundle/server.exe packages/desktop/sidecar/akhsakov-finance-server.exe-${{ matrix.target }}
             cp bundle/server.exe dist/akhsakov-finance-server-${{ matrix.name }}.exe
           else
-            cp bundle/server packages/desktop/sidecar/akhsakov-finance-server-${{ matrix.target }}
-            cp bundle/server dist/akhsakov-finance-server-${{ matrix.name }}
+            server=bundle/server
+            if [ "${{ matrix.target }}" != "${{ matrix.host }}" ]; then
+              server=target/${{ matrix.target }}/release/akhsakov-finance
+            fi
+            cp "$server" packages/desktop/sidecar/akhsakov-finance-server-${{ matrix.target }}
+            cp "$server" dist/akhsakov-finance-server-${{ matrix.name }}
           fi
           rm -rf bundle
       - name: Bundle the app with its server
@@ -188,6 +203,15 @@ jobs:
           macOS)
             app="$(find bundle -maxdepth 1 -name '*.app' | head -n 1)"
             test -x "$app/Contents/MacOS/akhsakov-finance-server"
+            # Both binaries, and the standalone server, must be for this
+            # target's CPU (lipo calls aarch64 arm64).
+            want="${{ matrix.target }}"; want="${want%%-*}"; [ "$want" = aarch64 ] && want=arm64
+            for bin in "$app/Contents/MacOS/akhsakov-finance" "$app/Contents/MacOS/akhsakov-finance-server" \
+              "dist/akhsakov-finance-server-$name"; do
+              archs="$(lipo -archs "$bin")"
+              echo "$bin: $archs"
+              if [ "$archs" != "$want" ]; then echo "::error::$bin is $archs, not $want"; exit 1; fi
+            done
             ditto -c -k --keepParent "$app" "dist/akhsakov-finance-$name.zip"
             ;;
           Windows)
