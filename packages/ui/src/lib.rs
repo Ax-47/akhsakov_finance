@@ -28,6 +28,7 @@ pub use watchlist_page::WatchlistPage;
 
 mod app;
 mod cache;
+mod errors;
 pub mod i18n;
 mod perf;
 mod theme;
