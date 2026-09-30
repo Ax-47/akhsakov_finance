@@ -1100,4 +1100,13 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Since added", "ตั้งแต่เพิ่ม"),
     ("Added", "เพิ่มเมื่อ"),
     ("Active alerts", "การแจ้งเตือนที่เปิดอยู่"),
+    ("Your mix", "สัดส่วนของคุณ"),
+    ("Ups and downs", "ความผันผวน"),
+    ("Volatility: how far a year typically swings", "ความผันผวน: ในหนึ่งปีมูลค่ามักแกว่งขึ้นลงเท่าไหร่"),
+    ("Return per unit of risk · {} {}", "ผลตอบแทนต่อความเสี่ยงหนึ่งหน่วย · {} {}"),
+    ("Best year", "ปีที่ดีที่สุด"),
+    ("Worst year", "ปีที่แย่ที่สุด"),
+    ("Full calendar years only", "นับเฉพาะปีที่ครบทั้งปี"),
+    ("Prices include dividends, reinvested; fees and taxes aren't counted.", "ราคารวมปันผลที่นำไปลงทุนต่อแล้ว ยังไม่หักค่าธรรมเนียมและภาษี"),
+    ("Value ÷ amount invested so far", "มูลค่า ÷ เงินที่ลงไปถึงตอนนั้น"),
 ];
