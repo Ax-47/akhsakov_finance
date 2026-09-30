@@ -54,7 +54,13 @@ pub(crate) fn open_tab(ticker: &str, tab: Tab) {
 #[component]
 pub fn StockPage(ticker: String) -> Element {
     match TickerSymbol::new(&ticker.replace("%5E", "^")) {
-        Ok(ticker) => rsx! { StockView { key: "{ticker}", ticker } },
+        // A one-item keyed list, so another stock mounts a fresh view. A key
+        // on the root alone doesn't: the view would keep the old stock's state.
+        Ok(ticker) => rsx! {
+            for ticker in [ticker] {
+                StockView { key: "{ticker}", ticker }
+            }
+        },
         Err(_) => rsx! {
             Page { p { class: "text-ctp-subtext0", "“{ticker}” isn't a valid ticker." } }
         },

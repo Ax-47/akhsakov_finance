@@ -62,7 +62,13 @@ fn RebalanceCard(positions: Vec<Position>, portfolio: Option<Uuid>) -> Element {
             }
         };
     };
-    rsx! { RebalanceEditor { key: "{portfolio_id}", positions, portfolio_id } }
+    // A one-item keyed list, so another portfolio mounts a fresh editor (a
+    // key on the root alone would keep the old portfolio's targets).
+    rsx! {
+        for portfolio_id in [portfolio_id] {
+            RebalanceEditor { key: "{portfolio_id}", positions: positions.clone(), portfolio_id }
+        }
+    }
 }
 
 #[component]
