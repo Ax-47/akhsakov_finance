@@ -2170,6 +2170,10 @@
     width: 4.5rem;
   }
 
+  .w-fit {
+    width: fit-content;
+  }
+
   .w-full {
     width: 100%;
   }

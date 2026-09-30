@@ -44,7 +44,7 @@ pub fn Card(
 #[component]
 pub fn Segmented(children: Element) -> Element {
     rsx! {
-        div { class: "inline-flex max-w-full gap-0.5 overflow-x-auto rounded-full border border-ctp-surface0 bg-ctp-crust/40 p-0.5",
+        div { class: "inline-flex w-fit max-w-full gap-0.5 overflow-x-auto rounded-full border border-ctp-surface0 bg-ctp-crust/40 p-0.5",
             {children}
         }
     }
