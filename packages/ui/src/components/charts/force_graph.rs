@@ -29,6 +29,8 @@ const DAMPING: f64 = 0.55;
 const ALPHA_DECAY: f64 = 0.97;
 const ALPHA_MIN: f64 = 0.01;
 const DRAG_ALPHA: f64 = 0.5;
+/// Nudge after circles resize: enough to fix overlaps, not to rearrange.
+const REHEAT_ALPHA: f64 = 0.2;
 
 /// Resolves on every animation frame; the Rust side answers `true` to keep
 /// going or `false` to stop, so the loop only runs while the graph moves.
@@ -136,10 +138,12 @@ pub fn ForceGraph(
         }
     });
 
-    // New data: start from the stress layout, contracted toward the centre,
-    // so nodes spring outward into place.
+    // New correlations (other stocks or another period): start from the
+    // stress layout, contracted toward the centre, so nodes spring outward
+    // into place. Only `corr` is tracked: weights move with every price
+    // update, and a fresh layout on each one made the graph jump around.
     use_effect(move || {
-        let bodies = layout(&targets.read())
+        let bodies = layout(&spring_lengths(&corr.read(), &radii.peek()))
             .into_iter()
             .map(|(x, y)| Body::at(lerp(VIEW_W / 2.0, x, 0.6), lerp(VIEW_H / 2.0, y, 0.6)))
             .collect();
@@ -149,6 +153,15 @@ pub fn ForceGraph(
             dragged: None,
         });
         animate(sim, running, targets, radii);
+    });
+
+    // A circle changed size: keep the nodes where they are and let the
+    // springs take up the difference.
+    use_effect(move || {
+        let n = radii.read().len();
+        if sim.with_mut(|s| s.reheat(n)) {
+            animate(sim, running, targets, radii);
+        }
     });
 
     let corr_now = corr.read();
@@ -327,8 +340,10 @@ fn node_dimmed(hovered: Option<usize>, i: usize, corr: &[Vec<f64>]) -> bool {
     hovered.is_some_and(|h| h != i && corr[h][i].abs() < EDGE_THRESHOLD)
 }
 
+/// Whole pixels, so the small weight changes from price updates leave the
+/// radius (and the layout) alone.
 fn node_radius(weight: f64) -> f64 {
-    14.0 + weight.max(0.0).sqrt() * 2.5
+    (14.0 + weight.max(0.0).sqrt() * 2.5).round()
 }
 
 // ─── Physics ──────────────────────────────────────────────────────────────────
@@ -422,6 +437,16 @@ impl Sim {
             self.alpha *= ALPHA_DECAY;
             self.alpha > ALPHA_MIN
         }
+    }
+
+    /// Wakes a settled graph of `n` nodes without moving anything. Returns
+    /// false (and does nothing) if the graph has no layout for `n` nodes yet.
+    fn reheat(&mut self, n: usize) -> bool {
+        if n == 0 || self.bodies.len() != n {
+            return false;
+        }
+        self.alpha = self.alpha.max(REHEAT_ALPHA);
+        true
     }
 
     fn drag_to(&mut self, i: usize, x: f64, y: f64, radius: f64) {
@@ -584,6 +609,36 @@ mod tests {
             vec![0.9, 1.0, -0.4],
             vec![-0.5, -0.4, 1.0],
         ]
+    }
+
+    #[test]
+    fn price_noise_keeps_the_radius() {
+        assert_eq!(node_radius(25.0), node_radius(25.04));
+        assert_eq!(node_radius(9.99), node_radius(10.02));
+        assert!(node_radius(40.0) > node_radius(10.0));
+    }
+
+    #[test]
+    fn resized_circles_settle_without_a_new_layout() {
+        let corr = corr();
+        let mut radii = vec![16.0; 3];
+        let mut sim = Sim {
+            bodies: layout(&spring_lengths(&corr, &radii)).into_iter().map(|(x, y)| Body::at(x, y)).collect(),
+            alpha: 1.0,
+            dragged: None,
+        };
+        while sim.step(&spring_lengths(&corr, &radii), &radii) {}
+        let before: Vec<_> = sim.bodies.iter().map(Body::pos).collect();
+
+        // One holding's weight moved enough to grow its circle a pixel.
+        radii[0] += 1.0;
+        assert!(sim.reheat(3));
+        assert_eq!(sim.bodies.iter().map(Body::pos).collect::<Vec<_>>(), before, "reheat itself moves nothing");
+        while sim.step(&spring_lengths(&corr, &radii), &radii) {}
+        for (b, p) in sim.bodies.iter().zip(&before) {
+            assert!(dist(b.pos(), *p) < 10.0, "moved {:.1}px", dist(b.pos(), *p));
+        }
+        assert!(!sim.reheat(4), "no layout for another set of stocks");
     }
 
     #[test]
