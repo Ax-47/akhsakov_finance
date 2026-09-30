@@ -7,7 +7,8 @@ use super::{
 use crate::mcp::services::{race_gate::RaceInfo, tools::FrozenMarket};
 use crate::shared::ServiceError;
 use dtos::ai_models::{
-    AiRace, AiRaceAuditEvent, AiRaceContestant, AiRaceStanding, AiRaceStatus, NewAiRace,
+    AiRace, AiRaceAuditEvent, AiRaceBenchmark, AiRaceContestant, AiRacePoint, AiRaceRun,
+    AiRaceStanding, AiRaceStatus, NewAiRace,
 };
 use rusqlite::{params, OptionalExtension};
 use rust_decimal::prelude::ToPrimitive;
@@ -194,6 +195,8 @@ impl ModelService {
                             contestants: vec![],
                             leaderboard: vec![],
                             audit: vec![],
+                            history: vec![],
+                            benchmark: None,
                         })
                     },
                 )
@@ -204,7 +207,77 @@ impl ModelService {
         race.contestants = self.race_contestants(id)?;
         race.leaderboard = self.leaderboard(&race)?;
         race.audit = self.race_audit(id)?;
+        race.history = self.race_history(id)?;
+        race.benchmark = self.race_benchmark(&race)?;
         Ok(race)
+    }
+
+    fn race_history(&self, id: Uuid) -> Result<Vec<AiRacePoint>, ServiceError> {
+        self.db
+            .with(|c| {
+                c.prepare(
+                    "SELECT round_number, portfolio_id, portfolio_value FROM ai_race_metrics
+                     WHERE race_id=?1 ORDER BY round_number, portfolio_id",
+                )?
+                .query_map([id.to_string()], |r| {
+                    let portfolio: String = r.get(1)?;
+                    Ok(AiRacePoint {
+                        round: r.get::<_, i64>(0)? as u32,
+                        portfolio_id: Uuid::parse_str(&portfolio).unwrap_or_default(),
+                        value: r.get(2)?,
+                    })
+                })?
+                .collect()
+            })
+            .map_err(storage)
+    }
+
+    /// The benchmark's prices recorded with the rounds (see `run_race`),
+    /// as what the starting capital would be worth.
+    fn race_benchmark(&self, race: &AiRace) -> Result<Option<AiRaceBenchmark>, ServiceError> {
+        let snapshots: Vec<(i64, String)> = self
+            .db
+            .with(|c| {
+                c.prepare(
+                    "SELECT round_number, market_snapshot FROM ai_race_rounds
+                     WHERE race_id=?1 AND status='completed' ORDER BY round_number",
+                )?
+                .query_map([race.id.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+            })
+            .map_err(storage)?;
+        Ok(benchmark_points(race.starting_capital, &snapshots))
+    }
+
+    /// Every run of one contestant in a race, by round, with its tool calls.
+    pub fn race_runs(&self, race_id: Uuid, portfolio_id: Uuid) -> Result<Vec<AiRaceRun>, ServiceError> {
+        let ids: Vec<(i64, String)> = self
+            .db
+            .with(|c| {
+                c.prepare(
+                    "SELECT race_round, id FROM ai_runs WHERE race_id=?1 AND portfolio_id=?2
+                     ORDER BY race_round, started_at",
+                )?
+                .query_map(params![race_id.to_string(), portfolio_id.to_string()], |r| {
+                    Ok((r.get::<_, Option<i64>>(0)?.unwrap_or_default(), r.get(1)?))
+                })?
+                .collect()
+            })
+            .map_err(storage)?;
+        ids.into_iter()
+            .filter_map(|(round, id)| Some((round, Uuid::parse_str(&id).ok()?)))
+            .map(|(round, id)| Ok(AiRaceRun { round: round as u32, run: self.run(id)? }))
+            .collect()
+    }
+
+    /// The app's benchmark and its USD price now, if it can be had.
+    async fn benchmark_price(&self) -> Option<(String, f64)> {
+        use crate::settings::{infrastructures::SqliteSettingsRepository, services::SettingsService};
+        let settings = SettingsService::new(std::sync::Arc::new(SqliteSettingsRepository::new(self.db.clone())));
+        let ticker = settings.get().ok()?.benchmark;
+        let quote = self.mcp.trading().quote(&ticker).await.ok()?;
+        let price = (quote.price * quote.usd_per_unit).to_f64()?;
+        (price > 0.0).then(|| (ticker.to_string(), price))
     }
 
     pub fn start_race(&self, id: Uuid) -> Result<AiRace, ServiceError> {
@@ -425,6 +498,8 @@ impl ModelService {
             if claimed == 0 {
                 return Ok(());
             }
+            // The benchmark's price as the race begins, to compare with.
+            let benchmark_start = if round == 1 { self.benchmark_price().await } else { None };
             let market = FrozenMarket::new();
             self.preload_market(&race, &market).await?;
             let mut snapshot = market.snapshot().await;
@@ -488,7 +563,13 @@ impl ModelService {
             }
             let mut snapshot = market.snapshot().await;
             snapshot["frozen_at"] = frozen_at;
-            let snapshot = self.capture_metrics(&race, round, snapshot).await?;
+            let mut snapshot = self.capture_metrics(&race, round, snapshot).await?;
+            if let Some((ticker, price)) = self.benchmark_price().await {
+                snapshot["benchmark"] = json!({"ticker": ticker, "price": price});
+            }
+            if let Some((ticker, price)) = benchmark_start {
+                snapshot["benchmark_start"] = json!({"ticker": ticker, "price": price});
+            }
             self.db.transaction(|tx| {
                 tx.execute(
                     "UPDATE ai_race_rounds SET status='completed',market_snapshot=?3,finished_at=datetime('now')
@@ -837,9 +918,45 @@ impl ModelService {
     }
 }
 
+/// The benchmark line from round snapshots `(round, json)`: the starting
+/// capital at round 0 (priced at `benchmark_start`, kept by round 1), then
+/// at each round's `benchmark` price. Rounds priced in another ticker (the
+/// setting changed mid-race) or without a price are left out; `None` if
+/// the start is unknown.
+fn benchmark_points(capital: f64, snapshots: &[(i64, String)]) -> Option<AiRaceBenchmark> {
+    let parsed: Vec<(u32, Value)> = snapshots
+        .iter()
+        .filter_map(|(round, raw)| Some((*round as u32, serde_json::from_str(raw).ok()?)))
+        .collect();
+    let start = parsed.iter().find_map(|(_, s)| s.get("benchmark_start"))?;
+    let ticker = start["ticker"].as_str()?.to_string();
+    let base = start["price"].as_f64().filter(|p| *p > 0.0)?;
+    let mut points = vec![(0, capital)];
+    points.extend(parsed.iter().filter_map(|(round, s)| {
+        let b = s.get("benchmark")?;
+        (b["ticker"].as_str()? == ticker).then_some(())?;
+        Some((*round, capital * b["price"].as_f64()? / base))
+    }));
+    Some(AiRaceBenchmark { ticker, points })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn benchmark_points_follow_the_start_price() {
+        let snapshots = vec![
+            (1, r#"{"benchmark_start":{"ticker":"SPY","price":500.0},"benchmark":{"ticker":"SPY","price":510.0}}"#.to_string()),
+            (2, r#"{"benchmark":{"ticker":"SPY","price":490.0}}"#.to_string()),
+            (3, r#"{"benchmark":{"ticker":"QQQ","price":400.0}}"#.to_string()),
+            (4, "{}".to_string()),
+        ];
+        let b = benchmark_points(1_000.0, &snapshots).unwrap();
+        assert_eq!(b.ticker, "SPY");
+        assert_eq!(b.points, vec![(0, 1_000.0), (1, 1_020.0), (2, 980.0)]);
+        assert!(benchmark_points(1_000.0, &snapshots[1..]).is_none(), "no start price, no line");
+    }
 
     fn service() -> ModelService {
         let db = crate::database::Database::in_memory().unwrap();

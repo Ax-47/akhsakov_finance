@@ -5,14 +5,14 @@ use crate::{
     app::{AppSettings, DataRefresh, PortfolioScope},
     components::card::{ActionButton, Card, Field, Segmented, Stepper, ToggleButton, INPUT},
     editors::{Dialog, Dialogs},
-    files::{download, print_report, ExportButtons},
+    files::{print_report, ExportButtons},
     format::fmt_usd,
     hooks::use_portfolio_memo,
     page::{AiBadge, GhostButton, Page},
 };
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRace, AiRaceStatus, AiRun, AiRunStatus, ModelProfile, NewAiRace, TraderConfig, TraderMemory},
+    ai_models::{AiRun, AiRunStatus, ModelProfile, TraderConfig, TraderMemory},
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
@@ -178,7 +178,6 @@ pub fn SettingsPage() -> Element {
                 ConnectorCard {}
                 ModelProfilesCard {}
                 AiPortfolioCard {}
-                AiRaceCard {}
                 Card { title: tr("Your data"),
                     div { class: "grid gap-4 text-sm",
                         DataRow { label: tr("Transactions"), hint: tr("Every trade, dividend and cash movement. Re-importable."),
@@ -834,202 +833,6 @@ fn AiPortfolioCard() -> Element {
             if let Some(e) = error() {
                 p { class: "mt-3 text-sm text-ctp-red break-words", "{e}" }
             }
-        }
-    }
-}
-
-fn poll_races(mut races: Signal<Vec<AiRace>>, mut error: Signal<Option<String>>) {
-    spawn(async move {
-        for _ in 0..86_400 {
-            crate::notify::poll_delay(1_000).await;
-            match api::get_ai_races().await {
-                Ok(value) => {
-                    let active = value.iter().any(|race| race.status == AiRaceStatus::Running);
-                    races.set(value);
-                    if !active { return; }
-                }
-                Err(e) => {
-                    error.set(Some(server_message(e)));
-                    return;
-                }
-            }
-        }
-    });
-}
-
-/// Creates and controls synchronized competitions between configured AI portfolios.
-#[component]
-fn AiRaceCard() -> Element {
-    let mut portfolios = use_signal(Vec::<AiPortfolioInfo>::new);
-    let mut races = use_signal(Vec::<AiRace>::new);
-    let mut selected = use_signal(Vec::<Uuid>::new);
-    let mut name = use_signal(|| "AI race".to_string());
-    let mut capital = use_signal(|| "10000".to_string());
-    let mut rounds = use_signal(|| "10".to_string());
-    let mut frequency = use_signal(|| "60".to_string());
-    let mut deadline = use_signal(|| "120".to_string());
-    let mut loaded = use_signal(|| false);
-    let mut busy = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
-    let load = move || {
-        spawn(async move {
-            if let Ok(value) = api::get_ai_portfolios().await { portfolios.set(value); }
-            match api::get_ai_races().await {
-                Ok(value) => {
-                    let active = value.iter().any(|race| race.status == AiRaceStatus::Running);
-                    races.set(value);
-                    if active { poll_races(races, error); }
-                }
-                Err(e) => error.set(Some(server_message(e))),
-            }
-            loaded.set(true);
-        });
-    };
-    use_hook(load);
-    let create = move |_| async move {
-        let parsed = (
-            capital().parse::<f64>(), rounds().parse::<u32>(),
-            frequency().parse::<u32>(), deadline().parse::<u32>(),
-        );
-        let (Ok(starting_capital), Ok(rounds_count), Ok(trading_frequency_minutes), Ok(round_timeout_seconds)) = parsed else {
-            return error.set(Some(tr("Enter valid race settings.").to_string()));
-        };
-        busy.set(true);
-        let input = NewAiRace {
-            name: name(), contestant_ids: selected(), starting_capital,
-            rounds: rounds_count, trading_frequency_minutes, round_timeout_seconds,
-        };
-        match api::create_ai_race(input).await {
-            Ok(race) => {
-                races.write().insert(0, race);
-                selected.write().clear();
-                error.set(None);
-            }
-            Err(e) => error.set(Some(server_message(e))),
-        }
-        busy.set(false);
-    };
-    let controls = move |id: Uuid, action: &'static str| {
-        spawn(async move {
-            busy.set(true);
-            let result = match action {
-                "start" => api::start_ai_race(id).await,
-                "pause" => api::pause_ai_race(id).await,
-                "resume" => api::resume_ai_race(id).await,
-                _ => api::stop_ai_race(id).await,
-            };
-            match result {
-                Ok(updated) => {
-                    if let Some(race) = races.write().iter_mut().find(|race| race.id == id) { *race = updated; }
-                    error.set(None);
-                    if action == "start" || action == "resume" { poll_races(races, error); }
-                }
-                Err(e) => error.set(Some(server_message(e))),
-            }
-            busy.set(false);
-        });
-    };
-    rsx! {
-        Card {
-            title: tr("AI race mode"),
-            subtitle: tr("Run configured AI portfolios on synchronized rounds with equal capital and a live, risk-aware leaderboard.").to_string(),
-            if !loaded() {
-                p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
-            } else {
-                div { class: "grid gap-5 text-sm",
-                    div { class: "grid gap-3 rounded-xl border border-ctp-surface0 p-4",
-                        div { class: "grid gap-3 md:grid-cols-2",
-                            Field { label: tr("Race name"), input { class: INPUT, value: name, oninput: move |e| name.set(e.value()) } }
-                            Field { label: tr("Starting capital per contestant (USD)"), input { class: INPUT, r#type: "number", min: "1", value: capital, oninput: move |e| capital.set(e.value()) } }
-                            Field { label: tr("Race duration (rounds)"), input { class: INPUT, r#type: "number", min: "1", max: "365", value: rounds, oninput: move |e| rounds.set(e.value()) } }
-                            Field { label: tr("Trading frequency (minutes)"), input { class: INPUT, r#type: "number", min: "1", value: frequency, oninput: move |e| frequency.set(e.value()) } }
-                            Field { label: tr("Shared round deadline (seconds)"), input { class: INPUT, r#type: "number", min: "15", max: "600", value: deadline, oninput: move |e| deadline.set(e.value()) } }
-                        }
-                        div {
-                            div { class: "mb-2 font-medium text-ctp-text", {tr("Contestants")} }
-                            div { class: "grid gap-2 sm:grid-cols-2",
-                                for portfolio in portfolios() {
-                                    label { key: "{portfolio.portfolio_id}", class: "flex items-center gap-2 rounded-lg border border-ctp-surface0 px-3 py-2",
-                                        input {
-                                            r#type: "checkbox",
-                                            checked: selected().contains(&portfolio.portfolio_id),
-                                            onchange: move |event| {
-                                                if event.checked() {
-                                                    if !selected().contains(&portfolio.portfolio_id) { selected.write().push(portfolio.portfolio_id); }
-                                                } else {
-                                                    selected.write().retain(|id| *id != portfolio.portfolio_id);
-                                                }
-                                            }
-                                        }
-                                        span { "{portfolio.name}" }
-                                    }
-                                }
-                            }
-                            if portfolios().len() < 2 { p { class: "mt-2 text-xs text-ctp-peach", {tr("Create and configure at least two AI portfolios first.")} } }
-                        }
-                        p { class: "text-xs text-ctp-overlay1", {tr("Starting a race resets every selected paper portfolio to the same cash balance. During running or paused races, model and strategy changes are locked.")} }
-                        div { class: "flex justify-end", ActionButton { label: tr("Create race"), disabled: busy() || selected().len() < 2, onclick: create } }
-                    }
-                    for race in races() {
-                        div { key: "{race.id}", class: "grid gap-3 rounded-xl border border-ctp-surface0 p-4",
-                            div { class: "flex flex-wrap items-start justify-between gap-3",
-                                div {
-                                    div { class: "font-medium text-ctp-text", "{race.name}" }
-                                    div { class: "text-xs text-ctp-subtext0", "{race.status.label()} · {race.completed_rounds}/{race.rounds} rounds · every {race.trading_frequency_minutes} min" }
-                                }
-                                div { class: "flex flex-wrap gap-2",
-                                    if race.status == AiRaceStatus::Draft { ActionButton { label: tr("Start"), disabled: busy(), onclick: move |_| controls(race.id, "start") } }
-                                    if race.status == AiRaceStatus::Running { GhostButton { label: tr("Pause"), onclick: move |_| controls(race.id, "pause") } }
-                                    if race.status == AiRaceStatus::Paused { ActionButton { label: tr("Resume"), disabled: busy(), onclick: move |_| controls(race.id, "resume") } }
-                                    if matches!(race.status, AiRaceStatus::Running | AiRaceStatus::Paused) { GhostButton { label: tr("Stop all"), onclick: move |_| controls(race.id, "stop") } }
-                                    GhostButton { label: tr("⇩ Results"), onclick: move |_| async move {
-                                        match api::download_ai_race_results(race.id).await {
-                                            Ok(csv) => download(&format!("ai-race-{}.csv", race.id), "text/csv", &csv),
-                                            Err(e) => error.set(Some(server_message(e))),
-                                        }
-                                    } }
-                                }
-                            }
-                            div { class: "overflow-x-auto",
-                                table { class: "w-full min-w-[760px] text-left text-xs",
-                                    thead { tr { class: "text-ctp-overlay1",
-                                        th { class: "p-2", "#" } th { class: "p-2", {tr("Contestant")} }
-                                        th { class: "p-2", {tr("Return")} } th { class: "p-2", {tr("Drawdown")} }
-                                        th { class: "p-2", {tr("Volatility")} } th { class: "p-2", {tr("Risk-adjusted")} }
-                                        th { class: "p-2", {tr("Fees")} } th { class: "p-2", {tr("Turnover")} }
-                                        th { class: "p-2", {tr("Cash")} } th { class: "p-2", {tr("Failed runs")} }
-                                    } }
-                                    tbody { for row in race.leaderboard {
-                                        tr { key: "{row.portfolio_id}", class: "border-t border-ctp-surface0/60",
-                                            td { class: "p-2", "{row.rank}" } td { class: "p-2 font-medium text-ctp-text",
-                                                "{row.name}"
-                                                if race.contestants.iter().any(|c| c.portfolio_id == row.portfolio_id && c.mcp) {
-                                                    span { class: "ml-2 rounded bg-ctp-surface0 px-1.5 py-0.5 text-[10px] text-ctp-subtext0", "MCP" }
-                                                }
-                                            }
-                                            td { class: "p-2", "{row.total_return_pct:.2}%" } td { class: "p-2", "{row.max_drawdown_pct:.2}%" }
-                                            td { class: "p-2", "{row.volatility_pct:.2}%" } td { class: "p-2", "{row.risk_adjusted_return:.2}" }
-                                            td { class: "p-2", "${row.fees:.2}" } td { class: "p-2", "${row.turnover:.2}" }
-                                            td { class: "p-2", "{row.cash_allocation_pct:.1}%" } td { class: "p-2", "{row.failed_model_runs}" }
-                                        }
-                                    } }
-                                }
-                            }
-                            details {
-                                summary { class: "cursor-pointer text-xs text-ctp-subtext0", {tr("Race audit history")} }
-                                div { class: "mt-2 grid gap-1 text-xs text-ctp-overlay1",
-                                    for event in race.audit { div { key: "{event.sequence}", "{event.at} · {event.kind} · {event.detail}" } }
-                                }
-                            }
-                            p { class: "text-xs text-ctp-overlay1", {tr("Slow or rate-limited providers receive the same deadline and count as failed runs. The next synchronized round waits for the current round to close.")} }
-                            if race.contestants.iter().any(|c| c.mcp) {
-                                p { class: "text-xs text-ctp-overlay1", {tr("MCP contestants can trade only while their round window is open, so schedule those clients to check get_my_portfolio often. A round without any call counts as a failed run.")} }
-                            }
-                        }
-                    }
-                }
-            }
-            if let Some(message) = error() { p { class: "mt-3 text-sm text-ctp-red", "{message}" } }
         }
     }
 }

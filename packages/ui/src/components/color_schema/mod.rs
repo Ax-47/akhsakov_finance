@@ -14,6 +14,9 @@ pub const CHART_COLOR_CLASSES: &[&str] = &[
 ];
 /// Catppuccin Mocha hex values, index-aligned with `CHART_COLOR_CLASSES`.
 /// ECharts cannot resolve CSS variables at paint time, so charts use these.
+/// A reference line, such as a benchmark, beside coloured series (overlay2).
+pub const CHART_NEUTRAL_HEX: &str = "#9399b2";
+
 pub const CHART_COLORS_HEX: &[&str] = &[
     "#cba6f7", // mauve
     "#89b4fa", // blue

@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRace, AiRun, ModelProfile, NewAiRace, NewAiTrader, TraderConfig, TraderMemory},
+    ai_models::{AiRace, AiRaceRun, AiRun, ModelProfile, NewAiRace, NewAiTrader, TraderConfig, TraderMemory},
     ai_portfolio::AiPortfolioInfo,
 };
 use uuid::Uuid;
@@ -121,6 +121,12 @@ pub async fn resume_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
 #[post("/api/models/races/stop", service: Extension<ModelService>)]
 pub async fn stop_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
     Ok(service.stop_race(id)?)
+}
+
+/// One contestant's runs in a race, by round, with every tool call.
+#[post("/api/models/races/runs", service: Extension<ModelService>)]
+pub async fn get_ai_race_runs(race_id: Uuid, portfolio_id: Uuid) -> Result<Vec<AiRaceRun>, ServerFnError> {
+    Ok(service.race_runs(race_id, portfolio_id)?)
 }
 
 #[post("/api/models/races/results", service: Extension<ModelService>)]

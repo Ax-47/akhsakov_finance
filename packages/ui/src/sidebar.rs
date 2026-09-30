@@ -420,6 +420,19 @@ pub fn BacktestIcon() -> Element {
     }
 }
 
+/// Chequered-flag "race" icon.
+#[component]
+pub fn RaceIcon() -> Element {
+    rsx! {
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
+            view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
+            stroke_linecap: "round", stroke_linejoin: "round",
+            path { d: "M4.5 17.5V3" }
+            path { d: "M4.5 3.5h10l-2 3.5 2 3.5h-10" }
+        }
+    }
+}
+
 /// Calendar icon.
 #[component]
 pub fn CalendarIcon() -> Element {
