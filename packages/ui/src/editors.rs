@@ -18,10 +18,7 @@ use uuid::Uuid;
 
 /// Human-readable message from a server function error.
 fn message(e: ServerFnError) -> String {
-    match e {
-        ServerFnError::ServerError { message, .. } => message,
-        other => other.to_string(),
-    }
+    crate::errors::error_message(e)
 }
 
 fn portfolios() -> Vec<(Uuid, String)> {

@@ -52,10 +52,7 @@ fn use_today() -> String {
 }
 
 fn error_text(e: ServerFnError) -> String {
-    match e {
-        ServerFnError::ServerError { message, .. } => message,
-        e => e.to_string(),
-    }
+    crate::errors::error_message(e)
 }
 
 /// Portfolio tab: a section per portfolio in view, a row per holding.

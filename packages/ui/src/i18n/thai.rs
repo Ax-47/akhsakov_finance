@@ -1125,4 +1125,6 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("{} shares · cost {}", "{} หุ้น · ต้นทุน {}"),
     ("no price yet", "ยังไม่มีราคา"),
     ("{} shares · {}", "{} หุ้น · {}"),
+    ("The app's server is out of date. Close the app completely and open it again.", "เซิร์ฟเวอร์ของแอปเป็นรุ่นเก่า ปิดแอปให้หมดแล้วเปิดใหม่อีกครั้ง"),
+    ("No prices this far back", "ไม่มีราคาย้อนไปถึงช่วงนั้น"),
 ];

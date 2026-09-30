@@ -128,17 +128,21 @@ impl YahooGateWay {
         interval: Interval,
         is_prepost_market: bool,
     ) -> Result<Vec<Candle>, YahooGateWayError> {
-        let ticker = Ticker::new(&self.client, ticker);
-        Ok(ticker
-            .history(
-                Some(to_yrange(range)),
-                Some(to_yinterval(interval)),
-                is_prepost_market,
-            )
-            .await?
-            .into_iter()
-            .map(to_candle)
-            .collect())
+        let builder = Ticker::new(&self.client, ticker)
+            .history_builder()
+            .interval(to_yinterval(interval))
+            .auto_adjust(true)
+            .prepost(is_prepost_market)
+            .actions(true);
+        // Asked for `range=max`, Yahoo answers in 3-month candles whatever
+        // the interval, too coarse for anything dated (crisis scenarios,
+        // old exchange rates). Dates from `ALL_HISTORY_START` get it all at
+        // the interval asked for.
+        let builder = match range {
+            Range::Max => builder.between(all_history_start(), chrono::Utc::now()),
+            range => builder.range(to_yrange(range)),
+        };
+        Ok(builder.fetch().await?.into_iter().map(to_candle).collect())
     }
 
     pub async fn search(
@@ -161,5 +165,24 @@ impl YahooGateWay {
     pub async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, YahooGateWayError> {
         let ticker = Ticker::new(&self.client, ticker);
         Ok(to_quote(ticker.quote().await?)?)
+    }
+}
+
+/// Before any history Yahoo has (the S&P 500 starts in 1927).
+#[cfg(feature = "server")]
+const ALL_HISTORY_START: i64 = -2_208_988_800; // 1900-01-01T00:00:00Z
+
+#[cfg(feature = "server")]
+fn all_history_start() -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(ALL_HISTORY_START, 0).unwrap_or_default()
+}
+
+#[cfg(all(test, feature = "server"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_history_starts_in_1900() {
+        assert_eq!(all_history_start().to_rfc3339(), "1900-01-01T00:00:00+00:00");
     }
 }

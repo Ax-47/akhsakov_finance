@@ -40,8 +40,14 @@ pub fn MarketPage() -> Element {
                     }
                 }
             }
-            // Keyed: switching index starts a fresh refresh loop.
-            div { IndexView { key: "{index().key()}", index: index() } }
+            // A one-item keyed list, so switching index mounts a fresh view
+            // with its own refresh loop. A key outside a list does nothing:
+            // the old view would keep fetching the first index's stocks.
+            div {
+                for i in [index()] {
+                    IndexView { key: "{i.key()}", index: i }
+                }
+            }
         }
     }
 }
