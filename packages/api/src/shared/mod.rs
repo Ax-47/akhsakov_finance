@@ -51,10 +51,52 @@ impl From<ServiceError> for ServerFnError {
             ServiceError::Upstream(_) => 502,
         };
         ServerFnError::ServerError {
-            message: e.to_string(),
+            message: user_message(&e),
             code,
             details: None,
         }
+    }
+}
+
+/// What the app shows for an error. A market-data failure that reads like
+/// a raw HTTP error (a URL, "error sending request") is logged here and
+/// replaced with a plain sentence: the details mean nothing to the reader
+/// and are too long to fit on a phone.
+#[cfg(feature = "server")]
+fn user_message(e: &ServiceError) -> String {
+    let text = e.to_string();
+    // Model connection errors keep their detail: it's how you find a
+    // mistyped address or key.
+    let raw = !text.starts_with("Model ")
+        && ["http://", "https://", "error sending request", "gateway error", "connection"]
+            .iter()
+            .any(|m| text.to_lowercase().contains(m));
+    match e {
+        ServiceError::Upstream(_) if raw => {
+            tracing::warn!("upstream error: {text}");
+            UPSTREAM_MESSAGE.to_string()
+        }
+        _ => text,
+    }
+}
+
+/// Shown instead of a raw market-data error.
+pub const UPSTREAM_MESSAGE: &str = "The market data source isn't answering right now. Try again shortly.";
+
+#[cfg(all(test, feature = "server"))]
+mod user_message_tests {
+    use super::*;
+
+    #[test]
+    fn hides_raw_upstream_errors_only() {
+        let raw = ServiceError::Upstream("error sending request for url (https://fc.yahoo.com/consent)".into());
+        assert_eq!(user_message(&raw), UPSTREAM_MESSAGE);
+        let model = ServiceError::Upstream("Model request failed: error sending request for url (https://api.example.com/v1)".into());
+        assert!(user_message(&model).contains("api.example.com"), "model errors keep their detail");
+        let model = ServiceError::Upstream("The model returned no assistant message.".into());
+        assert_eq!(user_message(&model), "The model returned no assistant message.");
+        let invalid = ServiceError::Validation("See https://example.com".into());
+        assert_eq!(user_message(&invalid), "See https://example.com", "only upstream errors are rewritten");
     }
 }
 

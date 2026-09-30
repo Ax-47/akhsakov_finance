@@ -192,6 +192,47 @@ pub struct BacktestResult {
     /// Largest peak-to-trough fall of the time-weighted index, as a
     /// negative fraction.
     pub max_drawdown: f64,
+    /// Annualised standard deviation of the monthly time-weighted returns;
+    /// `None` with fewer than three months.
+    pub volatility: Option<f64>,
+    /// Best and worst full calendar years, as `(year, return)`.
+    pub best_year: Option<(String, f64)>,
+    pub worst_year: Option<(String, f64)>,
+}
+
+impl BacktestResult {
+    /// Return per unit of risk: (growth − `risk_free`) ÷ volatility, all
+    /// annual fractions.
+    pub fn sharpe(&self, risk_free: f64) -> Option<f64> {
+        let vol = self.volatility.filter(|v| *v > 0.0)?;
+        Some((self.cagr? - risk_free) / vol)
+    }
+}
+
+/// Annualised volatility of monthly growth factors, and the best and worst
+/// full calendar years, from the time-weighted index at each month
+/// (`YYYY-MM-…` dates).
+fn index_stats(index: &[(String, f64)]) -> (Option<f64>, Option<(String, f64)>, Option<(String, f64)>) {
+    let returns: Vec<f64> = index.windows(2).map(|w| w[1].1 / w[0].1 - 1.0).collect();
+    let volatility = (returns.len() >= 3).then(|| {
+        let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+        let var = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (returns.len() - 1) as f64;
+        var.sqrt() * 12f64.sqrt()
+    });
+    // December's index closes each year; a year counts once the one
+    // before it has a December too.
+    let decembers: Vec<(&str, f64)> = index
+        .iter()
+        .filter(|(d, _)| d.get(5..7) == Some("12"))
+        .filter_map(|(d, v)| Some((d.get(..4)?, *v)))
+        .collect();
+    let years: Vec<(String, f64)> = decembers
+        .windows(2)
+        .map(|w| (w[1].0.to_string(), w[1].1 / w[0].1 - 1.0))
+        .collect();
+    let best = years.iter().cloned().max_by(|a, b| a.1.total_cmp(&b.1));
+    let worst = years.iter().cloned().min_by(|a, b| a.1.total_cmp(&b.1));
+    (volatility, best, worst)
 }
 
 /// Simulates investing `plan` at each date. `prices[a][t]` is asset `a`'s
@@ -230,6 +271,7 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
     let mut points = Vec::with_capacity(n);
     let (mut index, mut peak, mut max_dd) = (1.0_f64, 1.0_f64, 0.0_f64);
     let mut started: Option<usize> = None;
+    let mut index_points: Vec<(String, f64)> = Vec::new();
     for t in 0..n {
         let before = value_at(&units, t);
         if let Some(s) = started {
@@ -252,6 +294,7 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
         if started.is_none() {
             continue;
         }
+        index_points.push((dates[t].clone(), index));
         if plan.rebalance_yearly && t > started.unwrap() && (t - started.unwrap()) % 12 == 0 {
             let total = value_at(&units, t);
             units.iter_mut().for_each(|u| *u = 0.0);
@@ -268,13 +311,62 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
     if let Some(last) = points.last() {
         flows.push((last.0.clone(), final_value));
     }
+    let (volatility, best_year, worst_year) = index_stats(&index_points);
     BacktestResult {
+        volatility,
+        best_year,
+        worst_year,
         final_value,
         invested,
         irr: xirr(&flows),
         cagr: years.filter(|y| *y > 0.0).map(|y| index.powf(1.0 / y) - 1.0),
         max_drawdown: max_dd,
         points,
+    }
+}
+
+#[cfg(test)]
+mod backtest_stats_tests {
+    use super::*;
+
+    #[test]
+    fn volatility_and_calendar_years() {
+        // One asset: flat through 2024, +10% over 2025 in one step in May,
+        // then −20% in 2026 (a full year once December 2026 is in).
+        let mut dates = vec![];
+        let mut prices = vec![];
+        let mut p = 100.0;
+        for year in 2024..=2026 {
+            for month in 1..=12 {
+                if year == 2025 && month == 5 {
+                    p *= 1.1;
+                }
+                if year == 2026 && month == 3 {
+                    p *= 0.8;
+                }
+                dates.push(format!("{year}-{month:02}-01"));
+                prices.push(Some(p));
+            }
+        }
+        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false };
+        let r = backtest(&dates, &[prices], &plan);
+        let (best, worst) = (r.best_year.clone().unwrap(), r.worst_year.clone().unwrap());
+        assert_eq!(best.0, "2025");
+        assert!((best.1 - 0.1).abs() < 1e-9, "{best:?}");
+        assert_eq!(worst.0, "2026");
+        assert!((worst.1 + 0.2).abs() < 1e-9, "{worst:?}");
+        let vol = r.volatility.unwrap();
+        assert!(vol > 0.0 && vol < 1.0, "{vol}");
+        // Growth below the risk-free rate gives a negative Sharpe.
+        assert!(r.sharpe(0.05).unwrap() < 0.0);
+    }
+
+    #[test]
+    fn too_short_for_stats() {
+        let dates: Vec<String> = (1..=2).map(|m| format!("2026-{m:02}-01")).collect();
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false };
+        let r = backtest(&dates, &[vec![Some(1.0), Some(1.1)]], &plan);
+        assert_eq!((r.volatility, r.best_year, r.worst_year), (None, None, None));
     }
 }
 

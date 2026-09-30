@@ -25,7 +25,7 @@ fn Loading(title: String) -> Element {
 #[component]
 fn Empty(title: String, text: String) -> Element {
     rsx! {
-        Card { title, p { class: "py-10 text-center text-sm text-ctp-subtext0", "{text}" } }
+        Card { title, p { class: "py-10 text-center text-sm text-ctp-subtext0", {crate::i18n::tr_str(&text)} } }
     }
 }
 
@@ -341,7 +341,7 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
     rsx! {
         Card {
             title: tr("Options"),
-            subtitle: format!("Expiring {}", view.expiration.map(|e| day_label(e.div_euclid(86_400))).unwrap_or_default()),
+            subtitle: crate::i18n::trf("Expiring {}", &[&view.expiration.map(|e| day_label(e.div_euclid(86_400))).unwrap_or_default()]),
             flush: true,
             actions: rsx! {
                 Segmented {

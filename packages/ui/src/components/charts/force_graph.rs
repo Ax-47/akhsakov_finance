@@ -20,7 +20,11 @@ pub const EDGE_THRESHOLD: f64 = 0.3;
 // Physics tuning, per animation frame.
 const SPRING: f64 = 0.08;
 const COLLIDE: f64 = 0.5;
-const CENTER_PULL: f64 = 0.01;
+/// Short-range push between every pair, fading with the square of the
+/// distance, so circles separate before they touch.
+const REPULSION: f64 = 1_500.0;
+/// Just enough to stop a disconnected layout drifting into a corner.
+const CENTER_PULL: f64 = 0.002;
 const DAMPING: f64 = 0.55;
 const ALPHA_DECAY: f64 = 0.97;
 const ALPHA_MIN: f64 = 0.01;
@@ -103,7 +107,7 @@ pub fn ForceGraph(
             .map(|w| node_radius(*w))
             .collect::<Vec<_>>()
     });
-    let targets = use_memo(move || spring_lengths(&corr.read()));
+    let targets = use_memo(move || spring_lengths(&corr.read(), &radii.read()));
 
     // Drag handling: a single listener script for the component's lifetime.
     use_future(move || async move {
@@ -135,9 +139,9 @@ pub fn ForceGraph(
     // New data: start from the stress layout, contracted toward the centre,
     // so nodes spring outward into place.
     use_effect(move || {
-        let bodies = layout(&corr.read())
+        let bodies = layout(&targets.read())
             .into_iter()
-            .map(|(x, y)| Body::at(lerp(VIEW_W / 2.0, x, 0.2), lerp(VIEW_H / 2.0, y, 0.2)))
+            .map(|(x, y)| Body::at(lerp(VIEW_W / 2.0, x, 0.6), lerp(VIEW_H / 2.0, y, 0.6)))
             .collect();
         sim.set(Sim {
             bodies,
@@ -373,14 +377,23 @@ impl Sim {
             for j in (i + 1)..n {
                 let (a, b) = (self.bodies[i], self.bodies[j]);
                 let (dx, dy) = (b.x - a.x, b.y - a.y);
-                let dist = dx.hypot(dy).max(0.01);
+                let raw = dx.hypot(dy);
+                // Coincident nodes get a fixed direction to separate in;
+                // otherwise dx/dist and dy/dist are zero and nothing moves.
+                let (ux, uy, dist) = if raw < 0.01 {
+                    let angle = (i * 31 + j * 17) as f64 * 2.399_963;
+                    (angle.cos(), angle.sin(), 0.01)
+                } else {
+                    (dx / raw, dy / raw, raw)
+                };
                 // Positive pulls the pair together, negative pushes apart.
                 let mut f = k * (dist - targets[i][j]);
                 let min_gap = radii[i] + radii[j] + 6.0;
+                f -= REPULSION / dist.max(min_gap * 0.5).powi(2);
                 if dist < min_gap {
                     f -= COLLIDE * (min_gap - dist);
                 }
-                let (fx, fy) = (dx / dist * f, dy / dist * f);
+                let (fx, fy) = (ux * f, uy * f);
                 force[i].0 += fx;
                 force[i].1 += fy;
                 force[j].0 -= fx;
@@ -429,25 +442,48 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
-/// Abstract target distance: 0.3 for perfectly correlated (so circles don't
-/// overlap), up to 2.3 for perfectly inverse.
-fn target_distance(c: f64) -> f64 {
-    0.3 + (1.0 - c)
-}
+/// Space kept between two circles that move exactly together.
+const CONTACT_GAP: f64 = 14.0;
+/// Correlations closer together than this aren't stretched further, so a
+/// portfolio whose pairs all sit between 0.60 and 0.65 doesn't look like it
+/// has strong and weak relations.
+const MIN_CORR_SPREAD: f64 = 0.6;
 
-/// Spring rest lengths in view-box pixels, scaled so the whole graph fits.
-fn spring_lengths(corr: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let scale = VIEW_H.min(VIEW_W) * 0.18;
-    corr.iter()
-        .map(|row| row.iter().map(|c| target_distance(*c) * scale).collect())
+/// Spring rest lengths in view-box pixels. The most related pair sits just
+/// clear of touching; the least related is pushed across most of the box.
+///
+/// Real portfolios mostly hold stocks that correlate 0.3–0.8, so mapping
+/// the full −1…1 scale onto the box leaves every pair about the same
+/// distance apart and the graph collapses into one clump. Instead the
+/// portfolio's own range of correlations is spread over the box.
+fn spring_lengths(corr: &[Vec<f64>], radii: &[f64]) -> Vec<Vec<f64>> {
+    let n = corr.len();
+    let off_diagonal = || (0..n).flat_map(move |i| ((i + 1)..n).map(move |j| corr[i][j]));
+    let hi = off_diagonal().fold(f64::MIN, f64::max).min(1.0);
+    let lo = off_diagonal().fold(f64::MAX, f64::min).max(-1.0);
+    let spread = (hi - lo).max(MIN_CORR_SPREAD);
+    let reach = (VIEW_H - 2.0 * PADDING) * 0.85;
+    let radius = |i: usize| radii.get(i).copied().unwrap_or(14.0);
+    (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| {
+                    if i == j {
+                        return 0.0;
+                    }
+                    let apart = ((hi - corr[i][j]) / spread).clamp(0.0, 1.0);
+                    radius(i) + radius(j) + CONTACT_GAP + apart * reach
+                })
+                .collect()
+        })
         .collect()
 }
 
-/// Places nodes so their distances approximate [`target_distance`]
-/// (stress majorization), then fits them into the view box. Used as the
-/// simulation's starting point so it begins near equilibrium.
-fn layout(corr: &[Vec<f64>]) -> Vec<(f64, f64)> {
-    let n = corr.len();
+/// Places nodes so their distances approximate `targets` (stress
+/// majorization), then centres them, shrinking only if they don't fit. Used
+/// as the simulation's starting point so it begins near equilibrium.
+fn layout(targets: &[Vec<f64>]) -> Vec<(f64, f64)> {
+    let n = targets.len();
     if n == 0 {
         return vec![];
     }
@@ -455,11 +491,12 @@ fn layout(corr: &[Vec<f64>]) -> Vec<(f64, f64)> {
         return vec![(VIEW_W / 2.0, VIEW_H / 2.0)];
     }
 
-    // Deterministic start on a circle.
+    // Deterministic start on a circle the size of the typical distance.
+    let r0 = targets.iter().flatten().sum::<f64>() / (n * n) as f64;
     let mut pos: Vec<(f64, f64)> = (0..n)
         .map(|i| {
             let a = i as f64 / n as f64 * std::f64::consts::TAU;
-            (a.cos(), a.sin())
+            (a.cos() * r0, a.sin() * r0)
         })
         .collect();
 
@@ -467,7 +504,7 @@ fn layout(corr: &[Vec<f64>]) -> Vec<(f64, f64)> {
         for i in 0..n {
             let (mut sx, mut sy, mut sw) = (0.0, 0.0, 0.0);
             for j in (0..n).filter(|&j| j != i) {
-                let d = target_distance(corr[i][j]);
+                let d = targets[i][j].max(1.0);
                 let w = 1.0 / (d * d);
                 let (dx, dy) = (pos[i].0 - pos[j].0, pos[i].1 - pos[j].1);
                 let dist = dx.hypot(dy).max(1e-6);
@@ -482,13 +519,16 @@ fn layout(corr: &[Vec<f64>]) -> Vec<(f64, f64)> {
     fit_to_view(&pos)
 }
 
-/// Uniformly scales and centres points into the padded view box.
+/// Centres points in the padded view box, scaling down (never up) so they
+/// fit. Scaling up would undo the distances the springs aim for.
 fn fit_to_view(pos: &[(f64, f64)]) -> Vec<(f64, f64)> {
     let (min_x, max_x) = min_max(pos.iter().map(|p| p.0));
     let (min_y, max_y) = min_max(pos.iter().map(|p| p.1));
     let span_x = (max_x - min_x).max(1e-6);
     let span_y = (max_y - min_y).max(1e-6);
-    let scale = ((VIEW_W - 2.0 * PADDING) / span_x).min((VIEW_H - 2.0 * PADDING) / span_y);
+    let scale = ((VIEW_W - 2.0 * PADDING) / span_x)
+        .min((VIEW_H - 2.0 * PADDING) / span_y)
+        .min(1.0);
     let off_x = (VIEW_W - span_x * scale) / 2.0;
     let off_y = (VIEW_H - span_y * scale) / 2.0;
     pos.iter()
@@ -519,7 +559,7 @@ mod tests {
 
     #[test]
     fn layout_puts_related_stocks_closer() {
-        let pos = layout(&corr());
+        let pos = layout(&spring_lengths(&corr(), &[16.0; 3]));
         assert!(dist(pos[0], pos[1]) < dist(pos[0], pos[2]));
         assert!(dist(pos[0], pos[1]) < dist(pos[1], pos[2]));
     }
@@ -538,7 +578,7 @@ mod tests {
             dragged: None,
         };
         let mut frames = 0;
-        while sim.step(&spring_lengths(&corr), &radii) {
+        while sim.step(&spring_lengths(&corr, &radii), &radii) {
             frames += 1;
             assert!(frames < 1000, "simulation never settled");
         }
@@ -554,10 +594,84 @@ mod tests {
             alpha: 1.0,
             dragged: Some(0),
         };
-        let targets = spring_lengths(&[vec![1.0, 0.0], vec![0.0, 1.0]]);
+        let targets = spring_lengths(&[vec![1.0, 0.0], vec![0.0, 1.0]], &[16.0, 16.0]);
         for _ in 0..50 {
             assert!(sim.step(&targets, &[16.0, 16.0]));
         }
         assert_eq!(sim.bodies[0].pos(), (100.0, 100.0));
+    }
+
+    fn settle(corr: &[Vec<f64>], radii: &[f64]) -> Vec<(f64, f64)> {
+        let targets = spring_lengths(corr, radii);
+        let mut sim = Sim {
+            bodies: layout(&targets).into_iter().map(|(x, y)| Body::at(x, y)).collect(),
+            alpha: 1.0,
+            dragged: None,
+        };
+        let mut frames = 0;
+        while sim.step(&targets, radii) {
+            frames += 1;
+            assert!(frames < 2000, "simulation never settled");
+        }
+        sim.bodies.iter().map(Body::pos).collect()
+    }
+
+    /// A typical portfolio: every pair correlates 0.35–0.8. It used to
+    /// settle into one clump with every circle touching its neighbours.
+    #[test]
+    fn typical_portfolio_spreads_out() {
+        let tickers = 8;
+        let corr: Vec<Vec<f64>> = (0..tickers)
+            .map(|i| {
+                (0..tickers)
+                    .map(|j| {
+                        if i == j {
+                            1.0
+                        } else if i / 4 == j / 4 {
+                            0.8 // two sectors of four
+                        } else {
+                            0.35
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let radii: Vec<f64> = (0..tickers).map(|_| node_radius(12.5)).collect();
+        let p = settle(&corr, &radii);
+
+        // No two circles overlap.
+        for i in 0..tickers {
+            for j in (i + 1)..tickers {
+                assert!(dist(p[i], p[j]) >= radii[i] + radii[j], "{i} and {j} overlap");
+            }
+        }
+        // The two sectors sit clearly apart: the gap between them is well
+        // over twice the typical distance inside a sector.
+        let mean = |pairs: &[(usize, usize)]| pairs.iter().map(|&(i, j)| dist(p[i], p[j])).sum::<f64>() / pairs.len() as f64;
+        let within: Vec<_> = (0..tickers).flat_map(|i| ((i + 1)..tickers).map(move |j| (i, j))).filter(|(i, j)| i / 4 == j / 4).collect();
+        let across: Vec<_> = (0..tickers).flat_map(|i| ((i + 1)..tickers).map(move |j| (i, j))).filter(|(i, j)| i / 4 != j / 4).collect();
+        assert!(mean(&across) > 2.0 * mean(&within), "within {} across {}", mean(&within), mean(&across));
+        // And the graph uses the box instead of bunching in the middle.
+        let (min_x, max_x) = min_max(p.iter().map(|q| q.0));
+        let (min_y, max_y) = min_max(p.iter().map(|q| q.1));
+        assert!((max_x - min_x).max(max_y - min_y) > VIEW_H * 0.5, "spans {}×{}", max_x - min_x, max_y - min_y);
+    }
+
+    #[test]
+    fn coincident_nodes_separate() {
+        let corr = vec![vec![1.0, 0.95], vec![0.95, 1.0]];
+        let radii = vec![16.0; 2];
+        let mut sim = Sim {
+            bodies: vec![Body::at(300.0, 190.0); 2],
+            alpha: 1.0,
+            dragged: None,
+        };
+        let targets = spring_lengths(&corr, &radii);
+        let mut frames = 0;
+        while sim.step(&targets, &radii) {
+            frames += 1;
+            assert!(frames < 2000, "simulation never settled");
+        }
+        assert!(dist(sim.bodies[0].pos(), sim.bodies[1].pos()) >= 32.0);
     }
 }

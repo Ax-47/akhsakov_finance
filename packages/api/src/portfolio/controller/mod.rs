@@ -30,7 +30,9 @@ pub async fn rename_portfolio(id: Uuid, name: String) -> Result<(), ServerFnErro
 /// Deletes the portfolio and all of its transactions.
 #[post("/api/portfolios/delete", service: Extension<PortfolioService>)]
 pub async fn delete_portfolio(id: Uuid) -> Result<(), ServerFnError> {
-    Ok(service.delete_portfolio(id)?)
+    service.delete_portfolio(id)?;
+    crate::covers::store::remove(&crate::covers::store::dir(), id);
+    Ok(())
 }
 
 /// Adds a transaction, or updates the one with the same id.

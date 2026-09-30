@@ -431,14 +431,15 @@ fn GoalsCard(prices: HashMap<TickerSymbol, Decimal>, today: Option<String>) -> E
                                             onclick: move |_| dialogs.open(Dialog::Goal(Some(edit.clone()))),
                                             "✎"
                                         }
-                                        button {
-                                            class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                                            onclick: move |_| async move {
-                                                if api::delete_goal(g.id).await.is_ok() {
-                                                    refresh.reload();
-                                                }
+                                        crate::components::card::DeleteButton {
+                                            title: tr("Delete goal"),
+                                            onconfirm: move |_| {
+                                                spawn(async move {
+                                                    if api::delete_goal(g.id).await.is_ok() {
+                                                        refresh.reload();
+                                                    }
+                                                });
                                             },
-                                            "🗑"
                                         }
                                     }
                                 }

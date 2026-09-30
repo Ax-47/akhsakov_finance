@@ -283,11 +283,11 @@ pub fn TransactionDialog(
                     }
                 }
                 if let Some(total) = f.total() {
-                    p { class: "text-xs text-ctp-subtext0", "Total: {total}" }
+                    p { class: "text-xs text-ctp-subtext0", {crate::i18n::trf("Total: {}", &[&total])} }
                 }
                 if f.currency != "USD" {
                     p { class: "text-xs text-ctp-subtext0",
-                        "Converted to USD at the {f.currency} rate on the trade date."
+                        {crate::i18n::trf("Converted to USD at the {} rate on the trade date.", &[&f.currency])}
                     }
                 }
                 ErrorLine { error: error() }
@@ -752,11 +752,317 @@ pub fn ImportDialog(
     }
 }
 
+// ─── Cover pictures ───────────────────────────────────────────────────────────
+
+/// Shrinks a picture to a banner-sized JPEG in the webview: at most 1600 px
+/// wide and a bit under the server's size limit, so phone photos upload fast.
+const RESIZE_JS: &str = r#"
+    const src = await dioxus.recv();
+    const img = new Image();
+    try {
+        await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = src; });
+    } catch (e) {
+        return "";
+    }
+    const scale = Math.min(1, 1600 / img.naturalWidth);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.85, 0.7, 0.55]) {
+        const out = canvas.toDataURL("image/jpeg", quality);
+        if (out.length < 1900000) return out;
+    }
+    return "";
+"#;
+
+#[component]
+fn CoverDialog(id: Uuid, name: String, on_close: EventHandler<()>) -> Element {
+    let refresh = use_context::<DataRefresh>();
+    let mut preview = use_signal(|| None::<String>);
+    let mut changed = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut busy = use_signal(|| false);
+    use_future(move || async move {
+        if let Ok(Some(cover)) = api::get_portfolio_cover(id).await {
+            if !changed() {
+                preview.set(Some(cover));
+            }
+        }
+    });
+
+    let pick = move |e: FormEvent| async move {
+        let Some(file) = e.files().into_iter().next() else { return };
+        busy.set(true);
+        let picked = match file.read_bytes().await {
+            Ok(bytes) => {
+                use base64::Engine;
+                let mime = file.content_type().unwrap_or_else(|| "image/jpeg".into());
+                let raw = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
+                let js = document::eval(RESIZE_JS);
+                let _ = js.send(raw);
+                js.join::<String>().await.ok().filter(|s| !s.is_empty())
+            }
+            Err(_) => None,
+        };
+        busy.set(false);
+        match picked {
+            Some(url) => {
+                error.set(None);
+                changed.set(true);
+                preview.set(Some(url));
+            }
+            None => error.set(Some(tr("Couldn't read that picture. Try a JPEG or PNG.").into())),
+        }
+    };
+    let save = move |_| async move {
+        busy.set(true);
+        let result = match preview() {
+            Some(url) => api::set_portfolio_cover(id, url).await,
+            None => api::remove_portfolio_cover(id).await,
+        };
+        busy.set(false);
+        match result {
+            Ok(()) => {
+                refresh.reload();
+                on_close.call(());
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+
+    rsx! {
+        Modal { title: crate::i18n::trf("Cover for {}", &[&name]), on_close,
+            div { class: "grid gap-4",
+                match preview() {
+                    Some(url) => rsx! {
+                        div {
+                            class: "h-40 rounded-2xl bg-ctp-surface0 bg-cover bg-center",
+                            style: "background-image: url('{url}');",
+                        }
+                    },
+                    None => rsx! {
+                        div { class: "flex h-40 items-center justify-center rounded-2xl border border-dashed border-ctp-surface1 text-sm text-ctp-overlay1",
+                            {tr("No cover yet")}
+                        }
+                    },
+                }
+                Field { label: tr("Picture"), hint: tr("A wide photo works best. It's shrunk to fit before saving."),
+                    input {
+                        class: "block w-full text-sm text-ctp-subtext0 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-ctp-surface0 file:px-4 file:py-2 file:text-sm file:text-ctp-text",
+                        r#type: "file",
+                        accept: "image/jpeg,image/png,image/webp",
+                        onchange: pick,
+                    }
+                }
+                ErrorLine { error: error() }
+                div { class: "flex flex-wrap justify-end gap-2",
+                    if preview().is_some() {
+                        ActionButton {
+                            label: tr("Remove cover"),
+                            tone: ButtonTone::Quiet,
+                            onclick: move |_| {
+                                changed.set(true);
+                                preview.set(None);
+                            },
+                        }
+                    }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Save"), disabled: busy() || !changed(), onclick: save }
+                }
+            }
+        }
+    }
+}
+
+// ─── AI portfolios ────────────────────────────────────────────────────────────
+
+/// Starting points for the trading strategy; the text stays editable.
+const STRATEGIES: [(&str, &str); 4] = [
+    ("Long term", dtos::ai_models::DEFAULT_TRADER_STRATEGY),
+    ("Dividends", "Build a steady income. Prefer companies and funds with a long record of paying and raising dividends, keep any one holding under 15%, and only sell when the dividend is at risk or the thesis breaks."),
+    ("Growth", "Look for companies growing sales and earnings fast. Accept more ups and downs, but spread the money over at least six holdings and cut a position when its thesis breaks."),
+    ("Index", "Keep it simple: hold a few broad index ETFs, add money evenly, and rebalance only when a holding drifts more than 5 percentage points from its target."),
+];
+
+#[derive(Clone, Copy, PartialEq)]
+enum ModelChoice {
+    Saved,
+    New,
+    Later,
+}
+
+/// Name, money, model and strategy on one screen, so a new AI portfolio is
+/// ready to run as soon as it's created.
+#[component]
+fn AiPortfolioDialog(on_close: EventHandler<()>) -> Element {
+    let refresh = use_context::<DataRefresh>();
+    let crate::app::PortfolioScope(mut scope) = use_context::<crate::app::PortfolioScope>();
+    let nav = use_context::<crate::app::PendingNav>();
+    let mut name = use_signal(String::new);
+    let mut cash = use_signal(|| dtos::ai_portfolio::DEFAULT_STARTING_CASH.to_string());
+    let mut profiles = use_signal(Vec::<dtos::ai_models::ModelProfile>::new);
+    let mut choice = use_signal(|| ModelChoice::New);
+    let mut profile_id = use_signal(|| None::<Uuid>);
+    let mut conn_name = use_signal(String::new);
+    let mut base_url = use_signal(String::new);
+    let mut model = use_signal(String::new);
+    let mut api_key = use_signal(String::new);
+    let mut preset = use_signal(|| 0usize);
+    let mut strategy = use_signal(|| STRATEGIES[0].1.to_string());
+    let mut error = use_signal(|| None::<String>);
+    let mut busy = use_signal(|| false);
+
+    // Default to a saved connection when there is one.
+    use_future(move || async move {
+        if let Ok(list) = api::get_model_profiles().await {
+            if let Some(first) = list.first() {
+                profile_id.set(Some(first.id));
+                choice.set(ModelChoice::Saved);
+            }
+            profiles.set(list);
+        }
+    });
+
+    let submit = move |_| async move {
+        let starting_cash = match Decimal::from_str(cash().trim().replace(',', "").as_str()) {
+            Ok(c) if c > Decimal::ZERO => c,
+            _ => return error.set(Some(tr("Enter the starting cash as a number above zero.").into())),
+        };
+        let (profile, connection) = match choice() {
+            ModelChoice::Saved => (profile_id(), None),
+            ModelChoice::New => (
+                None,
+                Some(dtos::ai_models::NewModelConnection {
+                    // Blank: name it after the model.
+                    name: Some(conn_name().trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| model().trim().to_string()),
+                    base_url: base_url(),
+                    model: model(),
+                    api_key: api_key(),
+                }),
+            ),
+            ModelChoice::Later => (None, None),
+        };
+        busy.set(true);
+        let result = api::create_ai_trader(dtos::ai_models::NewAiTrader {
+            name: name(),
+            starting_cash,
+            profile_id: profile,
+            connection,
+            strategy: strategy(),
+        })
+        .await;
+        busy.set(false);
+        match result {
+            Ok(info) => {
+                refresh.reload();
+                scope.set(Some(info.portfolio_id.to_string()));
+                on_close.call(());
+                // The dialog lives outside the router: navigator() panics here.
+                nav.go("/portfolio");
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+
+    let saved = profiles();
+    rsx! {
+        Modal { title: tr("New AI portfolio"), on_close,
+            form {
+                class: "grid gap-5",
+                onsubmit: move |e| e.prevent_default(),
+                p { class: "text-sm text-ctp-subtext0",
+                    {tr("An AI invests this paper money by itself so you can see how it does. It can't touch your other portfolios, and nothing is bought at a real broker.")}
+                }
+                div { class: "grid gap-4 sm:grid-cols-2",
+                    Field { label: tr("Name"),
+                        input { class: INPUT, autofocus: true, placeholder: "AI", value: "{name}", oninput: move |e| name.set(e.value()) }
+                    }
+                    Field { label: tr("Starting cash (USD)"),
+                        input { class: INPUT, inputmode: "decimal", value: "{cash}", oninput: move |e| cash.set(e.value()) }
+                    }
+                }
+
+                div { class: "grid gap-3",
+                    span { class: "text-xs text-ctp-subtext0", {tr("Which AI makes the decisions")} }
+                    Segmented {
+                        if !saved.is_empty() {
+                            ToggleButton { label: tr("Use saved"), active: choice() == ModelChoice::Saved, onclick: move |_| choice.set(ModelChoice::Saved) }
+                        }
+                        ToggleButton { label: tr("New connection"), active: choice() == ModelChoice::New, onclick: move |_| choice.set(ModelChoice::New) }
+                        ToggleButton { label: tr("Later"), active: choice() == ModelChoice::Later, onclick: move |_| choice.set(ModelChoice::Later) }
+                    }
+                    match choice() {
+                        ModelChoice::Saved => rsx! {
+                            select {
+                                class: INPUT,
+                                onchange: move |e| profile_id.set(Uuid::parse_str(&e.value()).ok()),
+                                for p in saved.iter() {
+                                    option { key: "{p.id}", value: "{p.id}", selected: profile_id() == Some(p.id), "{p.name} · {p.model}" }
+                                }
+                            }
+                        },
+                        ModelChoice::New => rsx! {
+                            div { class: "grid gap-3 sm:grid-cols-2",
+                                Field { label: tr("API address"), hint: tr("The provider's OpenAI-compatible address, ending in /v1."),
+                                    input { class: INPUT, inputmode: "url", placeholder: "https://api.example.com/v1", value: "{base_url}", oninput: move |e| base_url.set(e.value()) }
+                                }
+                                Field { label: tr("Model"), hint: tr("The model's name as the provider writes it."),
+                                    input { class: INPUT, placeholder: "provider/model-name", value: "{model}", oninput: move |e| model.set(e.value()) }
+                                }
+                                Field { label: tr("API key"), hint: tr("Stored on this server only, never shown again."),
+                                    input { class: INPUT, r#type: "password", autocomplete: "off", value: "{api_key}", oninput: move |e| api_key.set(e.value()) }
+                                }
+                                Field { label: tr("Connection name"), hint: tr("Optional. Reuse it for other AI portfolios."),
+                                    input { class: INPUT, value: "{conn_name}", oninput: move |e| conn_name.set(e.value()) }
+                                }
+                            }
+                        },
+                        ModelChoice::Later => rsx! {
+                            p { class: "text-xs text-ctp-overlay1",
+                                {tr("Trade it from an AI app over MCP, or add a model later in Settings.")}
+                            }
+                        },
+                    }
+                }
+
+                div { class: "grid gap-3",
+                    span { class: "text-xs text-ctp-subtext0", {tr("How it should invest")} }
+                    div { class: "flex flex-wrap gap-2",
+                        for (i, &(label, text)) in STRATEGIES.iter().enumerate() {
+                            ToggleButton {
+                                key: "{label}",
+                                label: tr(label),
+                                active: preset() == i,
+                                onclick: move |_| {
+                                    preset.set(i);
+                                    strategy.set(text.to_string());
+                                },
+                            }
+                        }
+                    }
+                    textarea {
+                        class: "{INPUT} min-h-28",
+                        value: "{strategy}",
+                        oninput: move |e| strategy.set(e.value()),
+                    }
+                }
+
+                ErrorLine { error: error() }
+                div { class: "flex justify-end gap-2",
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: if busy() { tr("Creating…") } else { tr("Create AI portfolio") }, disabled: busy(), onclick: submit }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn ErrorLine(error: Option<String>) -> Element {
     rsx! {
         if let Some(e) = error {
-            p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red", "{e}" }
+            p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red break-words", "{e}" }
         }
     }
 }
@@ -833,6 +1139,10 @@ pub enum Dialog {
     NewAlert(Option<TickerSymbol>),
     /// New goal (`None`) or edit one.
     Goal(Option<Goal>),
+    /// An AI portfolio with its model and strategy, in one step.
+    NewAiPortfolio,
+    /// Set or remove a portfolio's cover picture.
+    PortfolioCover(Uuid, String),
 }
 
 /// App-wide handle for opening editor dialogs.
@@ -868,5 +1178,7 @@ pub fn EditorHost() -> Element {
         Some(Dialog::Import(portfolio)) => rsx! { ImportDialog { portfolio, on_close: close } },
         Some(Dialog::NewAlert(ticker)) => rsx! { AlertDialog { ticker, on_close: close } },
         Some(Dialog::Goal(goal)) => rsx! { GoalDialog { goal, on_close: close } },
+        Some(Dialog::NewAiPortfolio) => rsx! { AiPortfolioDialog { on_close: close } },
+        Some(Dialog::PortfolioCover(id, name)) => rsx! { CoverDialog { id, name, on_close: close } },
     }
 }

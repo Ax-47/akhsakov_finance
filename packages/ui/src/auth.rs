@@ -155,7 +155,7 @@ fn SignInScreen(setup: bool) -> Element {
                         }
                     }
                     if let Some(e) = error() {
-                        p { class: "text-sm text-ctp-red", "{e}" }
+                        p { class: "text-sm text-ctp-red break-words", "{e}" }
                     }
                     ActionButton { label: button, disabled: busy(), onclick: submit }
                 }

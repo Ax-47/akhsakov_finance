@@ -1,5 +1,8 @@
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
-use dtos::ai_models::{AiRun, AiRunEvent, AiRunStatus, ModelProfile, TraderConfig, TraderMemory};
+use dtos::{
+    ai_models::{AiRun, AiRunEvent, AiRunStatus, ModelProfile, NewAiTrader, TraderConfig, TraderMemory},
+    ai_portfolio::AiPortfolioInfo,
+};
 use reqwest::Url;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
@@ -290,6 +293,39 @@ impl ModelService {
             })
             .map_err(storage)?;
         Ok(TraderMemory::empty(portfolio_id))
+    }
+
+    /// Creates an AI portfolio with its model connection and strategy in
+    /// one step. Everything that can be checked is checked before the
+    /// portfolio is created, so a typo doesn't leave a half-set-up one behind.
+    pub async fn create_trader(&self, input: NewAiTrader) -> Result<AiPortfolioInfo, ServiceError> {
+        let strategy = input.strategy.trim();
+        if strategy.is_empty() {
+            return Err(invalid("Trading strategy cannot be empty."));
+        }
+        if let Some(c) = &input.connection {
+            if c.name.trim().is_empty() || c.model.trim().is_empty() {
+                return Err(invalid("Give the connection a name and a model."));
+            }
+            if c.api_key.trim().is_empty() {
+                return Err(invalid("Enter an API key for this connection."));
+            }
+            normalize_base_url(&c.base_url)?;
+        } else if let Some(id) = input.profile_id {
+            self.profile(id)?;
+        }
+
+        let info = self.mcp.trading().start(&input.name, input.starting_cash).await?;
+        let profile_id = match &input.connection {
+            Some(c) => Some(self.save_profile(None, &c.name, &c.base_url, &c.model, Some(&c.api_key))?.id),
+            None => input.profile_id,
+        };
+        self.save_config(TraderConfig {
+            profile_id,
+            strategy: strategy.to_string(),
+            ..TraderConfig::new(info.portfolio_id)
+        })?;
+        Ok(info)
     }
 
     pub async fn start_run(&self, portfolio_id: Uuid) -> Result<AiRun, ServiceError> {
@@ -1044,6 +1080,61 @@ mod tests {
         let connector = crate::mcp::services::tests::service_with_database(db.clone());
         let model = ModelService::new(db.clone(), connector);
         (db, model)
+    }
+
+    fn new_trader(connection: Option<dtos::ai_models::NewModelConnection>) -> NewAiTrader {
+        NewAiTrader {
+            name: "Growth".into(),
+            starting_cash: rust_decimal_macros::dec!(5000),
+            profile_id: None,
+            connection,
+            strategy: "  Buy quality growth.  ".into(),
+        }
+    }
+
+    fn connection(base_url: &str) -> dtos::ai_models::NewModelConnection {
+        dtos::ai_models::NewModelConnection {
+            name: "Example".into(),
+            base_url: base_url.into(),
+            model: "provider/model".into(),
+            api_key: "secret".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn creates_a_trader_in_one_step() {
+        let (_db, service) = service();
+        let info = service
+            .create_trader(new_trader(Some(connection("https://api.example.com/v1/"))))
+            .await
+            .unwrap();
+        assert_eq!(info.name, "Growth");
+        let config = service.config(info.portfolio_id).unwrap();
+        assert_eq!(config.strategy, "Buy quality growth.");
+        let profile = config.profile_id.expect("uses the new connection");
+        assert_eq!(service.connection(profile).unwrap().api_key, "secret");
+    }
+
+    #[tokio::test]
+    async fn bad_input_creates_nothing() {
+        let (_db, service) = service();
+        let before = service.mcp.trading().infos().unwrap().len();
+        let mut empty = new_trader(None);
+        empty.strategy = " ".into();
+        assert!(service.create_trader(empty).await.is_err());
+        assert!(service.create_trader(new_trader(Some(connection("file:///x")))).await.is_err());
+        let mut unknown = new_trader(None);
+        unknown.profile_id = Some(Uuid::new_v4());
+        assert!(service.create_trader(unknown).await.is_err());
+        assert_eq!(service.mcp.trading().infos().unwrap().len(), before, "no portfolio left behind");
+        assert!(service.profiles().unwrap().is_empty(), "no connection left behind");
+    }
+
+    #[tokio::test]
+    async fn a_trader_without_a_model_is_for_mcp_clients() {
+        let (_db, service) = service();
+        let info = service.create_trader(new_trader(None)).await.unwrap();
+        assert_eq!(service.config(info.portfolio_id).unwrap().profile_id, None);
     }
 
     #[test]
