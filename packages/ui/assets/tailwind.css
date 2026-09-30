@@ -2158,6 +2158,10 @@
     width: calc(var(--spacing) * 72);
   }
 
+  .w-\[4\.5rem\] {
+    width: 4.5rem;
+  }
+
   .w-full {
     width: 100%;
   }
@@ -4189,6 +4193,14 @@
       display: flex;
     }
 
+    .sm\:w-20 {
+      width: calc(var(--spacing) * 20);
+    }
+
+    .sm\:w-24 {
+      width: calc(var(--spacing) * 24);
+    }
+
     .sm\:w-80 {
       width: calc(var(--spacing) * 80);
     }
@@ -4217,8 +4229,16 @@
       align-items: flex-start;
     }
 
+    .sm\:gap-4 {
+      gap: calc(var(--spacing) * 4);
+    }
+
     .sm\:gap-5 {
       gap: calc(var(--spacing) * 5);
+    }
+
+    .sm\:px-6 {
+      padding-inline: calc(var(--spacing) * 6);
     }
 
     .sm\:px-8 {

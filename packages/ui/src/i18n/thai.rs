@@ -1097,4 +1097,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Over these {} quarters, {} and {} somewhat move together (correlation {}).", "ใน {} ไตรมาสนี้ {} กับ {} ค่อนข้างขยับไปด้วยกัน (correlation {})"),
     ("Over these {} quarters, {} and {} strongly move in opposite directions (correlation {}).", "ใน {} ไตรมาสนี้ {} กับ {} ขยับสวนทางกันอย่างชัดเจน (correlation {})"),
     ("Over these {} quarters, {} and {} somewhat move in opposite directions (correlation {}).", "ใน {} ไตรมาสนี้ {} กับ {} ค่อนข้างขยับสวนทางกัน (correlation {})"),
+    ("Since added", "ตั้งแต่เพิ่ม"),
+    ("Added", "เพิ่มเมื่อ"),
+    ("Active alerts", "การแจ้งเตือนที่เปิดอยู่"),
 ];
