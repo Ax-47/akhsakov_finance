@@ -286,7 +286,7 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
             class: "fixed inset-0 z-50 flex items-center justify-center bg-ctp-crust/70 p-4 backdrop-blur-sm",
             onclick: move |_| on_close.call(()),
             div {
-                class: "w-full max-w-lg rounded-3xl border border-ctp-surface0 bg-ctp-mantle p-6 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
+                class: "w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-ctp-surface0 bg-ctp-mantle p-6 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                 role: "dialog",
                 onclick: move |e| e.stop_propagation(),
                 div { class: "mb-5 flex items-center justify-between",

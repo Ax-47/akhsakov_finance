@@ -73,6 +73,7 @@ pub fn Home() -> Element {
                         GhostButton { label: tr("＋ Transaction"), primary: true, onclick: move |_| dialogs.open(Dialog::AddTransaction(None)) }
                         GhostButton { label: tr("Import CSV"), onclick: move |_| dialogs.open(Dialog::Import(None)) }
                         GhostButton { label: tr("＋ Portfolio"), onclick: move |_| dialogs.open(Dialog::NewPortfolio) }
+                        GhostButton { label: tr("＋ AI portfolio"), onclick: move |_| dialogs.open(Dialog::NewAiPortfolio) }
                     }
                 },
                 HeroStat {
@@ -110,7 +111,7 @@ pub fn Home() -> Element {
                     ToggleButton { label: tr("Holdings"), active: view() == View::Holdings, onclick: move |_| view.set(View::Holdings) }
                 }
                 span { class: "hidden sm:block text-xs text-ctp-overlay1",
-                    "{portfolio_count} portfolios · {positions.len()} holdings"
+                    {crate::i18n::trf("{} portfolios · {} holdings", &[&portfolio_count, &positions.len()])}
                 }
             }
 
