@@ -365,11 +365,13 @@ fn RaceChart(race: AiRace) -> Element {
     let labels: Vec<String> = (0..=rounds)
         .map(|r| if r == 0 { tr("Start").to_string() } else { trf("Round {}", &[&r]) })
         .collect();
+    // The chart draws returns (%): each value against the starting cash.
+    let start = race.starting_capital;
     let line = |points: Vec<(u32, f64)>| -> Vec<Option<Decimal>> {
         let mut values = vec![None; rounds as usize + 1];
         for (round, value) in points {
-            if let Some(slot) = values.get_mut(round as usize) {
-                *slot = Decimal::try_from(value).ok();
+            if let (Some(slot), true) = (values.get_mut(round as usize), start > 0.0) {
+                *slot = Decimal::try_from((value / start - 1.0) * 100.0).ok();
             }
         }
         values
@@ -395,7 +397,15 @@ fn RaceChart(race: AiRace) -> Element {
         div {
             div { class: "mb-2 text-xs font-semibold uppercase tracking-wide text-ctp-subtext0", {tr("Value by round")} }
             document::Script { src: asset!("/assets/js/growth_chart.js") }
-            GrowthChart { chart_dates: labels, series, height: Decimal::from(240) }
+            GrowthChart { chart_dates: labels, series: series.clone(), height: Decimal::from(240) }
+            div { class: "mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ctp-subtext0",
+                for s in series {
+                    span { key: "{s.name}", class: "flex items-center gap-1.5",
+                        span { class: "inline-block h-2 w-2 rounded-full", style: "background:{s.color};" }
+                        "{s.name}"
+                    }
+                }
+            }
         }
     }
 }
@@ -498,7 +508,11 @@ fn RoundRun(item: AiRaceRun) -> Element {
             summary { class: "flex min-h-8 cursor-pointer flex-wrap items-center gap-x-3 gap-y-1",
                 span { class: "font-medium text-ctp-text", {trf("Round {}", &[&item.round])} }
                 span { class: tone, "{label}" }
-                span { class: "text-ctp-subtext0", {trf("{} trades · {} tool calls", &[&trades, &run.events.len()])} }
+                span { class: "text-ctp-subtext0",
+                    if trades == 1 { {tr("1 trade")} } else { {trf("{} trades", &[&trades])} }
+                    " · "
+                    if run.events.len() == 1 { {tr("1 tool call")} } else { {trf("{} tool calls", &[&run.events.len()])} }
+                }
             }
             div { class: "mt-2 grid gap-2",
                 if let Some(summary) = &run.final_response {
