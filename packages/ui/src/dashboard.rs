@@ -93,7 +93,8 @@ pub fn Dashboard() -> Element {
         .map(|(_, name, _)| name.clone())
         .unwrap_or_else(|| tr("Your portfolio").to_string());
     let badge = current
-        .is_some_and(|(_, _, ai)| ai)
+        .as_ref()
+        .is_some_and(|(_, _, ai)| *ai)
         .then(|| tr("AI-managed · paper money").to_string());
     let names: Vec<(String, String)> = portfolios.iter().map(|(id, name, _)| (id.clone(), name.clone())).collect();
     // The picker lists AI-managed portfolios with an AI tag.
@@ -102,15 +103,28 @@ pub fn Dashboard() -> Element {
         .map(|(id, name, ai)| (id.clone(), if *ai { format!("{name} · 🤖 AI") } else { name.clone() }))
         .collect();
     let empty = positions.is_empty() && transactions.is_empty();
+    let refresh = use_context::<crate::app::DataRefresh>();
+    let cover = crate::cache::use_cached(move || format!("cover/{:?}", scope()), move || async move {
+        let _reload = refresh.0();
+        match scope().and_then(|id| Uuid::parse_str(&id).ok()) {
+            Some(id) => api::get_portfolio_cover(id).await.ok().flatten(),
+            None => None,
+        }
+    });
+    let cover_target = current.as_ref().and_then(|(id, name, _)| Some((Uuid::parse_str(id).ok()?, name.clone())));
 
     rsx! {
         Page {
             PageHero {
                 title,
                 badge,
+                cover: cover.read().clone().flatten(),
                 actions: rsx! {
                     div { class: "flex flex-wrap items-center gap-2",
                         GhostButton { label: tr("＋ Transaction"), primary: true, onclick: move |_| dialogs.open(Dialog::AddTransaction(scope_id)) }
+                        if let Some((id, name)) = cover_target.clone() {
+                            GhostButton { label: tr("Cover"), onclick: move |_| dialogs.open(Dialog::PortfolioCover(id, name.clone())) }
+                        }
                         GhostButton { label: tr("Print"), onclick: move |_| print_report() }
                         ScopePicker { scope, portfolios: choices.clone() }
                     }
@@ -582,7 +596,7 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
     rsx! {
         tr {
             class: "group border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors cursor-pointer",
-            title: "Open {pos.ticker}",
+            title: trf("Open {}", &[&pos.ticker]),
             onclick: move |_| open_stock(&ticker),
             td { class: "pl-6 pr-4 py-3.5",
                 span { class: "flex items-center gap-2.5",

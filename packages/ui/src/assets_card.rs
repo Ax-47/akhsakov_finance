@@ -137,23 +137,21 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
                     onclick: move |_| on_edit.call(edit.clone()),
                     "✎"
                 }
-                button {
-                    class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                    "aria-label": "Forget {asset.ticker}",
-                    onclick: move |_| {
+                crate::components::card::DeleteButton {
+                    title: crate::i18n::trf("Forget {}", &[&asset.ticker]),
+                    onconfirm: move |_| {
                         let del = del.clone();
-                        async move {
+                        spawn(async move {
                             if api::delete_asset(del).await.is_ok() {
                                 refresh.reload();
                                 reprice();
                             }
-                        }
+                        });
                     },
-                    "🗑"
                 }
             }
             if let Some(e) = error() {
-                p { class: "w-full text-xs text-ctp-red", "{e}" }
+                p { class: "w-full text-xs text-ctp-red break-words", "{e}" }
             }
         }
     }
@@ -268,7 +266,7 @@ pub fn AssetDialog(existing: Option<AssetInfo>, on_close: EventHandler<()>) -> E
                     }
                 }
                 if let Some(e) = error() {
-                    p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red", "{e}" }
+                    p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red break-words", "{e}" }
                 }
                 div { class: "flex justify-end gap-2",
                     ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }

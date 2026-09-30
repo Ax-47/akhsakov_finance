@@ -40,10 +40,11 @@ pub fn Card(
 }
 
 /// Pill-shaped segmented control container; fill it with [`ToggleButton`]s.
+/// Too wide for the screen, it scrolls sideways instead of wrapping labels.
 #[component]
 pub fn Segmented(children: Element) -> Element {
     rsx! {
-        div { class: "inline-flex gap-0.5 rounded-full border border-ctp-surface0 bg-ctp-crust/40 p-0.5",
+        div { class: "inline-flex w-fit max-w-full gap-0.5 overflow-x-auto rounded-full border border-ctp-surface0 bg-ctp-crust/40 p-0.5",
             {children}
         }
     }
@@ -54,9 +55,9 @@ pub fn ToggleButton(label: String, active: bool, onclick: EventHandler<MouseEven
     rsx! {
         button {
             class: if active {
-                "min-h-8 px-3.5 py-1.5 rounded-full text-sm font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
+                "min-h-8 shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-sm font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
             } else {
-                "min-h-8 px-3.5 py-1.5 rounded-full text-sm font-medium text-ctp-subtext0 hover:text-ctp-text cursor-pointer transition-colors"
+                "min-h-8 shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-sm font-medium text-ctp-subtext0 hover:text-ctp-text cursor-pointer transition-colors"
             },
             aria_pressed: active,
             onclick: move |e| onclick.call(e),
@@ -286,7 +287,7 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
             class: "fixed inset-0 z-50 flex items-center justify-center bg-ctp-crust/70 p-4 backdrop-blur-sm",
             onclick: move |_| on_close.call(()),
             div {
-                class: "w-full max-w-lg rounded-3xl border border-ctp-surface0 bg-ctp-mantle p-6 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
+                class: "w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-ctp-surface0 bg-ctp-mantle p-6 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                 role: "dialog",
                 onclick: move |e| e.stop_propagation(),
                 div { class: "mb-5 flex items-center justify-between",
@@ -348,6 +349,44 @@ pub fn ActionButton(
             disabled,
             onclick: move |e| onclick.call(e),
             "{label}"
+        }
+    }
+}
+
+/// A delete button that asks first: the first tap turns it into "Delete?",
+/// the second deletes. Moving away cancels.
+#[component]
+pub fn DeleteButton(
+    /// Tooltip and screen-reader label, e.g. "Delete alert".
+    title: String,
+    onconfirm: EventHandler<()>,
+    /// Shown before the first tap.
+    #[props(default = "🗑".to_string())]
+    icon: String,
+) -> Element {
+    let mut armed = use_signal(|| false);
+    rsx! {
+        button {
+            r#type: "button",
+            class: if armed() {
+                "rounded-full bg-ctp-red/15 px-2.5 py-1 text-xs font-semibold text-ctp-red cursor-pointer"
+            } else {
+                "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-red"
+            },
+            title: "{title}",
+            "aria-label": "{title}",
+            onclick: move |e| {
+                e.stop_propagation();
+                if armed() {
+                    armed.set(false);
+                    onconfirm.call(());
+                } else {
+                    armed.set(true);
+                }
+            },
+            onmouseleave: move |_| armed.set(false),
+            onblur: move |_| armed.set(false),
+            if armed() { {tr("Delete?")} } else { "{icon}" }
         }
     }
 }

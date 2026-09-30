@@ -11,6 +11,7 @@ use crate::views::Navbar;
 
 #[cfg(all(feature = "desktop", not(feature = "server")))]
 mod local_server;
+mod build_id;
 mod views;
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -71,7 +72,9 @@ fn main() {
     exit_with_parent();
     #[cfg(feature = "server")]
     dioxus::serve(|| async move {
-        let router = api::with_services(dioxus::server::router(App));
+        use dioxus::server::axum::routing::get;
+        let router = api::with_services(dioxus::server::router(App))
+            .route(build_id::ROUTE, get(|| async { build_id::BUILD }));
         Ok(router)
     });
 }

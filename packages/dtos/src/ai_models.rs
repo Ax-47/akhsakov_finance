@@ -42,6 +42,28 @@ impl TraderConfig {
     }
 }
 
+/// A model connection typed in while creating an AI portfolio.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewModelConnection {
+    pub name: String,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: String,
+}
+
+/// Everything needed to set up an AI portfolio in one step.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewAiTrader {
+    /// Blank picks "AI", "AI 2", …
+    pub name: String,
+    pub starting_cash: rust_decimal::Decimal,
+    /// An existing connection; ignored when `connection` is given.
+    pub profile_id: Option<Uuid>,
+    /// A new connection to save and use.
+    pub connection: Option<NewModelConnection>,
+    pub strategy: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TraderMemory {
     pub portfolio_id: Uuid,

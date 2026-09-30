@@ -40,8 +40,14 @@ pub fn MarketPage() -> Element {
                     }
                 }
             }
-            // Keyed: switching index starts a fresh refresh loop.
-            div { IndexView { key: "{index().key()}", index: index() } }
+            // A one-item keyed list, so switching index mounts a fresh view
+            // with its own refresh loop. A key outside a list does nothing:
+            // the old view would keep fetching the first index's stocks.
+            div {
+                for i in [index()] {
+                    IndexView { key: "{i.key()}", index: i }
+                }
+            }
         }
     }
 }
@@ -139,7 +145,7 @@ fn IndexView(index: MarketIndex) -> Element {
                 Some(Err(message)) => rsx! {
                     div { class: "mt-10 motion-safe:animate-rise",
                         Card { title: tr(index.label()),
-                            p { class: "text-sm text-ctp-red", "Couldn't load prices: {message}" }
+                            p { class: "text-sm text-ctp-red", title: "{message}", {tr("Couldn't load prices right now. The data source may be busy; try again shortly.")} }
                             p { class: "mt-1 text-xs text-ctp-subtext0", {tr("Retrying in a few seconds…")} }
                         }
                     }

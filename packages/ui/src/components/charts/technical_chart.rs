@@ -137,7 +137,9 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
     let unit = if span() == Span::Y5 { "weeks" } else { "days" };
     let status = match &*history.read() {
         None => Some(tr("Loading chart…").to_string()),
-        Some(Err(e)) => Some(crate::i18n::trf("Couldn't load prices: {}", &[e])),
+        // The raw error is a server message with the data source's URL in
+        // it: not something to show, and too long to fit on a phone.
+        Some(Err(_)) => Some(tr("Couldn't load prices right now. The data source may be busy; try again shortly.").to_string()),
         Some(Ok((c, _))) if c.is_empty() => Some(tr("No price history.").to_string()),
         _ => None,
     };
@@ -175,7 +177,7 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
             div { class: "relative",
                 div { id: "{chart_id}", style: "width:100%;height:460px;" }
                 if let Some(status) = status {
-                    div { class: "absolute inset-0 flex items-center justify-center text-sm text-ctp-subtext0", "{status}" }
+                    div { class: "absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ctp-subtext0 break-words", "{status}" }
                 }
             }
             p { class: "mt-2 text-xs text-ctp-overlay1",

@@ -17,6 +17,14 @@ pub fn Page(children: Element) -> Element {
     use_hook(|| {
         document::eval("window.scrollTo(0, 0); document.querySelector('[data-scroll-root]')?.scrollTo(0, 0);");
     });
+    // Navigation asked for by a dialog, which can't use the router itself.
+    let crate::app::PendingNav(mut pending) = use_context::<crate::app::PendingNav>();
+    use_effect(move || {
+        if let Some(path) = pending() {
+            pending.set(None);
+            navigator().push(path);
+        }
+    });
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         div { class: "{crate::theme::theme_class()} relative min-h-screen overflow-hidden bg-ctp-base text-ctp-text",
@@ -50,12 +58,28 @@ pub fn PageHero(
     /// A label shown beside the title, e.g. for an AI-managed portfolio.
     #[props(default)]
     badge: Option<String>,
+    /// A cover picture (URL or `data:` URL) shown as a banner above the
+    /// title.
+    #[props(default)]
+    cover: Option<String>,
     children: Element,
 ) -> Element {
     let up = day_change >= Decimal::ZERO;
     rsx! {
         header { class: "motion-safe:animate-rise",
-            div { class: "flex items-center justify-between gap-4 mb-4",
+            if let Some(cover) = cover {
+                div {
+                    class: "relative -mx-4 mb-6 h-36 overflow-hidden bg-ctp-surface0 bg-cover bg-center sm:mx-0 sm:h-52 sm:rounded-3xl",
+                    style: "background-image: url('{cover}');",
+                    role: "img",
+                    "aria-label": tr("Cover picture"),
+                    // Fades into the page so the header below reads on any picture.
+                    div { class: "absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-ctp-base/80 to-transparent" }
+                }
+            }
+            // On phones the status gets its own line and the buttons wrap
+            // under it, instead of squeezing the status into a narrow column.
+            div { class: "mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4",
                 div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                     if loaded {
                         span { class: "relative flex h-2 w-2",
@@ -93,7 +117,7 @@ pub fn PageHero(
                     },
                     if up { "▲" } else { "▼" }
                     " {fmt_signed(day_change, 2)} ({day_pct:+.2}%)"
-                    span { class: "font-normal opacity-70", "today" }
+                    span { class: "font-normal opacity-70", {tr("today")} }
                 }
                 {children}
             }

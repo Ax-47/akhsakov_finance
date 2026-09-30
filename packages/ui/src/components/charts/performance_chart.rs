@@ -176,9 +176,9 @@ pub fn ChartSection(
                 }
             }
             match comparison() {
-                None => rsx! { ChartPlaceholder { height, text: "Loading…" } },
+                None => rsx! { ChartPlaceholder { height, text: tr("Loading…") } },
                 Some(_) if has_data => rsx! { GrowthChart { chart_dates, series, height } },
-                Some(_) => rsx! { ChartPlaceholder { height, text: "No data" } },
+                Some(_) => rsx! { ChartPlaceholder { height, text: tr("No data") } },
             }
         }
     }

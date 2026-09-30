@@ -1,12 +1,15 @@
 //! The server the app talks to, started by the app itself.
 //!
 //! Installed builds carry the server as `akhsakov-finance-server` next to the
-//! app's own executable. On start the app uses a server already answering on
-//! 127.0.0.1:8080 (a second window, or `akhsakov-finance run server`), and
-//! otherwise starts that bundled one. The started server exits with the app,
-//! however the app ends: the app holds the server's stdin open, the system
-//! closes it when the app's process goes away, and the server stops at
-//! end-of-file (see `exit_with_parent` in main.rs).
+//! app's own executable. On start the app uses a server of the same build
+//! already answering on 127.0.0.1:8080 (a second window, or
+//! `akhsakov-finance run server`), and otherwise starts that bundled one.
+//! An older server left running is not used: it lacks newer endpoints.
+//!
+//! The started server exits with the app, however the app ends: the app
+//! holds the server's stdin open, the system closes it when the app's
+//! process goes away, and the server stops at end-of-file (see
+//! `exit_with_parent` in main.rs).
 //!
 //! Under `dx serve` the CLI runs the server, so nothing is started here.
 
@@ -124,21 +127,21 @@ fn answers(port: u16) -> bool {
     TcpStream::connect_timeout(&addr(port), Duration::from_millis(300)).is_ok()
 }
 
-/// Whether this app's server answers on `port`: it reports the sign-in state
-/// at /api/auth/status.
+/// Whether this build's server answers on `port`: it reports the same
+/// build at /api/build. An older server (left running from before an
+/// update) doesn't, and gets a server of our own beside it.
 fn is_our_server(port: u16) -> bool {
     let check = || -> std::io::Result<bool> {
         let mut stream = TcpStream::connect_timeout(&addr(port), Duration::from_millis(300))?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         write!(
             stream,
-            "POST /api/auth/status HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\
-             Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}"
+            "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n",
+            crate::build_id::ROUTE
         )?;
         let mut response = String::new();
         stream.take(64 * 1024).read_to_string(&mut response)?;
-        let status = response.lines().next().and_then(|line| line.split(' ').nth(1));
-        Ok(status == Some("200") && response.contains("needs_setup"))
+        Ok(crate::build_id::is_build(&response, crate::build_id::BUILD))
     };
     check().unwrap_or(false)
 }
@@ -146,3 +149,4 @@ fn is_our_server(port: u16) -> bool {
 fn free_port() -> Option<u16> {
     TcpListener::bind(addr(0)).ok()?.local_addr().ok().map(|a| a.port())
 }
+

@@ -18,7 +18,30 @@ use dioxus::prelude::*;
 use dtos::watch::{Alert, Note, Watchlist};
 use uuid::Uuid;
 use rust_decimal::{prelude::ToPrimitive, Decimal};
-use types::ticker_symbol::TickerSymbol;
+use std::collections::HashMap;
+use types::{interval::Interval, range::Range, ticker_symbol::TickerSymbol};
+
+/// Column the list is sorted by.
+#[derive(Clone, Copy, PartialEq)]
+enum SortKey {
+    Added,
+    Ticker,
+    Price,
+    Day,
+    SinceAdded,
+}
+
+/// Change (%) from the first close on or after `added` (`YYYY-MM-DD…`) to
+/// `price`. Closes are adjusted for dividends and splits, so this is the
+/// total return since the stock was added.
+fn since_added(candles: &[types::candle::Candle], added: &str, price: Decimal) -> Option<Decimal> {
+    let day = added.get(..10)?;
+    let base = candles
+        .iter()
+        .find(|c| c.ts.date_naive().format("%Y-%m-%d").to_string().as_str() >= day)?
+        .close;
+    (!base.is_zero()).then(|| (price / base - Decimal::ONE) * Decimal::ONE_HUNDRED)
+}
 
 #[component]
 pub fn WatchlistPage() -> Element {
@@ -67,6 +90,20 @@ pub fn WatchlistPage() -> Element {
     });
     let tickers = use_memo(move || watchlist().into_iter().map(|w| w.ticker).collect::<Vec<_>>());
     let quotes = use_price_stream(tickers);
+    let mut sort = use_signal(|| (SortKey::Added, false));
+    // Daily closes back to the oldest item, for "since added". Items older
+    // than a year use weekly closes over five years.
+    let oldest = use_memo(move || watchlist().iter().map(|w| w.added_at.clone()).min().unwrap_or_default());
+    let history = crate::cache::use_cached(move || format!("watch-since/{:?}/{}", tickers(), oldest()), move || async move {
+        let list = tickers();
+        if list.is_empty() {
+            return HashMap::new();
+        }
+        let today = chrono::Utc::now().date_naive();
+        let old = chrono::NaiveDate::parse_from_str(oldest().get(..10).unwrap_or_default(), "%Y-%m-%d").unwrap_or(today);
+        let (range, interval) = if (today - old).num_days() < 360 { (Range::Y1, Interval::D1) } else { (Range::Y5, Interval::W1) };
+        crate::offline::charts(list, range, interval, false).await.unwrap_or_default()
+    });
     let mut by_cap = use_signal(|| true);
     // Names and market caps; the colour comes from the live price stream.
     let snapshot = crate::cache::use_cached(move || format!("tickers-heatmap/{:?}", tickers()), move || async move {
@@ -189,8 +226,8 @@ pub fn WatchlistPage() -> Element {
                     }
                 }
                 Card {
-                    title: current().map_or("Watching".to_string(), |l| l.name),
-                    subtitle: format!("{} stocks", tickers.read().len()),
+                    title: current().map_or(tr("Watching").to_string(), |l| l.name),
+                    subtitle: crate::i18n::trf("{} stocks", &[&tickers.read().len()]),
                     flush: true,
                     actions: rsx! {
                         form {
@@ -214,20 +251,80 @@ pub fn WatchlistPage() -> Element {
                                 if tag_filter().is_some() { {tr("No stocks here have that tag.")} } else { {tr("Nothing yet. Add a ticker above, use ☆ Watch on any stock page, or search in the sidebar.")} }
                             }
                         },
-                        (_, items) => rsx! {
-                            for item in items {
-                                {
-                                    let quote = quotes.read().get(&item.ticker).cloned();
-                                    let price = quote.as_ref().map(|q| q.current_price);
-                                    let day = quote.as_ref().filter(|q| !q.previous_close_price.is_zero()).map(|q| (q.current_price / q.previous_close_price - Decimal::ONE) * Decimal::ONE_HUNDRED);
-                                    let count = all_alerts.iter().filter(|a| a.ticker == item.ticker && a.is_active()).count();
-                                    let tags = tags_of(item.ticker.as_str());
-                                    rsx! {
-                                        WatchRow { key: "{item.ticker}", ticker: item.ticker.clone(), price, day, alerts: count, list: list_id, tags }
+                        (_, items) => {
+                            let history = history.read().clone().unwrap_or_default();
+                            let live = quotes.read();
+                            let mut rows: Vec<Row> = items
+                                .into_iter()
+                                .map(|item| {
+                                    let quote = live.get(&item.ticker);
+                                    let price = quote.map(|q| q.current_price);
+                                    let day = quote.filter(|q| !q.previous_close_price.is_zero()).map(|q| (q.current_price / q.previous_close_price - Decimal::ONE) * Decimal::ONE_HUNDRED);
+                                    let since = price.and_then(|p| since_added(history.get(&item.ticker)?, &item.added_at, p));
+                                    Row { price, day, since, item }
+                                })
+                                .collect();
+                            let (key, desc) = sort();
+                            rows.sort_by(|a, b| {
+                                // Unknown values go last whichever way round.
+                                let num = |x: Option<Decimal>, y: Option<Decimal>| match (x, y) {
+                                    (Some(x), Some(y)) => if desc { y.cmp(&x) } else { x.cmp(&y) },
+                                    (Some(_), None) => std::cmp::Ordering::Less,
+                                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                                    (None, None) => std::cmp::Ordering::Equal,
+                                };
+                                let by = |o: std::cmp::Ordering| if desc { o.reverse() } else { o };
+                                match key {
+                                    SortKey::Added => by(a.item.added_at.cmp(&b.item.added_at)),
+                                    SortKey::Ticker => by(a.item.ticker.as_str().cmp(b.item.ticker.as_str())),
+                                    SortKey::Price => num(a.price, b.price),
+                                    SortKey::Day => num(a.day, b.day),
+                                    SortKey::SinceAdded => num(a.since, b.since),
+                                }
+                            });
+                            let head = move |k: SortKey, label: &'static str, class: &'static str| {
+                                let (on, down) = (sort().0 == k, sort().1);
+                                let arrow = if on { if down { " ↓" } else { " ↑" } } else { "" };
+                                let active = if on { "text-ctp-text" } else { "" };
+                                rsx! {
+                                    button {
+                                        class: "{class} cursor-pointer select-none hover:text-ctp-text {active}",
+                                        onclick: move |_| sort.set(if on { (k, !down) } else { (k, k != SortKey::Ticker && k != SortKey::Added) }),
+                                        "{tr(label)}{arrow}"
+                                    }
+                                }
+                            };
+                            rsx! {
+                                div { class: "flex items-center gap-3 border-t border-ctp-surface0/60 px-4 py-2 text-xs text-ctp-subtext0 sm:gap-4 sm:px-6",
+                                    {head(SortKey::Ticker, "Ticker", "w-20 text-left sm:w-24")}
+                                    span { class: "hidden flex-1 sm:block" }
+                                    {head(SortKey::Price, "Price", "flex-1 text-right")}
+                                    {head(SortKey::Day, "Today", "w-16 text-right sm:w-20")}
+                                    {head(SortKey::SinceAdded, "Since added", "w-20 text-right")}
+                                    {head(SortKey::Added, "Added", "hidden w-20 text-right sm:block")}
+                                    span { class: "hidden w-[4.5rem] sm:block" }
+                                }
+                                for row in rows {
+                                    {
+                                        let count = all_alerts.iter().filter(|a| a.ticker == row.item.ticker && a.is_active()).count();
+                                        let tags = tags_of(row.item.ticker.as_str());
+                                        rsx! {
+                                            WatchRow {
+                                                key: "{row.item.ticker}",
+                                                ticker: row.item.ticker.clone(),
+                                                price: row.price,
+                                                day: row.day,
+                                                since: row.since,
+                                                added: row.item.added_at.get(..10).unwrap_or_default().to_string(),
+                                                alerts: count,
+                                                list: list_id,
+                                                tags,
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        },
+                        }
                     }
                 }
                 AlertsCard { alerts: all_alerts.clone() }
@@ -237,11 +334,22 @@ pub fn WatchlistPage() -> Element {
     }
 }
 
+/// One line of the list, with the numbers it can be sorted by.
+struct Row {
+    item: dtos::watch::WatchItem,
+    price: Option<Decimal>,
+    day: Option<Decimal>,
+    since: Option<Decimal>,
+}
+
 #[component]
 fn WatchRow(
     ticker: TickerSymbol,
     price: Option<Decimal>,
     day: Option<Decimal>,
+    since: Option<Decimal>,
+    /// `YYYY-MM-DD`.
+    added: String,
     alerts: usize,
     list: Option<Uuid>,
     tags: Vec<String>,
@@ -251,9 +359,14 @@ fn WatchRow(
     let (open, alert, remove) = (ticker.clone(), ticker.clone(), ticker.clone());
     rsx! {
         div {
-            class: "group flex items-center gap-4 border-t border-ctp-surface0/60 px-6 py-3.5 cursor-pointer transition-colors hover:bg-ctp-surface0/30",
+            class: "group flex items-center gap-3 border-t border-ctp-surface0/60 px-4 py-3.5 cursor-pointer transition-colors hover:bg-ctp-surface0/30 sm:gap-4 sm:px-6",
             onclick: move |_| open_stock(&open),
-            span { class: "w-24 font-semibold text-ctp-text", "{ticker}" }
+            span { class: "w-20 truncate font-semibold text-ctp-text sm:w-24",
+                "{ticker}"
+                if alerts > 0 {
+                    span { class: "ml-1 text-xs font-normal text-ctp-subtext0", title: tr("Active alerts"), "🔔{alerts}" }
+                }
+            }
             span { class: "hidden min-w-0 flex-1 gap-1 truncate sm:flex",
                 for tag in tags {
                     span { key: "{tag}", class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-xs text-ctp-subtext0", "#{tag}" }
@@ -262,13 +375,14 @@ fn WatchRow(
             span { class: "flex-1 text-right tabular-nums text-ctp-text",
                 {price.map(|p| fmt_usd(p, 2)).unwrap_or_else(|| "—".into())}
             }
-            span { class: "w-20 text-right text-sm tabular-nums {day.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
+            span { class: "w-16 text-right text-sm tabular-nums sm:w-20 {day.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
                 {day.map(|d| format!("{d:+.2}%")).unwrap_or_else(|| "—".into())}
             }
-            span { class: "w-20 text-right text-xs text-ctp-subtext0",
-                if alerts > 0 { "🔔 {alerts}" }
+            span { class: "w-20 text-right text-sm tabular-nums {since.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
+                {since.map(|d| format!("{d:+.1}%")).unwrap_or_else(|| "—".into())}
             }
-            span { class: "flex gap-1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+            span { class: "hidden w-20 text-right text-xs tabular-nums text-ctp-subtext0 sm:block", "{added}" }
+            span { class: "hidden gap-1 opacity-40 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 sm:flex",
                 button {
                     class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
                     title: tr("New alert"),
@@ -390,7 +504,7 @@ fn ListBar(lists: Vec<Watchlist>, current: Option<Uuid>, selected: Signal<Option
                 }
             }
             if let Some(e) = error() {
-                span { class: "text-xs text-ctp-red", "{e}" }
+                span { class: "text-xs text-ctp-red break-words", "{e}" }
             }
         }
     }
@@ -422,18 +536,40 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
                     if let Some(when) = &a.triggered_at {
                         span { class: "text-xs text-ctp-overlay1", "{when}" }
                     }
-                    button {
-                        class: "inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 opacity-40 cursor-pointer transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-ctp-surface0 hover:text-ctp-red",
+                    crate::components::card::DeleteButton {
                         title: tr("Delete alert"),
-                        onclick: move |_| async move {
-                            if api::delete_alert(a.id).await.is_ok() {
-                                refresh.reload();
-                            }
+                        icon: "×",
+                        onconfirm: move |_| {
+                            spawn(async move {
+                                if api::delete_alert(a.id).await.is_ok() {
+                                    refresh.reload();
+                                }
+                            });
                         },
-                        "×"
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn candle(day: &str, close: Decimal) -> types::candle::Candle {
+        let ts = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").unwrap().and_hms_opt(14, 30, 0).unwrap().and_utc();
+        types::candle::Candle { ts, open: close, high: close, low: close, close, volume: None, adj_factor: None }
+    }
+
+    #[test]
+    fn since_added_uses_the_first_close_on_or_after_the_day() {
+        let candles = [candle("2026-03-02", dec!(90)), candle("2026-03-04", dec!(100)), candle("2026-03-05", dec!(110))];
+        // Added on a day with no candle (a holiday): the next close counts.
+        assert_eq!(since_added(&candles, "2026-03-03 09:15:00", dec!(120)), Some(dec!(20)));
+        assert_eq!(since_added(&candles, "2026-03-02 18:00:00", dec!(45)), Some(dec!(-50)));
+        assert_eq!(since_added(&candles, "2026-04-01 10:00:00", dec!(120)), None, "no close since");
+        assert_eq!(since_added(&candles, "bad", dec!(120)), None);
     }
 }

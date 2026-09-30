@@ -1,7 +1,10 @@
 //! Authenticated server functions for model profiles and AI trader runs.
 
 use dioxus::prelude::*;
-use dtos::ai_models::{AiRace, AiRun, ModelProfile, NewAiRace, TraderConfig, TraderMemory};
+use dtos::{
+    ai_models::{AiRace, AiRun, ModelProfile, NewAiRace, NewAiTrader, TraderConfig, TraderMemory},
+    ai_portfolio::AiPortfolioInfo,
+};
 use uuid::Uuid;
 
 #[cfg(feature = "server")]
@@ -38,6 +41,12 @@ pub async fn test_model_profile(id: Uuid) -> Result<(), ServerFnError> {
 #[post("/api/models/trader/config", service: Extension<ModelService>)]
 pub async fn get_trader_config(portfolio_id: Uuid) -> Result<TraderConfig, ServerFnError> {
     Ok(service.config(portfolio_id)?)
+}
+
+/// Creates an AI portfolio with its model connection and strategy.
+#[post("/api/models/trader/create", service: Extension<ModelService>)]
+pub async fn create_ai_trader(input: NewAiTrader) -> Result<AiPortfolioInfo, ServerFnError> {
+    Ok(service.create_trader(input).await?)
 }
 
 #[post("/api/models/trader/config/save", service: Extension<ModelService>)]

@@ -148,17 +148,22 @@ pub fn BacktestPage() -> Element {
                     div { class: "grid gap-2",
                         for (i, a) in assets().into_iter().enumerate() {
                             div { key: "{i}", class: "flex items-center gap-2",
-                                input {
-                                    class: "{INPUT} flex-1 uppercase",
-                                    placeholder: tr("Ticker, e.g. VOO"),
-                                    value: "{a.ticker}",
-                                    oninput: move |e| assets.write()[i].ticker = e.value(),
+                                div { class: "min-w-0 flex-1",
+                                    input {
+                                        class: "{INPUT} uppercase",
+                                        placeholder: tr("Ticker, e.g. VOO"),
+                                        value: "{a.ticker}",
+                                        oninput: move |e| assets.write()[i].ticker = e.value(),
+                                    }
                                 }
-                                input {
-                                    class: "{INPUT} w-24 text-right tabular-nums",
-                                    inputmode: "decimal",
-                                    value: "{a.weight}",
-                                    oninput: move |e| assets.write()[i].weight = e.value(),
+                                // INPUT is w-full, so the width lives on a wrapper.
+                                div { class: "w-20 shrink-0",
+                                    input {
+                                        class: "{INPUT} text-right tabular-nums",
+                                        inputmode: "decimal",
+                                        value: "{a.weight}",
+                                        oninput: move |e| assets.write()[i].weight = e.value(),
+                                    }
                                 }
                                 span { class: "text-sm text-ctp-subtext0", "%" }
                                 button {
@@ -209,6 +214,10 @@ pub fn BacktestPage() -> Element {
 #[component]
 fn Results(outcome: Outcome) -> Element {
     let Outcome { mix, benchmark, benchmark_name, note } = outcome;
+    let risk_free = use_context::<AppSettings>().0.read().risk_free.to_f64().unwrap_or(0.0) / 100.0;
+    let sharpe = mix.sharpe(risk_free);
+    let bench_sharpe = benchmark.sharpe(risk_free);
+    let year = |y: &Option<(String, f64)>| y.as_ref().map_or("—".into(), |(y, r)| format!("{:+.1}% ({y})", r * 100.0));
     let money = |v: f64| fmt_usd(Decimal::try_from(v).unwrap_or_default(), 0);
     let pct = |v: Option<f64>| v.map_or("—".into(), |v| format!("{:+.2}%", v * 100.0));
     let gain = mix.final_value - mix.invested;
@@ -224,7 +233,7 @@ fn Results(outcome: Outcome) -> Element {
     let vs_tone = if vs >= 0.0 { "text-ctp-green" } else { "text-ctp-red" };
     let vs_sign = if vs >= 0.0 { "+" } else { "" };
     let series = vec![
-        Series { name: "Your mix".into(), color: "var(--catppuccin-color-mauve)".into(), values: growth(&mix) },
+        Series { name: tr("Your mix").into(), color: "var(--catppuccin-color-mauve)".into(), values: growth(&mix) },
         Series { name: benchmark_name.clone(), color: "var(--catppuccin-color-sky)".into(), values: growth(&benchmark) },
     ];
     rsx! {
@@ -247,14 +256,39 @@ fn Results(outcome: Outcome) -> Element {
                 tone: "text-ctp-red",
             }
             MetricTile {
-                label: format!("vs {benchmark_name}"),
+                label: crate::i18n::trf("vs {}", &[&benchmark_name]),
                 value: format!("{vs_sign}{}", money(vs)),
                 hint: crate::i18n::trf("{} would be worth {}", &[&benchmark_name, &money(benchmark.final_value)]),
                 tone: vs_tone,
             }
         }
+        div { class: "mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4 motion-safe:animate-rise",
+            MetricTile {
+                label: tr("Ups and downs"),
+                value: mix.volatility.map_or("—".into(), |v| format!("{:.1}%", v * 100.0)),
+                hint: tr("Volatility: how far a year typically swings"),
+            }
+            MetricTile {
+                label: tr("Sharpe ratio"),
+                value: sharpe.map_or("—".into(), |v| format!("{v:.2}")),
+                hint: crate::i18n::trf("Return per unit of risk · {} {}", &[&benchmark_name, &bench_sharpe.map_or("—".into(), |v| format!("{v:.2}"))]),
+            }
+            MetricTile {
+                label: tr("Best year"),
+                value: year(&mix.best_year),
+                hint: tr("Full calendar years only"),
+                tone: "text-ctp-green",
+            }
+            MetricTile {
+                label: tr("Worst year"),
+                value: year(&mix.worst_year),
+                hint: tr("Full calendar years only"),
+                tone: "text-ctp-red",
+            }
+        }
+        p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Prices include dividends, reinvested; fees and taxes aren't counted.")} }
         div { class: "mt-5 motion-safe:animate-rise",
-            Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| "Value ÷ amount invested so far".into()),
+            Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| tr("Value ÷ amount invested so far").into()),
                 document::Script { src: asset!("/assets/js/growth_chart.js") }
                 GrowthChart { chart_dates: labels, series, height: Decimal::from(280) }
             }

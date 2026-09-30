@@ -185,7 +185,7 @@ fn PortfolioRowView(row: PortfolioRow, share: Decimal, loaded: bool) -> Element 
     rsx! {
         tr {
             class: "group border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors cursor-pointer",
-            title: "Open {row.name}",
+            title: crate::i18n::trf("Open {}", &[&row.name]),
             onclick: open,
             td { class: "pl-6 pr-4 py-3.5",
                 div { class: "flex items-center gap-3",

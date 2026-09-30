@@ -62,7 +62,13 @@ fn RebalanceCard(positions: Vec<Position>, portfolio: Option<Uuid>) -> Element {
             }
         };
     };
-    rsx! { RebalanceEditor { key: "{portfolio_id}", positions, portfolio_id } }
+    // A one-item keyed list, so another portfolio mounts a fresh editor (a
+    // key on the root alone would keep the old portfolio's targets).
+    rsx! {
+        for portfolio_id in [portfolio_id] {
+            RebalanceEditor { key: "{portfolio_id}", positions: positions.clone(), portfolio_id }
+        }
+    }
 }
 
 #[component]
@@ -431,14 +437,15 @@ fn GoalsCard(prices: HashMap<TickerSymbol, Decimal>, today: Option<String>) -> E
                                             onclick: move |_| dialogs.open(Dialog::Goal(Some(edit.clone()))),
                                             "✎"
                                         }
-                                        button {
-                                            class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                                            onclick: move |_| async move {
-                                                if api::delete_goal(g.id).await.is_ok() {
-                                                    refresh.reload();
-                                                }
+                                        crate::components::card::DeleteButton {
+                                            title: tr("Delete goal"),
+                                            onconfirm: move |_| {
+                                                spawn(async move {
+                                                    if api::delete_goal(g.id).await.is_ok() {
+                                                        refresh.reload();
+                                                    }
+                                                });
                                             },
-                                            "🗑"
                                         }
                                     }
                                 }

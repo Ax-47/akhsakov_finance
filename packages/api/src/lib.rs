@@ -54,6 +54,9 @@ pub use mcp::controller::*;
 pub mod models;
 pub use models::*;
 
+pub mod covers;
+pub use covers::*;
+
 /// Adds every context's service to the router, sharing one database.
 #[cfg(feature = "server")]
 pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::axum::Router {

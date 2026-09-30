@@ -514,7 +514,7 @@ fn RiskOverview(
                                 }
                             },
                             Some(Ok(())) => rsx! { span { class: "text-ctp-green", {tr("Alert set ✓ (see Watchlist → Alerts)")} } },
-                            Some(Err(e)) => rsx! { span { class: "text-ctp-red", "{e}" } },
+                            Some(Err(e)) => rsx! { span { class: "text-ctp-red break-words", "{e}" } },
                         }
                     }
                 }
@@ -907,7 +907,9 @@ struct ScenarioResult {
     from: i64,
     to: i64,
     market: Option<f64>,
-    portfolio: f64,
+    /// `None` when some holding has no prices back then and neither does
+    /// the benchmark to estimate it from.
+    portfolio: Option<f64>,
     /// Share of the portfolio estimated from beta (no prices back then).
     estimated: f64,
 }
@@ -922,7 +924,7 @@ fn run_scenarios(history: &History, weights: &[f64], betas: &[Option<f64>]) -> V
             let from = days_from_civil(from.0, from.1, from.2);
             let to = days_from_civil(to.0, to.1, to.2);
             let market = history.market.change_between(from, to, WEEK_TOLERANCE);
-            let (mut portfolio, mut estimated) = (0.0, 0.0);
+            let (mut portfolio, mut estimated, mut unknown) = (0.0, 0.0, false);
             for (i, w) in weights.iter().enumerate() {
                 if *w <= 0.0 || total <= 0.0 {
                     continue;
@@ -939,12 +941,13 @@ fn run_scenarios(history: &History, weights: &[f64], betas: &[Option<f64>]) -> V
                         (betas.get(i).copied().flatten().unwrap_or(1.0) * m).max(-1.0)
                     }
                     (None, None) => {
-                        estimated += w;
+                        unknown = true;
                         0.0
                     }
                 };
                 portfolio += w * change;
             }
+            let portfolio = (!unknown).then_some(portfolio);
             ScenarioResult { name, from, to, market, portfolio, estimated }
         })
         .collect()
@@ -993,26 +996,33 @@ fn ScenarioCard(
 #[component]
 fn ScenarioRow(result: ScenarioResult, value: f64, bench: String) -> Element {
     let r = &result;
-    let amount = Decimal::try_from(r.portfolio * value).unwrap_or_default();
-    let color = if r.portfolio < 0.0 { "text-ctp-red" } else { "text-ctp-green" };
-    let market = r
-        .market
-        .map(|m| trf("{} {}", &[&bench, &format!("{:+.1}%", m * 100.0)]))
-        .unwrap_or_default();
+    let market = r.market.map(|m| trf(" · {} {}", &[&bench, &format!("{:+.1}%", m * 100.0)]));
     rsx! {
         div { class: "flex items-center justify-between gap-3 py-2.5 border-t border-ctp-surface0/60 first:border-t-0",
             div { class: "min-w-0",
                 div { class: "text-sm text-ctp-text", {tr_str(r.name)} }
                 div { class: "text-xs text-ctp-overlay1 truncate",
-                    "{day_label(r.from)} – {day_label(r.to)} · {market}"
-                    if r.estimated > 0.005 {
+                    "{day_label(r.from)} – {day_label(r.to)}"
+                    {market}
+                    if r.portfolio.is_some() && r.estimated > 0.005 {
                         {trf(" · {}% estimated from beta", &[&format!("{:.0}", r.estimated * 100.0)])}
                     }
                 }
             }
-            div { class: "text-right shrink-0 tabular-nums",
-                div { class: "text-sm font-semibold {color}", "{crate::format::fmt_signed(amount, 0)}" }
-                div { class: "text-xs text-ctp-subtext0", "{r.portfolio * 100.0:+.1}%" }
+            match r.portfolio {
+                Some(change) => {
+                    let amount = Decimal::try_from(change * value).unwrap_or_default();
+                    let color = if change < 0.0 { "text-ctp-red" } else { "text-ctp-green" };
+                    rsx! {
+                        div { class: "text-right shrink-0 tabular-nums",
+                            div { class: "text-sm font-semibold {color}", "{crate::format::fmt_signed(amount, 0)}" }
+                            div { class: "text-xs text-ctp-subtext0", "{change * 100.0:+.1}%" }
+                        }
+                    }
+                }
+                None => rsx! {
+                    div { class: "text-right shrink-0 text-xs text-ctp-overlay1", {tr("No prices this far back")} }
+                },
             }
         }
     }
@@ -1155,8 +1165,20 @@ mod tests {
         let c = results.iter().find(|r| r.name == "COVID crash, 2020").unwrap();
         assert!((c.market.unwrap() + 0.3).abs() < 1e-9);
         // Half at −50%, half at 2 × −30%.
-        assert!((c.portfolio + 0.55).abs() < 1e-9, "{}", c.portfolio);
+        let p = c.portfolio.unwrap();
+        assert!((p + 0.55).abs() < 1e-9, "{p}");
         assert!((c.estimated - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scenarios_without_any_prices_are_unknown_not_zero() {
+        // Neither the benchmark nor the holding has prices back then.
+        let recent = series(&[(days_from_civil(2024, 1, 5), 100.0)]);
+        let history = History { holdings: vec![recent.clone()], market: recent, currency: "USD".into() };
+        for r in run_scenarios(&history, &[100.0], &[Some(1.0)]) {
+            assert_eq!(r.market, None);
+            assert_eq!(r.portfolio, None, "{}", r.name);
+        }
     }
 
     #[test]
