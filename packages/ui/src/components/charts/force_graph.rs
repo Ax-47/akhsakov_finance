@@ -442,8 +442,12 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
-/// Space kept between two circles that move exactly together.
-const CONTACT_GAP: f64 = 14.0;
+/// Space kept between two circles that move exactly together: enough to
+/// read the correlation label on the line between them.
+const CONTACT_GAP: f64 = 40.0;
+/// Below 1, stretches small differences among the most related pairs
+/// (0.63 vs 0.70) so they don't all sit at the same distance.
+const SPREAD_CURVE: f64 = 0.6;
 /// Correlations closer together than this aren't stretched further, so a
 /// portfolio whose pairs all sit between 0.60 and 0.65 doesn't look like it
 /// has strong and weak relations.
@@ -462,7 +466,9 @@ fn spring_lengths(corr: &[Vec<f64>], radii: &[f64]) -> Vec<Vec<f64>> {
     let hi = off_diagonal().fold(f64::MIN, f64::max).min(1.0);
     let lo = off_diagonal().fold(f64::MAX, f64::min).max(-1.0);
     let spread = (hi - lo).max(MIN_CORR_SPREAD);
-    let reach = (VIEW_H - 2.0 * PADDING) * 0.85;
+    // The layout is turned to lie along the wide side of the box, so the
+    // longest distances can use most of its width.
+    let reach = (VIEW_W - 2.0 * PADDING) * 0.6;
     let radius = |i: usize| radii.get(i).copied().unwrap_or(14.0);
     (0..n)
         .map(|i| {
@@ -471,7 +477,7 @@ fn spring_lengths(corr: &[Vec<f64>], radii: &[f64]) -> Vec<Vec<f64>> {
                     if i == j {
                         return 0.0;
                     }
-                    let apart = ((hi - corr[i][j]) / spread).clamp(0.0, 1.0);
+                    let apart = ((hi - corr[i][j]) / spread).clamp(0.0, 1.0).powf(SPREAD_CURVE);
                     radius(i) + radius(j) + CONTACT_GAP + apart * reach
                 })
                 .collect()
@@ -516,7 +522,30 @@ fn layout(targets: &[Vec<f64>]) -> Vec<(f64, f64)> {
         }
     }
 
-    fit_to_view(&pos)
+    fit_to_view(&along_x(&pos))
+}
+
+/// Rotates points about their centre so the direction they spread most
+/// lies horizontally: the view box is wider than it is tall.
+fn along_x(pos: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let n = pos.len() as f64;
+    let (cx, cy) = (pos.iter().map(|p| p.0).sum::<f64>() / n, pos.iter().map(|p| p.1).sum::<f64>() / n);
+    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+    for (x, y) in pos {
+        let (dx, dy) = (x - cx, y - cy);
+        sxx += dx * dx;
+        syy += dy * dy;
+        sxy += dx * dy;
+    }
+    // Principal axis angle, then turn by minus it.
+    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let (sin, cos) = (-angle).sin_cos();
+    pos.iter()
+        .map(|(x, y)| {
+            let (dx, dy) = (x - cx, y - cy);
+            (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+        })
+        .collect()
 }
 
 /// Centres points in the padded view box, scaling down (never up) so they
@@ -655,6 +684,37 @@ mod tests {
         let (min_x, max_x) = min_max(p.iter().map(|q| q.0));
         let (min_y, max_y) = min_max(p.iter().map(|q| q.1));
         assert!((max_x - min_x).max(max_y - min_y) > VIEW_H * 0.5, "spans {}×{}", max_x - min_x, max_y - min_y);
+    }
+
+    /// The portfolio in the bug report video: AAPL, VOO, NVDA, TSM, AMD.
+    /// The last four correlate 0.58–0.70 and used to touch in a clump.
+    fn video_portfolio() -> (Vec<Vec<f64>>, Vec<f64>) {
+        let corr = vec![
+            vec![1.00, 0.35, 0.20, 0.14, 0.18],
+            vec![0.35, 1.00, 0.66, 0.70, 0.58],
+            vec![0.20, 0.66, 1.00, 0.63, 0.62],
+            vec![0.14, 0.70, 0.63, 1.00, 0.63],
+            vec![0.18, 0.58, 0.62, 0.63, 1.00],
+        ];
+        let radii = [22.0, 20.0, 18.0, 16.0, 15.0].map(node_radius).to_vec();
+        (corr, radii)
+    }
+
+    #[test]
+    fn close_correlations_still_get_air_and_use_the_width() {
+        let (corr, radii) = video_portfolio();
+        let p = settle(&corr, &radii);
+        let n = p.len();
+        let mut min_gap = f64::MAX;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                min_gap = min_gap.min(dist(p[i], p[j]) - radii[i] - radii[j]);
+            }
+        }
+        let (min_x, max_x) = min_max(p.iter().map(|q| q.0));
+        let (min_y, max_y) = min_max(p.iter().map(|q| q.1));
+        assert!(min_gap >= 30.0, "circles nearly touch: {min_gap:.0}px apart");
+        assert!(max_x - min_x > max_y - min_y, "laid out along the wide side");
     }
 
     #[test]
