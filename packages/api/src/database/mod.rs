@@ -65,8 +65,12 @@ impl Database {
     /// Opens `$AKHSAKOV_DB` (or `akhsakov_finance.db`), migrating and
     /// seeding as needed.
     pub fn open_default() -> Result<Self, DatabaseError> {
-        let path = std::env::var("AKHSAKOV_DB").unwrap_or_else(|_| DEFAULT_PATH.to_string());
-        Self::open(Path::new(&path))
+        Self::open(&Self::default_path())
+    }
+
+    /// `$AKHSAKOV_DB`, or `akhsakov_finance.db` in the working directory.
+    pub fn default_path() -> std::path::PathBuf {
+        std::env::var("AKHSAKOV_DB").unwrap_or_else(|_| DEFAULT_PATH.to_string()).into()
     }
 
     pub fn open(path: &Path) -> Result<Self, DatabaseError> {

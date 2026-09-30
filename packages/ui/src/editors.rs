@@ -752,6 +752,129 @@ pub fn ImportDialog(
     }
 }
 
+// ─── Cover pictures ───────────────────────────────────────────────────────────
+
+/// Shrinks a picture to a banner-sized JPEG in the webview: at most 1600 px
+/// wide and a bit under the server's size limit, so phone photos upload fast.
+const RESIZE_JS: &str = r#"
+    const src = await dioxus.recv();
+    const img = new Image();
+    try {
+        await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = src; });
+    } catch (e) {
+        return "";
+    }
+    const scale = Math.min(1, 1600 / img.naturalWidth);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.85, 0.7, 0.55]) {
+        const out = canvas.toDataURL("image/jpeg", quality);
+        if (out.length < 1900000) return out;
+    }
+    return "";
+"#;
+
+#[component]
+fn CoverDialog(id: Uuid, name: String, on_close: EventHandler<()>) -> Element {
+    let refresh = use_context::<DataRefresh>();
+    let mut preview = use_signal(|| None::<String>);
+    let mut changed = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let mut busy = use_signal(|| false);
+    use_future(move || async move {
+        if let Ok(Some(cover)) = api::get_portfolio_cover(id).await {
+            if !changed() {
+                preview.set(Some(cover));
+            }
+        }
+    });
+
+    let pick = move |e: FormEvent| async move {
+        let Some(file) = e.files().into_iter().next() else { return };
+        busy.set(true);
+        let picked = match file.read_bytes().await {
+            Ok(bytes) => {
+                use base64::Engine;
+                let mime = file.content_type().unwrap_or_else(|| "image/jpeg".into());
+                let raw = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
+                let mut js = document::eval(RESIZE_JS);
+                let _ = js.send(raw);
+                js.join::<String>().await.ok().filter(|s| !s.is_empty())
+            }
+            Err(_) => None,
+        };
+        busy.set(false);
+        match picked {
+            Some(url) => {
+                error.set(None);
+                changed.set(true);
+                preview.set(Some(url));
+            }
+            None => error.set(Some(tr("Couldn't read that picture. Try a JPEG or PNG.").into())),
+        }
+    };
+    let save = move |_| async move {
+        busy.set(true);
+        let result = match preview() {
+            Some(url) => api::set_portfolio_cover(id, url).await,
+            None => api::remove_portfolio_cover(id).await,
+        };
+        busy.set(false);
+        match result {
+            Ok(()) => {
+                refresh.reload();
+                on_close.call(());
+            }
+            Err(e) => error.set(Some(message(e))),
+        }
+    };
+
+    rsx! {
+        Modal { title: crate::i18n::trf("Cover for {}", &[&name]), on_close,
+            div { class: "grid gap-4",
+                match preview() {
+                    Some(url) => rsx! {
+                        div {
+                            class: "h-40 rounded-2xl bg-ctp-surface0 bg-cover bg-center",
+                            style: "background-image: url('{url}');",
+                        }
+                    },
+                    None => rsx! {
+                        div { class: "flex h-40 items-center justify-center rounded-2xl border border-dashed border-ctp-surface1 text-sm text-ctp-overlay1",
+                            {tr("No cover yet")}
+                        }
+                    },
+                }
+                Field { label: tr("Picture"), hint: tr("A wide photo works best. It's shrunk to fit before saving."),
+                    input {
+                        class: "block w-full text-sm text-ctp-subtext0 file:mr-3 file:cursor-pointer file:rounded-full file:border-0 file:bg-ctp-surface0 file:px-4 file:py-2 file:text-sm file:text-ctp-text",
+                        r#type: "file",
+                        accept: "image/jpeg,image/png,image/webp",
+                        onchange: pick,
+                    }
+                }
+                ErrorLine { error: error() }
+                div { class: "flex flex-wrap justify-end gap-2",
+                    if preview().is_some() {
+                        ActionButton {
+                            label: tr("Remove cover"),
+                            tone: ButtonTone::Quiet,
+                            onclick: move |_| {
+                                changed.set(true);
+                                preview.set(None);
+                            },
+                        }
+                    }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Save"), disabled: busy() || !changed(), onclick: save }
+                }
+            }
+        }
+    }
+}
+
 // ─── AI portfolios ────────────────────────────────────────────────────────────
 
 /// Starting points for the trading strategy; the text stays editable.
@@ -1016,6 +1139,8 @@ pub enum Dialog {
     Goal(Option<Goal>),
     /// An AI portfolio with its model and strategy, in one step.
     NewAiPortfolio,
+    /// Set or remove a portfolio's cover picture.
+    PortfolioCover(Uuid, String),
 }
 
 /// App-wide handle for opening editor dialogs.
@@ -1052,5 +1177,6 @@ pub fn EditorHost() -> Element {
         Some(Dialog::NewAlert(ticker)) => rsx! { AlertDialog { ticker, on_close: close } },
         Some(Dialog::Goal(goal)) => rsx! { GoalDialog { goal, on_close: close } },
         Some(Dialog::NewAiPortfolio) => rsx! { AiPortfolioDialog { on_close: close } },
+        Some(Dialog::PortfolioCover(id, name)) => rsx! { CoverDialog { id, name, on_close: close } },
     }
 }

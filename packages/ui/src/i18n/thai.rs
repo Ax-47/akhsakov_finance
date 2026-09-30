@@ -1109,4 +1109,13 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Full calendar years only", "นับเฉพาะปีที่ครบทั้งปี"),
     ("Prices include dividends, reinvested; fees and taxes aren't counted.", "ราคารวมปันผลที่นำไปลงทุนต่อแล้ว ยังไม่หักค่าธรรมเนียมและภาษี"),
     ("Value ÷ amount invested so far", "มูลค่า ÷ เงินที่ลงไปถึงตอนนั้น"),
+    ("today", "วันนี้"),
+    ("Cover picture", "ภาพปก"),
+    ("Cover", "ภาพปก"),
+    ("Cover for {}", "ภาพปกของ {}"),
+    ("No cover yet", "ยังไม่มีภาพปก"),
+    ("Picture", "รูปภาพ"),
+    ("A wide photo works best. It's shrunk to fit before saving.", "ภาพแนวนอนจะดูดีที่สุด ระบบจะย่อขนาดให้ก่อนบันทึก"),
+    ("Remove cover", "ลบภาพปก"),
+    ("Couldn't read that picture. Try a JPEG or PNG.", "อ่านรูปนี้ไม่ได้ ลองใช้ไฟล์ JPEG หรือ PNG"),
 ];

@@ -50,11 +50,25 @@ pub fn PageHero(
     /// A label shown beside the title, e.g. for an AI-managed portfolio.
     #[props(default)]
     badge: Option<String>,
+    /// A cover picture (URL or `data:` URL) shown as a banner above the
+    /// title.
+    #[props(default)]
+    cover: Option<String>,
     children: Element,
 ) -> Element {
     let up = day_change >= Decimal::ZERO;
     rsx! {
         header { class: "motion-safe:animate-rise",
+            if let Some(cover) = cover {
+                div {
+                    class: "relative -mx-4 mb-6 h-36 overflow-hidden bg-ctp-surface0 bg-cover bg-center sm:mx-0 sm:h-52 sm:rounded-3xl",
+                    style: "background-image: url('{cover}');",
+                    role: "img",
+                    "aria-label": tr("Cover picture"),
+                    // Fades into the page so the header below reads on any picture.
+                    div { class: "absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-ctp-base/80 to-transparent" }
+                }
+            }
             div { class: "flex items-center justify-between gap-4 mb-4",
                 div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                     if loaded {
@@ -93,7 +107,7 @@ pub fn PageHero(
                     },
                     if up { "▲" } else { "▼" }
                     " {fmt_signed(day_change, 2)} ({day_pct:+.2}%)"
-                    span { class: "font-normal opacity-70", "today" }
+                    span { class: "font-normal opacity-70", {tr("today")} }
                 }
                 {children}
             }
