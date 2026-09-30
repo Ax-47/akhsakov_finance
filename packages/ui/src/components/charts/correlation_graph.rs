@@ -130,13 +130,13 @@ fn PairList(tickers: Vec<TickerSymbol>, corr: Vec<Vec<f64>>, hovered: Option<usi
     pairs.sort_by(|a, b| b.2.total_cmp(&a.2));
 
     let (title, shown): (String, Vec<_>) = match hovered {
-        Some(h) => (format!("{} vs others", tickers[h]), pairs),
+        Some(h) => (crate::i18n::trf("{} vs others", &[&tickers[h]]), pairs),
         None if pairs.len() > 6 => {
             let mut shown = pairs[..3].to_vec();
             shown.extend_from_slice(&pairs[pairs.len() - 3..]);
-            ("Most / least related".into(), shown)
+            (tr("Most / least related").to_string(), shown)
         }
-        None => ("All pairs".into(), pairs),
+        None => (tr("All pairs").to_string(), pairs),
     };
 
     rsx! {
@@ -169,13 +169,13 @@ fn GraphLegend() -> Element {
         div { class: "flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-ctp-subtext0",
             span { class: "flex items-center gap-1.5",
                 span { class: "inline-block w-5 h-[3px] rounded bg-ctp-green" }
-                "move together"
+                {tr("move together")}
             }
             span { class: "flex items-center gap-1.5",
                 span { class: "inline-block w-5 border-t-2 border-dashed border-ctp-red" }
-                "move opposite"
+                {tr("move opposite")}
             }
-            span { "closer = more related · circle size = weight · drag stocks around" }
+            span { {tr("closer = more related · circle size = weight · drag stocks around")} }
         }
     }
 }

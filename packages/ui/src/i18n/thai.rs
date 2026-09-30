@@ -1050,4 +1050,10 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Change server", "เปลี่ยนเซิร์ฟเวอร์"),
     ("Close app and change", "ปิดแอปแล้วเปลี่ยน"),
     ("The app closes. Open it again to enter the new address.", "แอปจะปิดลง เปิดใหม่อีกครั้งเพื่อใส่ที่อยู่ใหม่"),
+    ("{} vs others", "{} เทียบกับตัวอื่น"),
+    ("Most / least related", "สัมพันธ์กันมากที่สุด / น้อยที่สุด"),
+    ("All pairs", "ทุกคู่"),
+    ("move together", "ขยับไปด้วยกัน"),
+    ("move opposite", "ขยับสวนทางกัน"),
+    ("closer = more related · circle size = weight · drag stocks around", "ยิ่งใกล้ยิ่งสัมพันธ์กัน · ขนาดวงกลม = สัดส่วนในพอร์ต · ลากหุ้นไปมาได้"),
 ];
