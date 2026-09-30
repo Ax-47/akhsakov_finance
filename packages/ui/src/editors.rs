@@ -898,6 +898,7 @@ enum ModelChoice {
 fn AiPortfolioDialog(on_close: EventHandler<()>) -> Element {
     let refresh = use_context::<DataRefresh>();
     let crate::app::PortfolioScope(mut scope) = use_context::<crate::app::PortfolioScope>();
+    let nav = use_context::<crate::app::PendingNav>();
     let mut name = use_signal(String::new);
     let mut cash = use_signal(|| dtos::ai_portfolio::DEFAULT_STARTING_CASH.to_string());
     let mut profiles = use_signal(Vec::<dtos::ai_models::ModelProfile>::new);
@@ -957,7 +958,8 @@ fn AiPortfolioDialog(on_close: EventHandler<()>) -> Element {
                 refresh.reload();
                 scope.set(Some(info.portfolio_id.to_string()));
                 on_close.call(());
-                navigator().push("/portfolio");
+                // The dialog lives outside the router: navigator() panics here.
+                nav.go("/portfolio");
             }
             Err(e) => error.set(Some(message(e))),
         }

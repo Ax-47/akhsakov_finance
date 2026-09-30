@@ -12,6 +12,18 @@ const ECHARTS_JS: Asset = asset!("/assets/js/echarts.min.js");
 #[derive(Clone, Copy)]
 pub struct PortfolioScope(pub Signal<Option<String>>);
 
+/// A page to open, set by code outside the router (the dialogs are mounted
+/// beside it, where `navigator()` panics). [`crate::page::Page`], which
+/// every page renders inside the router, carries it out.
+#[derive(Clone, Copy)]
+pub struct PendingNav(pub Signal<Option<String>>);
+
+impl PendingNav {
+    pub fn go(mut self, path: impl Into<String>) {
+        self.0.set(Some(path.into()));
+    }
+}
+
 /// User settings, loaded at start-up; see [`dtos::settings::Settings`].
 #[derive(Clone, Copy)]
 pub struct AppSettings(pub Signal<dtos::settings::Settings>);
@@ -204,6 +216,7 @@ fn AppInner(children: Element) -> Element {
     use_context_provider(|| PortfolioScope(Signal::new(None)));
     let refresh = use_context_provider(|| DataRefresh(Signal::new(0)));
     use_context_provider(|| crate::editors::Dialogs(Signal::new(None)));
+    use_context_provider(|| PendingNav(Signal::new(None)));
     use_context_provider(crate::notify::Toasts::new);
     let mut settings = use_context_provider(|| AppSettings(Signal::new(Default::default()))).0;
     let mut ready = use_signal(|| false);

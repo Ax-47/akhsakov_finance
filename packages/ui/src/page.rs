@@ -17,6 +17,14 @@ pub fn Page(children: Element) -> Element {
     use_hook(|| {
         document::eval("window.scrollTo(0, 0); document.querySelector('[data-scroll-root]')?.scrollTo(0, 0);");
     });
+    // Navigation asked for by a dialog, which can't use the router itself.
+    let crate::app::PendingNav(mut pending) = use_context::<crate::app::PendingNav>();
+    use_effect(move || {
+        if let Some(path) = pending() {
+            pending.set(None);
+            navigator().push(path);
+        }
+    });
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         div { class: "{crate::theme::theme_class()} relative min-h-screen overflow-hidden bg-ctp-base text-ctp-text",
