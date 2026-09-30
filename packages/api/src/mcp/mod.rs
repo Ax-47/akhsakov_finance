@@ -28,12 +28,14 @@ pub fn mcp_services_setup(
     portfolios: crate::portfolio::PortfolioService,
     watchlist: crate::watchlist::WatchlistService,
     quotes: crate::quote::services::quote::QuoteService,
+    market: crate::market::MarketService,
+    research: crate::research::ResearchService,
 ) -> McpService {
     use std::sync::Arc;
     let trading = services::trading::Trading::new(
         Arc::new(infrastructures::SqliteAiPortfolioRepository::new(db.clone())),
         portfolios.clone(),
-        Arc::new(infrastructures::QuotePrices(quotes)),
+        Arc::new(infrastructures::QuotePrices(quotes.clone())),
     );
     let tools = services::tools::Tools::new(
         theses,
@@ -42,7 +44,8 @@ pub fn mcp_services_setup(
         trading.clone(),
         crate::planning::planning_services_setup(db.clone()),
         crate::settings::settings_services_setup(db.clone()),
-    );
+    )
+    .with_market(Arc::new(infrastructures::LiveMarketData { quotes, market, research }));
     McpService::new(Arc::new(infrastructures::SqliteConnectionRepository::new(db)), tools, trading)
 }
 

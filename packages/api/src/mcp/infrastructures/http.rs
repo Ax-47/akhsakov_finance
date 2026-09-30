@@ -46,6 +46,14 @@ async fn with_path(
 async fn serve(mcp: &McpService, key: Option<&str>, method: Method, body: &[u8]) -> Response {
     match mcp.authorize(key) {
         Access::Granted(access) => {
+            if !mcp.allow(access.connection_id) {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, "60")],
+                    "Too many requests from this connection; try again in a minute.",
+                )
+                    .into_response();
+            }
             if method != Method::POST {
                 return (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, "POST")]).into_response();
             }

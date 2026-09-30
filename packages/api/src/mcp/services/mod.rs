@@ -45,7 +45,70 @@ don't trade just to be busy. place_order can't touch the user's other portfolios
 own portfolio's trades as advice to copy.\n\
 - A portfolio of yours may be entered in an AI race; get_my_portfolio then shows `race`. Trade it only \
 while `race.window_open` is true, before `race.deadline`: prices are frozen for the round and orders \
-outside the window are rejected. Otherwise check back around `race.next_round_at`.";
+outside the window are rejected. Otherwise check back around `race.next_round_at`.\n\
+- For context: list_transactions (trades, dividends received), list_watchlists (watched stocks, notes, \
+alerts), get_goals (the user's goals), get_price_history, get_fundamentals and get_calendar (earnings and \
+ex-dividend dates). add_to_watchlist and create_alert change the user's data: use them only when the user \
+asks or agrees.";
+
+/// Requests one connection may make per minute; more get HTTP 429.
+pub const REQUESTS_PER_MINUTE: u32 = 120;
+
+/// Ready-made requests the user can pick in their AI app.
+fn prompts() -> Value {
+    let portfolio = json!({ "name": "portfolio", "description": "Portfolio name; all of them if left out.", "required": false });
+    json!([
+        {
+            "name": "monthly_review",
+            "title": "Monthly portfolio review",
+            "description": "Go through a portfolio: this month's trades and dividends, each holding's thesis, goals, and what to look at next.",
+            "arguments": [portfolio],
+        },
+        {
+            "name": "theses_due",
+            "title": "Theses due for review",
+            "description": "Find the theses whose review date has passed and go through them one by one.",
+            "arguments": [portfolio],
+        },
+    ])
+}
+
+fn prompt(name: &str, args: &Value) -> Option<Value> {
+    let portfolio = args
+        .get("portfolio")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| format!(" for the portfolio \"{p}\""))
+        .unwrap_or_else(|| " for each of my portfolios".into());
+    let (description, text) = match name {
+        "monthly_review" => (
+            "Monthly portfolio review",
+            format!(
+                "Please do my monthly review{portfolio}. Use list_portfolios and list_transactions (since the \
+                 1st of this month, including dividends), list_theses and get_goals. Tell me: what changed \
+                 this month; for each holding, whether its thesis still holds (get_quote or \
+                 get_price_history where it helps); whether I'm on track for my goals; upcoming earnings \
+                 or dividends (get_calendar); and two or three things to look at next. Don't change \
+                 anything; ask me before writing any note."
+            ),
+        ),
+        "theses_due" => (
+            "Theses due for review",
+            format!(
+                "Please find the theses due for review{portfolio} with list_theses (review date passed). \
+                 Go through them one at a time: recall the thesis with get_thesis, check what has changed \
+                 since (get_price_history, get_fundamentals, get_calendar), and ask me whether it still \
+                 holds. Only record a note with add_thesis_note once I agree."
+            ),
+        ),
+        _ => return None,
+    };
+    Some(json!({
+        "description": description,
+        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }],
+    }))
+}
 
 /// What a request's key allows.
 #[derive(Debug, PartialEq)]
@@ -67,6 +130,8 @@ pub struct McpService {
     connections: Arc<dyn ConnectionRepository>,
     tools: Tools,
     trading: Trading,
+    /// Per connection: when its current minute started, and requests in it.
+    requests: Arc<std::sync::Mutex<std::collections::HashMap<Uuid, (std::time::Instant, u32)>>>,
 }
 
 fn hash_secret(secret: &str) -> Result<String, ServiceError> {
@@ -85,7 +150,24 @@ fn error(id: Value, code: i64, message: &str) -> Value {
 
 impl McpService {
     pub fn new(connections: Arc<dyn ConnectionRepository>, tools: Tools, trading: Trading) -> Self {
-        Self { connections, tools, trading }
+        Self { connections, tools, trading, requests: Arc::default() }
+    }
+
+    /// Counts a request by `connection`; false once it has made
+    /// [`REQUESTS_PER_MINUTE`] in the current minute.
+    pub fn allow(&self, connection: Uuid) -> bool {
+        self.allow_at(connection, std::time::Instant::now())
+    }
+
+    fn allow_at(&self, connection: Uuid, now: std::time::Instant) -> bool {
+        let mut requests = self.requests.lock().unwrap_or_else(|e| e.into_inner());
+        let (start, count) = requests.entry(connection).or_insert((now, 0));
+        if now.duration_since(*start) >= std::time::Duration::from_secs(60) {
+            *start = now;
+            *count = 0;
+        }
+        *count += 1;
+        *count <= REQUESTS_PER_MINUTE
     }
 
     /// AI paper portfolios, which Settings sets up and funds.
@@ -207,7 +289,7 @@ impl McpService {
                     .unwrap_or(PROTOCOL_VERSIONS[0]);
                 Ok(json!({
                     "protocolVersion": version,
-                    "capabilities": { "tools": { "listChanged": false } },
+                    "capabilities": { "tools": { "listChanged": false }, "prompts": { "listChanged": false } },
                     "serverInfo": {
                         "name": "akhsakov-finance",
                         "title": "Akhsakov Finance",
@@ -217,6 +299,15 @@ impl McpService {
                 }))
             }
             "ping" => Ok(json!({})),
+            "prompts/list" => Ok(json!({ "prompts": prompts() })),
+            "prompts/get" => {
+                let name = params
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or((INVALID_PARAMS, "Missing the prompt name".to_string()))?;
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                prompt(name, &args).ok_or((INVALID_PARAMS, format!("Unknown prompt: {name}")))
+            }
             "tools/list" => Ok(json!({ "tools": tools::definitions_for(access.preset) })),
             "tools/call" => {
                 let name = params
@@ -294,6 +385,30 @@ pub(crate) mod tests {
         }
     }
 
+    /// Market research with fixed answers.
+    struct FakeMarket;
+
+    #[async_trait::async_trait]
+    impl crate::mcp::repositories::MarketData for FakeMarket {
+        async fn closes(
+            &self,
+            ticker: &types::ticker_symbol::TickerSymbol,
+            _range: types::range::Range,
+            _interval: types::interval::Interval,
+        ) -> Result<Vec<(String, f64)>, String> {
+            match ticker.as_str() {
+                "NVDA" => Ok(vec![("2026-01-02".into(), 100.0), ("2026-01-09".into(), 90.0), ("2026-01-16".into(), 120.0)]),
+                other => Err(format!("no such ticker {other}")),
+            }
+        }
+        async fn fundamentals(&self, _ticker: &types::ticker_symbol::TickerSymbol) -> Result<Value, String> {
+            Ok(json!({"pe": 30.0}))
+        }
+        async fn calendar(&self, tickers: Vec<types::ticker_symbol::TickerSymbol>) -> Result<Value, String> {
+            Ok(json!(tickers.iter().map(|t| json!({"ticker": t.as_str(), "kind": "Earnings"})).collect::<Vec<_>>()))
+        }
+    }
+
     /// A service over a database with one portfolio, "Main", holding NVDA.
     pub(crate) fn service() -> McpService {
         let db = Database::in_memory().unwrap();
@@ -324,7 +439,8 @@ pub(crate) mod tests {
             trading.clone(),
             planning_services_setup(db.clone()),
             settings_services_setup(db.clone()),
-        );
+        )
+        .with_market(Arc::new(FakeMarket));
         McpService::new(Arc::new(SqliteConnectionRepository::new(db)), tools, trading)
     }
 
@@ -403,7 +519,12 @@ pub(crate) mod tests {
             .collect();
         assert_eq!(
             names,
-            ["list_portfolios", "list_theses", "get_thesis", "save_thesis", "add_thesis_note", "get_my_portfolio", "get_my_goals", "get_quote", "place_order"]
+            [
+                "list_portfolios", "list_theses", "get_thesis", "save_thesis", "add_thesis_note",
+                "get_my_portfolio", "get_my_goals", "get_quote", "place_order", "list_transactions",
+                "list_watchlists", "get_goals", "get_price_history", "get_fundamentals", "get_calendar",
+                "add_to_watchlist", "create_alert",
+            ]
         );
 
         let unknown = s.handle(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"rm_rf"}})).await.unwrap();
@@ -416,5 +537,52 @@ pub(crate) mod tests {
             ])).await
             .unwrap();
         assert_eq!(batch.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn each_connection_gets_its_own_request_budget() {
+        let s = service();
+        let (a, b) = (Uuid::from_u128(1), Uuid::from_u128(2));
+        let start = std::time::Instant::now();
+        for _ in 0..REQUESTS_PER_MINUTE {
+            assert!(s.allow_at(a, start));
+        }
+        assert!(!s.allow_at(a, start), "over the limit");
+        assert!(s.allow_at(b, start), "another connection is unaffected");
+        assert!(s.allow_at(a, start + std::time::Duration::from_secs(61)), "a new minute starts over");
+    }
+
+    #[tokio::test]
+    async fn prompts_are_listed_and_filled_in() {
+        let s = service();
+        let init = s.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}})).await.unwrap();
+        assert!(init["result"]["capabilities"]["prompts"].is_object());
+        let list = s.handle(json!({"jsonrpc":"2.0","id":2,"method":"prompts/list"})).await.unwrap();
+        let names: Vec<&str> = list["result"]["prompts"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["monthly_review", "theses_due"]);
+        let got = s
+            .handle(json!({"jsonrpc":"2.0","id":3,"method":"prompts/get","params":{"name":"monthly_review","arguments":{"portfolio":"Main"}}}))
+            .await
+            .unwrap();
+        let text = got["result"]["messages"][0]["content"]["text"].as_str().unwrap();
+        assert!(text.contains("\"Main\"") && text.contains("list_transactions"));
+        let unknown = s.handle(json!({"jsonrpc":"2.0","id":4,"method":"prompts/get","params":{"name":"nope"}})).await.unwrap();
+        assert_eq!(unknown["error"]["code"], INVALID_PARAMS);
+    }
+
+    #[tokio::test]
+    async fn read_only_connections_cannot_change_watchlists_or_alerts() {
+        let s = service();
+        let main = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let access = AccessContext { connection_id: Uuid::nil(), preset: McpAccessPreset::ReadOnly, portfolio_ids: vec![main] };
+        let listed = s.handle_scoped(json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}), &access).await.unwrap();
+        let names: Vec<&str> = listed["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"list_watchlists") && names.contains(&"get_price_history"));
+        assert!(!names.contains(&"add_to_watchlist") && !names.contains(&"create_alert"));
+        let call = s
+            .handle_scoped(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_alert","arguments":{"ticker":"NVDA","kind":"price_above","value":300}}}), &access)
+            .await
+            .unwrap();
+        assert_eq!(call["error"]["code"], INVALID_PARAMS, "hidden tools can't be called either");
     }
 }

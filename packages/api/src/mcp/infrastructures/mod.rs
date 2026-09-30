@@ -130,3 +130,41 @@ impl LivePrices for QuotePrices {
         })
     }
 }
+
+/// Market research for the read tools, from the app's own services.
+pub struct LiveMarketData {
+    pub quotes: QuoteService,
+    pub market: crate::market::MarketService,
+    pub research: crate::research::ResearchService,
+}
+
+#[async_trait::async_trait]
+impl crate::mcp::repositories::MarketData for LiveMarketData {
+    async fn closes(
+        &self,
+        ticker: &TickerSymbol,
+        range: types::range::Range,
+        interval: types::interval::Interval,
+    ) -> Result<Vec<(String, f64)>, String> {
+        use rust_decimal::prelude::ToPrimitive;
+        let candles = self
+            .quotes
+            .get_chart(ticker.clone(), range, interval, false)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(candles
+            .into_iter()
+            .filter_map(|c| Some((c.ts.format("%Y-%m-%d").to_string(), c.close.to_f64()?)))
+            .collect())
+    }
+
+    async fn fundamentals(&self, ticker: &TickerSymbol) -> Result<serde_json::Value, String> {
+        let f = self.research.fundamentals(ticker).await.map_err(|e| e.to_string())?;
+        serde_json::to_value(f).map_err(|e| e.to_string())
+    }
+
+    async fn calendar(&self, tickers: Vec<TickerSymbol>) -> Result<serde_json::Value, String> {
+        let events = self.market.calendar(tickers).await.map_err(|e| e.to_string())?;
+        serde_json::to_value(events).map_err(|e| e.to_string())
+    }
+}

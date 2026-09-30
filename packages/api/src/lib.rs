@@ -79,8 +79,16 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
     let auth = auth::auth_services_setup(db.clone());
     let settings = settings::settings_services_setup(db.clone());
     let theses = thesis::thesis_services_setup(db.clone());
-    let connector =
-        mcp::mcp_services_setup(db.clone(), theses.clone(), portfolio.clone(), watchlist.clone(), quotes.clone());
+    let research = research::research_services_setup(fx.clone());
+    let connector = mcp::mcp_services_setup(
+        db.clone(),
+        theses.clone(),
+        portfolio.clone(),
+        watchlist.clone(),
+        quotes.clone(),
+        market.clone(),
+        research.clone(),
+    );
     let models = models::model_services_setup(db.clone(), connector.clone());
     // Layers wrap what's added before them: the sign-in check runs first,
     // then the services are attached.
@@ -88,7 +96,7 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         .layer(Extension(auth.clone()))
         .layer(Extension(assets::asset_services_setup(db.clone())))
         .layer(Extension(quotes.clone()))
-        .layer(Extension(research::research_services_setup(fx.clone())))
+        .layer(Extension(research))
         .layer(Extension(economy.clone()))
         .layer(Extension(backup::backup_services_setup(db.clone())))
         .layer(Extension(market.clone()))

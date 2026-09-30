@@ -52,3 +52,20 @@ pub struct LiveQuote {
 pub trait LivePrices: Send + Sync {
     async fn quote(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<LiveQuote, String>;
 }
+
+/// Market research the read tools pass on, so they can be tested without
+/// the network. Answers are JSON for the model to read.
+#[async_trait::async_trait]
+pub trait MarketData: Send + Sync {
+    /// Closes in USD (stocks and funds) as `(YYYY-MM-DD, close)`, oldest first.
+    async fn closes(
+        &self,
+        ticker: &types::ticker_symbol::TickerSymbol,
+        range: types::range::Range,
+        interval: types::interval::Interval,
+    ) -> Result<Vec<(String, f64)>, String>;
+    /// Valuation, profitability, dividends and analyst targets.
+    async fn fundamentals(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<serde_json::Value, String>;
+    /// Upcoming earnings and ex-dividend dates, soonest first.
+    async fn calendar(&self, tickers: Vec<types::ticker_symbol::TickerSymbol>) -> Result<serde_json::Value, String>;
+}

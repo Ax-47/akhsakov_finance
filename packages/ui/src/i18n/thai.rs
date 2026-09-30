@@ -1184,4 +1184,10 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("{} trades · {} tool calls", "ซื้อขาย {} ครั้ง · เรียกเครื่องมือ {} ครั้ง"),
     ("⇩ Results", "⇩ ผลการแข่ง"),
     ("{} · {} of {} rounds · every {} min", "{} · {} จาก {} รอบ · ทุก {} นาที"),
+    ("Read only", "อ่านอย่างเดียว"),
+    ("Thesis editor", "แก้ thesis ได้"),
+    ("Trader", "เทรดได้"),
+    ("Can read the chosen portfolios, theses, transactions, goals, watchlists and market data. Changes nothing.", "อ่านพอร์ตที่เลือก, thesis, รายการซื้อขาย, เป้าหมาย, watchlist และข้อมูลตลาดได้ ไม่เปลี่ยนแปลงอะไร"),
+    ("Can also write theses and notes, add stocks to watchlists and create alerts, when you ask.", "เขียน thesis และบันทึก, เพิ่มหุ้นลง watchlist และตั้งการแจ้งเตือนได้ด้วย เมื่อคุณขอ"),
+    ("Can also trade with paper money in the chosen AI portfolios.", "ซื้อขายด้วยเงินจำลองในพอร์ต AI ที่เลือกได้ด้วย"),
 ];

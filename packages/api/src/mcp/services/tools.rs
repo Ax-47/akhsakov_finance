@@ -174,12 +174,105 @@ pub fn definitions() -> Value {
             },
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": true },
         },
+        {
+            "name": "list_transactions",
+            "title": "List transactions",
+            "description": "Trades, dividends received, deposits and withdrawals in the user's portfolios, newest first, with USD amounts. Filter by portfolio, kind and date. Use kind \"dividend\" to see dividend income.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "portfolio": portfolio,
+                    "kind": { "type": "string", "enum": ["buy", "sell", "dividend", "split", "transfer", "deposit", "withdrawal"] },
+                    "since": { "type": "string", "description": "Only from this date on, YYYY-MM-DD." },
+                    "limit": { "type": "integer", "description": "At most this many (default 50, up to 200)." },
+                },
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "list_watchlists",
+            "title": "List watchlists and alerts",
+            "description": "The user's watchlists with the stocks on each, their notes and tags on those stocks, and their price alerts (active and already triggered).",
+            "inputSchema": { "type": "object", "properties": {} },
+            "annotations": read_only,
+        },
+        {
+            "name": "get_goals",
+            "title": "Get the user's goals",
+            "description": "The goals the user set for their portfolios (target amount, date, monthly contribution) with a projection: whether the portfolio is on track and the yearly return it needs. For the goals of your own portfolio, use get_my_goals.",
+            "inputSchema": { "type": "object", "properties": { "portfolio": portfolio } },
+            "annotations": read_only,
+        },
+        {
+            "name": "get_price_history",
+            "title": "Get price history",
+            "description": "Closing prices of a stock, ETF, fund or index over a period, in USD for stocks and funds (indices in points), with the change over the period. Daily up to 6 months, weekly up to 5 years, monthly beyond.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ticker": ticker,
+                    "range": { "type": "string", "enum": ["1mo", "3mo", "6mo", "1y", "5y", "max"], "description": "Default 1y." },
+                },
+                "required": ["ticker"],
+            },
+            "annotations": { "readOnlyHint": true, "openWorldHint": true },
+        },
+        {
+            "name": "get_fundamentals",
+            "title": "Get fundamentals",
+            "description": "Valuation (P/E, P/B), profitability, growth, dividend yield and payout, and analyst targets of a stock.",
+            "inputSchema": { "type": "object", "properties": { "ticker": ticker }, "required": ["ticker"] },
+            "annotations": { "readOnlyHint": true, "openWorldHint": true },
+        },
+        {
+            "name": "get_calendar",
+            "title": "Get upcoming earnings and dividends",
+            "description": "Upcoming earnings dates and ex-dividend dates, soonest first. Leave out `tickers` for the holdings of the user's portfolios.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "tickers": { "type": "array", "items": ticker, "description": "Up to 30 tickers." } },
+            },
+            "annotations": { "readOnlyHint": true, "openWorldHint": true },
+        },
+        {
+            "name": "add_to_watchlist",
+            "title": "Add to a watchlist",
+            "description": "Adds a stock to one of the user's watchlists (by name; the first list if left out), optionally with a note. Only do this when the user asks or agrees.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ticker": ticker,
+                    "list": { "type": "string", "description": "Watchlist name. The first list if left out." },
+                    "note": { "type": "string", "description": "Replaces the user's note on this stock." },
+                },
+                "required": ["ticker"],
+            },
+            "annotations": writes,
+        },
+        {
+            "name": "create_alert",
+            "title": "Create a price alert",
+            "description": "Creates an alert on a stock, and watches it: price_above / price_below (in the stock's currency), day_move (% either way today), near_52_week_high / near_52_week_low (within %). Only do this when the user asks or agrees.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ticker": ticker,
+                    "kind": { "type": "string", "enum": ["price_above", "price_below", "day_move", "near_52_week_high", "near_52_week_low"] },
+                    "value": { "type": "number" },
+                },
+                "required": ["ticker", "kind", "value"],
+            },
+            "annotations": writes,
+        },
     ])
 }
 
+/// Tools that change the user's own data (not a portfolio of the AI's).
+const USER_WRITES: [&str; 4] = ["save_thesis", "add_thesis_note", "add_to_watchlist", "create_alert"];
+
 pub fn definitions_for(preset: McpAccessPreset) -> Value {
     let allowed = |name: &str| match preset {
-        McpAccessPreset::ReadOnly => !matches!(name, "save_thesis" | "add_thesis_note" | "place_order"),
+        McpAccessPreset::ReadOnly => !USER_WRITES.contains(&name) && name != "place_order",
         McpAccessPreset::ThesisEditor => name != "place_order",
         McpAccessPreset::Trader => true,
     };
@@ -200,6 +293,7 @@ pub struct Tools {
     planning: PlanningService,
     settings: SettingsService,
     gate: RaceGate,
+    market: Option<std::sync::Arc<dyn crate::mcp::repositories::MarketData>>,
 }
 
 /// Everything the tools look at, read once per call.
@@ -277,6 +371,19 @@ impl Book {
             _ => Err(format!("Say which portfolio: {}.", self.names())),
         }
     }
+}
+
+fn transaction_kind(kind: &str) -> Option<TransactionType> {
+    Some(match kind.to_ascii_lowercase().as_str() {
+        "buy" => TransactionType::Buy,
+        "sell" => TransactionType::Sell,
+        "dividend" => TransactionType::Dividend,
+        "split" => TransactionType::Split,
+        "transfer" => TransactionType::Transfer,
+        "deposit" => TransactionType::Deposit,
+        "withdrawal" => TransactionType::Withdrawal,
+        _ => return None,
+    })
 }
 
 fn num(d: Decimal, dp: u32) -> Value {
@@ -368,7 +475,14 @@ impl Tools {
             planning,
             settings,
             gate: RaceGate::default(),
+            market: None,
         }
+    }
+
+    /// Adds the market research tools (price history, fundamentals, calendar).
+    pub fn with_market(mut self, market: std::sync::Arc<dyn crate::mcp::repositories::MarketData>) -> Self {
+        self.market = Some(market);
+        self
     }
 
     pub(crate) fn race_gate(&self) -> &RaceGate {
@@ -413,6 +527,14 @@ impl Tools {
                 target = portfolio;
                 result
             }
+            "list_transactions" => self.list_transactions(args, ids),
+            "list_watchlists" => self.list_watchlists(),
+            "get_goals" => self.goals(args, ids),
+            "get_price_history" => self.price_history(args).await,
+            "get_fundamentals" => self.fundamentals(args).await,
+            "get_calendar" => self.calendar(args, ids).await,
+            "add_to_watchlist" => self.add_to_watchlist(args),
+            "create_alert" => self.create_alert(args),
             _ => return None,
         };
         self.gate.record(access.connection_id, target, name, args, &result);
@@ -861,6 +983,233 @@ impl Tools {
             "journaled": journaled,
         }))
     }
+
+    // ─── Added for #36: more of the user's data, and market research ───
+
+    fn list_transactions(&self, args: &Value, scope: &[Uuid]) -> ToolResult {
+        let book = self.book(Some(scope))?;
+        let wanted = args.get("portfolio").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let portfolio = match wanted {
+            Some(_) => Some(book.portfolio(args, None)?.id),
+            None => None,
+        };
+        let kind = match args.get("kind").and_then(Value::as_str) {
+            None => None,
+            Some(k) => Some(transaction_kind(k).ok_or_else(|| format!("Unknown kind `{k}`."))?),
+        };
+        let since = args.get("since").and_then(Value::as_str).unwrap_or("");
+        let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50).clamp(1, 200) as usize;
+        let names: HashMap<Uuid, &str> = book.dash.portfolios.iter().map(|p| (p.id, p.name.as_str())).collect();
+        let mut rows: Vec<&dtos::Transaction> = book
+            .dash
+            .transactions
+            .iter()
+            .filter(|t| portfolio.is_none_or(|p| t.portfolio_id == p))
+            .filter(|t| kind.as_ref().is_none_or(|k| t.transaction_type == *k))
+            .filter(|t| t.date.as_str() >= since)
+            .collect();
+        rows.sort_by(|a, b| b.date.cmp(&a.date));
+        let total = rows.len();
+        let items: Vec<Value> = rows
+            .into_iter()
+            .take(limit)
+            .map(|t| {
+                json!({
+                    "date": t.date,
+                    "portfolio": names.get(&t.portfolio_id).copied().unwrap_or_default(),
+                    "kind": t.transaction_type.to_string().to_lowercase(),
+                    "ticker": t.ticker.as_str(),
+                    "shares": num(t.shares, 6),
+                    "price": num(t.price, 4),
+                    "currency": t.currency,
+                    "amount_usd": num(t.shares * t.usd_price(), 2),
+                    "fee_usd": num(t.usd_fee(), 2),
+                })
+            })
+            .collect();
+        Ok(json!({ "transactions": items, "shown": items.len(), "total": total }))
+    }
+
+    fn list_watchlists(&self) -> ToolResult {
+        let lists = self.watchlist.watchlists().map_err(|e| e.to_string())?;
+        let notes = self.watchlist.notes().map_err(|e| e.to_string())?;
+        let alerts = self.watchlist.alerts().map_err(|e| e.to_string())?;
+        let note = |ticker: &str| notes.iter().find(|n| n.ticker == ticker);
+        Ok(json!({
+            "watchlists": lists.iter().map(|l| json!({
+                "name": l.name,
+                "stocks": l.items.iter().map(|i| {
+                    let n = note(i.ticker.as_str());
+                    json!({
+                        "ticker": i.ticker.as_str(),
+                        "added": i.added_at,
+                        "note": n.map(|n| n.text.clone()).filter(|t| !t.is_empty()),
+                        "tags": n.map(|n| n.tags.clone()).unwrap_or_default(),
+                    })
+                }).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+            "alerts": alerts.iter().map(|a| json!({
+                "ticker": a.ticker.as_str(),
+                "kind": a.kind.label(),
+                "value": num(a.value, 4),
+                "active": a.is_active(),
+                "triggered_at": a.triggered_at,
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
+    /// The user's goals, for the portfolios in scope (AI portfolios use
+    /// get_my_goals).
+    fn goals(&self, args: &Value, scope: &[Uuid]) -> ToolResult {
+        let book = self.book(Some(scope))?;
+        let wanted = args.get("portfolio").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let portfolios: Vec<&GetPortfolioResponse> = match wanted {
+            Some(_) => vec![book.portfolio(args, None)?],
+            None => book.dash.portfolios.iter().collect(),
+        };
+        let goals = self.planning.goals().map_err(|e| e.to_string())?;
+        let assumed = self.settings.get().map_err(|e| e.to_string())?.assumed_return;
+        let yearly = assumed.to_f64().unwrap_or(7.0) / 100.0;
+        let out: Vec<Value> = portfolios
+            .iter()
+            .map(|p| {
+                // Cost basis: live prices would need a quote per holding.
+                let value: Decimal = book.positions(p.id).iter().map(Position::cost_basis).sum();
+                let value = value.to_f64().unwrap_or_default();
+                json!({
+                    "portfolio": { "id": p.id, "name": p.name },
+                    "value_at_cost": num(Decimal::from_f64(value).unwrap_or_default(), 2),
+                    "goals": goals
+                        .iter()
+                        .filter(|g| g.portfolio_id == Some(p.id))
+                        .map(|g| goal_json(g, value, &book.today, yearly))
+                        .collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        Ok(json!({
+            "portfolios": out,
+            "note": "Projections use the value at cost and the expected return set in Settings.",
+        }))
+    }
+
+    fn market(&self) -> Result<&dyn crate::mcp::repositories::MarketData, String> {
+        self.market.as_deref().ok_or_else(|| "Market research isn't available on this server.".to_string())
+    }
+
+    async fn price_history(&self, args: &Value) -> ToolResult {
+        use types::{interval::Interval, range::Range};
+        let t = ticker(args)?;
+        let (range, interval) = match args.get("range").and_then(Value::as_str).unwrap_or("1y") {
+            "1mo" => (Range::M1, Interval::D1),
+            "3mo" => (Range::M3, Interval::D1),
+            "6mo" => (Range::M6, Interval::D1),
+            "1y" => (Range::Y1, Interval::W1),
+            "5y" => (Range::Y5, Interval::W1),
+            "max" => (Range::Max, Interval::M1),
+            other => return Err(format!("Unknown range `{other}`.")),
+        };
+        let closes = self.market()?.closes(&t, range, interval).await?;
+        let (Some(first), Some(last)) = (closes.first(), closes.last()) else {
+            return Err(format!("No price history for {t}."));
+        };
+        let change = (first.1 > 0.0).then(|| (last.1 / first.1 - 1.0) * 100.0);
+        Ok(json!({
+            "ticker": t.as_str(),
+            "from": first.0,
+            "to": last.0,
+            "change_pct": change.map(|c| (c * 100.0).round() / 100.0),
+            "high": closes.iter().map(|c| c.1).fold(f64::MIN, f64::max),
+            "low": closes.iter().map(|c| c.1).fold(f64::MAX, f64::min),
+            "closes": closes.iter().map(|(d, c)| json!([d, (c * 10_000.0).round() / 10_000.0])).collect::<Vec<_>>(),
+        }))
+    }
+
+    async fn fundamentals(&self, args: &Value) -> ToolResult {
+        let t = ticker(args)?;
+        Ok(json!({ "ticker": t.as_str(), "fundamentals": self.market()?.fundamentals(&t).await? }))
+    }
+
+    async fn calendar(&self, args: &Value, scope: &[Uuid]) -> ToolResult {
+        let tickers: Vec<TickerSymbol> = match args.get("tickers").and_then(Value::as_array) {
+            Some(list) => list
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|t| TickerSymbol::new(t.trim()).map_err(|_| format!("`{t}` isn't a ticker.")))
+                .collect::<Result<_, _>>()?,
+            None => {
+                let book = self.book(Some(scope))?;
+                let mut held: Vec<TickerSymbol> = book
+                    .dash
+                    .portfolios
+                    .iter()
+                    .flat_map(|p| book.positions(p.id))
+                    .map(|p| p.ticker)
+                    .filter(|t| !t.as_str().starts_with('$'))
+                    .collect();
+                held.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+                held.dedup();
+                held
+            }
+        };
+        if tickers.is_empty() {
+            return Err("No tickers: pass `tickers`, or hold something first.".into());
+        }
+        if tickers.len() > 30 {
+            return Err("Up to 30 tickers at a time.".into());
+        }
+        Ok(json!({ "events": self.market()?.calendar(tickers).await? }))
+    }
+
+    fn add_to_watchlist(&self, args: &Value) -> ToolResult {
+        let t = ticker(args)?;
+        let lists = self.watchlist.watchlists().map_err(|e| e.to_string())?;
+        let list = match args.get("list").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+            Some(name) => lists
+                .iter()
+                .find(|l| l.name.eq_ignore_ascii_case(name))
+                .ok_or_else(|| {
+                    let names: Vec<&str> = lists.iter().map(|l| l.name.as_str()).collect();
+                    format!("No watchlist named `{name}`. The lists are: {}.", names.join(", "))
+                })?,
+            None => lists.first().ok_or("There are no watchlists yet.")?,
+        };
+        if !list.items.iter().any(|i| i.ticker == t) {
+            self.watchlist.watch_in(list.id, &t).map_err(|e| e.to_string())?;
+        }
+        if let Some(note) = args.get("note").and_then(Value::as_str) {
+            let tags = self
+                .watchlist
+                .notes()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|n| n.ticker == t.as_str())
+                .map(|n| n.tags)
+                .unwrap_or_default();
+            self.watchlist.save_note(&t, note, &tags).map_err(|e| e.to_string())?;
+        }
+        Ok(json!({ "watchlist": list.name, "ticker": t.as_str(), "added": true }))
+    }
+
+    fn create_alert(&self, args: &Value) -> ToolResult {
+        use dtos::watch::AlertKind;
+        let t = ticker(args)?;
+        let kind = match args.get("kind").and_then(Value::as_str).unwrap_or("") {
+            "price_above" => AlertKind::PriceAbove,
+            "price_below" => AlertKind::PriceBelow,
+            "day_move" => AlertKind::DayMove,
+            "near_52_week_high" => AlertKind::Near52WeekHigh,
+            "near_52_week_low" => AlertKind::Near52WeekLow,
+            other => return Err(format!("Unknown alert kind `{other}`.")),
+        };
+        let value = args
+            .get("value")
+            .and_then(Value::as_f64)
+            .and_then(Decimal::from_f64)
+            .ok_or("`value` must be a number.")?;
+        let alert = self.watchlist.create_alert(t, kind, value).map_err(|e| e.to_string())?;
+        Ok(json!({ "ticker": alert.ticker.as_str(), "kind": kind.label(), "value": num(alert.value, 4), "created": true }))
+    }
 }
 
 #[cfg(test)]
@@ -1095,5 +1444,49 @@ mod tests {
         assert!(call(&s, "get_my_goals", json!({"portfolio": "Main"})).await.is_err(), "not the user's");
         let named = call(&s, "get_my_goals", json!({"portfolio": "growth"})).await.unwrap();
         assert_eq!(named["portfolios"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn transactions_goals_watchlists_and_alerts() {
+        let s = service();
+        let tx = call(&s, "list_transactions", json!({})).await.unwrap();
+        assert_eq!(tx["total"], 1);
+        assert_eq!(tx["transactions"][0]["ticker"], "NVDA");
+        assert_eq!(tx["transactions"][0]["kind"], "buy");
+        assert_eq!(tx["transactions"][0]["amount_usd"], 200.0);
+        let none = call(&s, "list_transactions", json!({"kind":"dividend"})).await.unwrap();
+        assert_eq!(none["total"], 0);
+        assert!(call(&s, "list_transactions", json!({"kind":"gift"})).await.is_err());
+        let later = call(&s, "list_transactions", json!({"since":"2026-02-01"})).await.unwrap();
+        assert_eq!(later["total"], 0);
+
+        let goals = call(&s, "get_goals", json!({"portfolio":"main"})).await.unwrap();
+        assert_eq!(goals["portfolios"][0]["portfolio"]["name"], "Main");
+        assert_eq!(goals["portfolios"][0]["goals"], json!([]));
+
+        let added = call(&s, "add_to_watchlist", json!({"ticker":"AAPL","note":"Services growth"})).await.unwrap();
+        assert_eq!(added["added"], true);
+        call(&s, "create_alert", json!({"ticker":"AAPL","kind":"price_below","value":150})).await.unwrap();
+        assert!(call(&s, "create_alert", json!({"ticker":"AAPL","kind":"moon","value":1})).await.is_err());
+        let lists = call(&s, "list_watchlists", json!({})).await.unwrap();
+        let stocks = lists["watchlists"][0]["stocks"].as_array().unwrap();
+        let aapl = stocks.iter().find(|x| x["ticker"] == "AAPL").unwrap();
+        assert_eq!(aapl["note"], "Services growth");
+        assert_eq!(lists["alerts"][0]["ticker"], "AAPL");
+        assert_eq!(lists["alerts"][0]["active"], true);
+    }
+
+    #[tokio::test]
+    async fn market_research_tools() {
+        let s = service();
+        let history = call(&s, "get_price_history", json!({"ticker":"nvda","range":"3mo"})).await.unwrap();
+        assert_eq!(history["change_pct"], 20.0);
+        assert_eq!((history["high"].as_f64(), history["low"].as_f64()), (Some(120.0), Some(90.0)));
+        assert!(call(&s, "get_price_history", json!({"ticker":"NVDA","range":"2w"})).await.is_err());
+        assert!(call(&s, "get_price_history", json!({"ticker":"ZZZ"})).await.is_err());
+        assert_eq!(call(&s, "get_fundamentals", json!({"ticker":"NVDA"})).await.unwrap()["fundamentals"]["pe"], 30.0);
+        // Without tickers: the holdings of the portfolios in reach.
+        let calendar = call(&s, "get_calendar", json!({})).await.unwrap();
+        assert_eq!(calendar["events"][0]["ticker"], "NVDA");
     }
 }

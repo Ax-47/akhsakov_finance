@@ -35,7 +35,25 @@ Akhsakov Finance เปิด MCP server แบบ provider-neutral ที่ `/
 | `add_thesis_note` | เพิ่มบันทึกติดตามโดยระบุผู้เขียนเป็น AI |
 | `get_quote` | อ่านราคาล่าสุด |
 | `get_my_portfolio` | อ่านพอร์ตเงินสมมติที่ AI จัดการ |
+| `get_my_goals` | อ่านเป้าหมายของพอร์ตเงินสมมติที่ AI จัดการ (แก้ไม่ได้) |
 | `place_order` | ซื้อขายเฉพาะในพอร์ตเงินสมมติ พร้อมบันทึกเหตุผล |
+| `list_transactions` | อ่านรายการซื้อขาย ปันผลที่ได้รับ ฝาก/ถอน กรองตามพอร์ต ประเภท และวันที่ได้ |
+| `list_watchlists` | อ่าน watchlist, บันทึกและ tag ของหุ้น และการแจ้งเตือนราคา |
+| `get_goals` | อ่านเป้าหมายของพอร์ตผู้ใช้ พร้อมดูว่าทันเป้าไหม |
+| `get_price_history` | อ่านราคาปิดย้อนหลัง 1 เดือนถึงทั้งหมด |
+| `get_fundamentals` | อ่านข้อมูลพื้นฐาน เช่น P/E ปันผล และราคาเป้าหมายของนักวิเคราะห์ |
+| `get_calendar` | อ่านวันประกาศงบและวัน XD ที่จะถึง |
+| `add_to_watchlist` | เพิ่มหุ้นลง watchlist พร้อมบันทึก เมื่อผู้ใช้ขอหรือยืนยัน |
+| `create_alert` | ตั้งการแจ้งเตือนราคา เมื่อผู้ใช้ขอหรือยืนยัน |
+
+### Prompts
+
+ไคลเอนต์ที่รองรับ MCP prompts จะเห็นคำสั่งสำเร็จรูป 2 อัน:
+
+- `monthly_review`: ทบทวนพอร์ตประจำเดือน (รายการเดือนนี้, thesis, เป้าหมาย, งบและ XD ที่จะถึง)
+- `theses_due`: ไล่ thesis ที่ถึงวันทบทวนทีละตัว
+
+ทั้งสองอันระบุพอร์ตได้ และไม่แก้ข้อมูลเองจนกว่าผู้ใช้จะยืนยัน
 
 ## Model connections
 
@@ -55,7 +73,9 @@ Settings รองรับ profile ของ API ที่เข้ากัน
 
 - ไม่มีไคลเอนต์ภายนอกเข้าถึงได้จนกว่าจะสร้าง connection และทุกคำขอต้องมี secret ของ connection ที่ยังเปิดใช้
 - แต่ละ connection มี secret, preset และขอบเขตพอร์ตของตัวเอง ปิด ลบ หรือ rotate connection หนึ่งได้โดยไม่กระทบ connection อื่น
-- `read_only` อ่านพอร์ต thesis เป้าหมาย และราคา; `thesis_editor` เพิ่มการแก้ thesis/บันทึก; `trader` เพิ่ม paper order เฉพาะ AI paper portfolio ที่อนุญาต
+- `read_only` อ่านพอร์ต, thesis, รายการซื้อขาย, เป้าหมาย, watchlist และข้อมูลตลาด; `thesis_editor` เพิ่มการแก้ thesis/บันทึก, เพิ่มหุ้นลง watchlist และตั้งการแจ้งเตือน; `trader` เพิ่ม paper order เฉพาะ AI paper portfolio ที่อนุญาต
+- แต่ละ connection เรียกได้ไม่เกิน 120 ครั้งต่อนาที เกินจากนั้นจะได้ HTTP 429 ให้รอสักครู่แล้วลองใหม่
+- ทุกการเรียกถูกบันทึกไว้ใน audit ของ connection นั้น (500 รายการล่าสุด) ดูได้ใน Settings
 - ถ้า secret หลุดให้ rotate connection นั้นทันที
 - API key ถูกเก็บแยก ไม่แสดงกลับใน UI และไม่รวมในไฟล์ backup
 - Trader memory เป็นข้อมูลของพอร์ตและรวมอยู่ใน backup แต่ไม่เก็บ API key หรือ MCP key

@@ -548,7 +548,8 @@ fn ConnectorCard() -> Element {
                     div { class: "rounded-xl border border-ctp-surface0 p-4 grid gap-3",
                         p { class: "font-medium", if editing().is_some() { "Edit connection" } else { "New connection" } }
                         Field { label: "Name", input { class: INPUT, value:"{name}", oninput:move|e|name.set(e.value()) } }
-                        div { class:"flex flex-wrap gap-2", for (value,label) in [(McpAccessPreset::ReadOnly,"Read only"),(McpAccessPreset::ThesisEditor,"Thesis editor"),(McpAccessPreset::Trader,"Trader")] { button { class:example_chip(preset()==value),onclick:move |_|preset.set(value),"{label}" } } }
+                        div { class:"flex flex-wrap gap-2", for (value,label) in [(McpAccessPreset::ReadOnly,"Read only"),(McpAccessPreset::ThesisEditor,"Thesis editor"),(McpAccessPreset::Trader,"Trader")] { button { class:example_chip(preset()==value),onclick:move |_|preset.set(value),{tr(label)} } } }
+                        p { class: "text-xs text-ctp-overlay1", {tr(preset_hint(preset()))} }
                         div { class: "grid gap-2",
                             div { class: "flex flex-wrap items-end justify-between gap-2",
                                 div {
@@ -1196,6 +1197,15 @@ fn parse_amount(text: &str) -> Result<Decimal, String> {
         .ok()
         .filter(|d| *d > Decimal::ZERO)
         .ok_or_else(|| tr("Enter an amount more than zero").to_string())
+}
+
+/// What an MCP connection with `preset` may do, in the user's words.
+fn preset_hint(preset: McpAccessPreset) -> &'static str {
+    match preset {
+        McpAccessPreset::ReadOnly => "Can read the chosen portfolios, theses, transactions, goals, watchlists and market data. Changes nothing.",
+        McpAccessPreset::ThesisEditor => "Can also write theses and notes, add stocks to watchlists and create alerts, when you ask.",
+        McpAccessPreset::Trader => "Can also trade with paper money in the chosen AI portfolios.",
+    }
 }
 
 fn server_message(e: ServerFnError) -> String {
