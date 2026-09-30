@@ -29,6 +29,8 @@ const DAMPING: f64 = 0.55;
 const ALPHA_DECAY: f64 = 0.97;
 const ALPHA_MIN: f64 = 0.01;
 const DRAG_ALPHA: f64 = 0.5;
+/// Nudge after circles resize: enough to fix overlaps, not to rearrange.
+const REHEAT_ALPHA: f64 = 0.2;
 
 /// Resolves on every animation frame; the Rust side answers `true` to keep
 /// going or `false` to stop, so the loop only runs while the graph moves.
@@ -136,10 +138,12 @@ pub fn ForceGraph(
         }
     });
 
-    // New data: start from the stress layout, contracted toward the centre,
-    // so nodes spring outward into place.
+    // New correlations (other stocks or another period): start from the
+    // stress layout, contracted toward the centre, so nodes spring outward
+    // into place. Only `corr` is tracked: weights move with every price
+    // update, and a fresh layout on each one made the graph jump around.
     use_effect(move || {
-        let bodies = layout(&targets.read())
+        let bodies = layout(&spring_lengths(&corr.read(), &radii.peek()))
             .into_iter()
             .map(|(x, y)| Body::at(lerp(VIEW_W / 2.0, x, 0.6), lerp(VIEW_H / 2.0, y, 0.6)))
             .collect();
@@ -149,6 +153,15 @@ pub fn ForceGraph(
             dragged: None,
         });
         animate(sim, running, targets, radii);
+    });
+
+    // A circle changed size: keep the nodes where they are and let the
+    // springs take up the difference.
+    use_effect(move || {
+        let n = radii.read().len();
+        if sim.with_mut(|s| s.reheat(n)) {
+            animate(sim, running, targets, radii);
+        }
     });
 
     let corr_now = corr.read();
@@ -327,8 +340,10 @@ fn node_dimmed(hovered: Option<usize>, i: usize, corr: &[Vec<f64>]) -> bool {
     hovered.is_some_and(|h| h != i && corr[h][i].abs() < EDGE_THRESHOLD)
 }
 
+/// Whole pixels, so the small weight changes from price updates leave the
+/// radius (and the layout) alone.
 fn node_radius(weight: f64) -> f64 {
-    14.0 + weight.max(0.0).sqrt() * 2.5
+    (14.0 + weight.max(0.0).sqrt() * 2.5).round()
 }
 
 // ─── Physics ──────────────────────────────────────────────────────────────────
@@ -424,6 +439,16 @@ impl Sim {
         }
     }
 
+    /// Wakes a settled graph of `n` nodes without moving anything. Returns
+    /// false (and does nothing) if the graph has no layout for `n` nodes yet.
+    fn reheat(&mut self, n: usize) -> bool {
+        if n == 0 || self.bodies.len() != n {
+            return false;
+        }
+        self.alpha = self.alpha.max(REHEAT_ALPHA);
+        true
+    }
+
     fn drag_to(&mut self, i: usize, x: f64, y: f64, radius: f64) {
         if let Some(body) = self.bodies.get_mut(i) {
             body.x = clamp_axis(x, radius, VIEW_W);
@@ -442,8 +467,12 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
-/// Space kept between two circles that move exactly together.
-const CONTACT_GAP: f64 = 14.0;
+/// Space kept between two circles that move exactly together: enough to
+/// read the correlation label on the line between them.
+const CONTACT_GAP: f64 = 40.0;
+/// Below 1, stretches small differences among the most related pairs
+/// (0.63 vs 0.70) so they don't all sit at the same distance.
+const SPREAD_CURVE: f64 = 0.6;
 /// Correlations closer together than this aren't stretched further, so a
 /// portfolio whose pairs all sit between 0.60 and 0.65 doesn't look like it
 /// has strong and weak relations.
@@ -462,7 +491,9 @@ fn spring_lengths(corr: &[Vec<f64>], radii: &[f64]) -> Vec<Vec<f64>> {
     let hi = off_diagonal().fold(f64::MIN, f64::max).min(1.0);
     let lo = off_diagonal().fold(f64::MAX, f64::min).max(-1.0);
     let spread = (hi - lo).max(MIN_CORR_SPREAD);
-    let reach = (VIEW_H - 2.0 * PADDING) * 0.85;
+    // The layout is turned to lie along the wide side of the box, so the
+    // longest distances can use most of its width.
+    let reach = (VIEW_W - 2.0 * PADDING) * 0.6;
     let radius = |i: usize| radii.get(i).copied().unwrap_or(14.0);
     (0..n)
         .map(|i| {
@@ -471,7 +502,7 @@ fn spring_lengths(corr: &[Vec<f64>], radii: &[f64]) -> Vec<Vec<f64>> {
                     if i == j {
                         return 0.0;
                     }
-                    let apart = ((hi - corr[i][j]) / spread).clamp(0.0, 1.0);
+                    let apart = ((hi - corr[i][j]) / spread).clamp(0.0, 1.0).powf(SPREAD_CURVE);
                     radius(i) + radius(j) + CONTACT_GAP + apart * reach
                 })
                 .collect()
@@ -516,7 +547,30 @@ fn layout(targets: &[Vec<f64>]) -> Vec<(f64, f64)> {
         }
     }
 
-    fit_to_view(&pos)
+    fit_to_view(&along_x(&pos))
+}
+
+/// Rotates points about their centre so the direction they spread most
+/// lies horizontally: the view box is wider than it is tall.
+fn along_x(pos: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let n = pos.len() as f64;
+    let (cx, cy) = (pos.iter().map(|p| p.0).sum::<f64>() / n, pos.iter().map(|p| p.1).sum::<f64>() / n);
+    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+    for (x, y) in pos {
+        let (dx, dy) = (x - cx, y - cy);
+        sxx += dx * dx;
+        syy += dy * dy;
+        sxy += dx * dy;
+    }
+    // Principal axis angle, then turn by minus it.
+    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let (sin, cos) = (-angle).sin_cos();
+    pos.iter()
+        .map(|(x, y)| {
+            let (dx, dy) = (x - cx, y - cy);
+            (cx + dx * cos - dy * sin, cy + dx * sin + dy * cos)
+        })
+        .collect()
 }
 
 /// Centres points in the padded view box, scaling down (never up) so they
@@ -555,6 +609,36 @@ mod tests {
             vec![0.9, 1.0, -0.4],
             vec![-0.5, -0.4, 1.0],
         ]
+    }
+
+    #[test]
+    fn price_noise_keeps_the_radius() {
+        assert_eq!(node_radius(25.0), node_radius(25.04));
+        assert_eq!(node_radius(9.99), node_radius(10.02));
+        assert!(node_radius(40.0) > node_radius(10.0));
+    }
+
+    #[test]
+    fn resized_circles_settle_without_a_new_layout() {
+        let corr = corr();
+        let mut radii = vec![16.0; 3];
+        let mut sim = Sim {
+            bodies: layout(&spring_lengths(&corr, &radii)).into_iter().map(|(x, y)| Body::at(x, y)).collect(),
+            alpha: 1.0,
+            dragged: None,
+        };
+        while sim.step(&spring_lengths(&corr, &radii), &radii) {}
+        let before: Vec<_> = sim.bodies.iter().map(Body::pos).collect();
+
+        // One holding's weight moved enough to grow its circle a pixel.
+        radii[0] += 1.0;
+        assert!(sim.reheat(3));
+        assert_eq!(sim.bodies.iter().map(Body::pos).collect::<Vec<_>>(), before, "reheat itself moves nothing");
+        while sim.step(&spring_lengths(&corr, &radii), &radii) {}
+        for (b, p) in sim.bodies.iter().zip(&before) {
+            assert!(dist(b.pos(), *p) < 10.0, "moved {:.1}px", dist(b.pos(), *p));
+        }
+        assert!(!sim.reheat(4), "no layout for another set of stocks");
     }
 
     #[test]
@@ -655,6 +739,37 @@ mod tests {
         let (min_x, max_x) = min_max(p.iter().map(|q| q.0));
         let (min_y, max_y) = min_max(p.iter().map(|q| q.1));
         assert!((max_x - min_x).max(max_y - min_y) > VIEW_H * 0.5, "spans {}×{}", max_x - min_x, max_y - min_y);
+    }
+
+    /// The portfolio in the bug report video: AAPL, VOO, NVDA, TSM, AMD.
+    /// The last four correlate 0.58–0.70 and used to touch in a clump.
+    fn video_portfolio() -> (Vec<Vec<f64>>, Vec<f64>) {
+        let corr = vec![
+            vec![1.00, 0.35, 0.20, 0.14, 0.18],
+            vec![0.35, 1.00, 0.66, 0.70, 0.58],
+            vec![0.20, 0.66, 1.00, 0.63, 0.62],
+            vec![0.14, 0.70, 0.63, 1.00, 0.63],
+            vec![0.18, 0.58, 0.62, 0.63, 1.00],
+        ];
+        let radii = [22.0, 20.0, 18.0, 16.0, 15.0].map(node_radius).to_vec();
+        (corr, radii)
+    }
+
+    #[test]
+    fn close_correlations_still_get_air_and_use_the_width() {
+        let (corr, radii) = video_portfolio();
+        let p = settle(&corr, &radii);
+        let n = p.len();
+        let mut min_gap = f64::MAX;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                min_gap = min_gap.min(dist(p[i], p[j]) - radii[i] - radii[j]);
+            }
+        }
+        let (min_x, max_x) = min_max(p.iter().map(|q| q.0));
+        let (min_y, max_y) = min_max(p.iter().map(|q| q.1));
+        assert!(min_gap >= 30.0, "circles nearly touch: {min_gap:.0}px apart");
+        assert!(max_x - min_x > max_y - min_y, "laid out along the wide side");
     }
 
     #[test]
