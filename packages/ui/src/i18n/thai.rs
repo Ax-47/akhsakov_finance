@@ -515,7 +515,6 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Book value / share", "มูลค่าทางบัญชีต่อหุ้น"),
     ("Cash flow (TTM)", "กระแสเงินสด (12 เดือนล่าสุด)"),
     ("Couldn't get the USD → {} rate. Try again shortly.", "ดึงอัตราแลกเปลี่ยน USD → {} ไม่ได้ ลองใหม่อีกครั้งในอีกสักครู่"),
-    ("Couldn't load prices: {}", "โหลดราคาไม่ได้: {}"),
     ("Custom", "กำหนดเอง"),
     ("Delete {name}?", "ลบ {name} ไหม?"),
     ("Dividend payers", "หุ้นปันผล"),
@@ -1122,4 +1121,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Delete plan", "ลบแผน"),
     ("Delete goal", "ลบเป้าหมาย"),
     ("Delete connection", "ลบการเชื่อมต่อ"),
+    ("Couldn't load prices right now. The data source may be busy; try again shortly.", "ตอนนี้โหลดราคาไม่ได้ แหล่งข้อมูลอาจยุ่งอยู่ ลองใหม่อีกสักครู่"),
+    ("{} shares · cost {}", "{} หุ้น · ต้นทุน {}"),
+    ("no price yet", "ยังไม่มีราคา"),
+    ("{} shares · {}", "{} หุ้น · {}"),
 ];

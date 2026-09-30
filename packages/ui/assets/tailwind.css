@@ -2198,6 +2198,10 @@
     max-width: 14rem;
   }
 
+  .max-w-full {
+    max-width: 100%;
+  }
+
   .max-w-lg {
     max-width: var(--container-lg);
   }
@@ -4273,8 +4277,16 @@
       flex-direction: row;
     }
 
+    .sm\:items-center {
+      align-items: center;
+    }
+
     .sm\:items-start {
       align-items: flex-start;
+    }
+
+    .sm\:justify-between {
+      justify-content: space-between;
     }
 
     .sm\:gap-4 {

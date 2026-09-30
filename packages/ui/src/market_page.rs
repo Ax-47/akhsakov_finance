@@ -139,7 +139,7 @@ fn IndexView(index: MarketIndex) -> Element {
                 Some(Err(message)) => rsx! {
                     div { class: "mt-10 motion-safe:animate-rise",
                         Card { title: tr(index.label()),
-                            p { class: "text-sm text-ctp-red", "Couldn't load prices: {message}" }
+                            p { class: "text-sm text-ctp-red", title: "{message}", {tr("Couldn't load prices right now. The data source may be busy; try again shortly.")} }
                             p { class: "mt-1 text-xs text-ctp-subtext0", {tr("Retrying in a few seconds…")} }
                         }
                     }

@@ -582,7 +582,7 @@ fn ConnectorCard() -> Element {
                 }
             }
             if let Some(e) = error() {
-                p { class: "mt-3 text-sm text-ctp-red", "{e}" }
+                p { class: "mt-3 text-sm text-ctp-red break-words", "{e}" }
             }
         }
     }
@@ -792,7 +792,7 @@ fn AiPortfolioCard() -> Element {
                 }
             }
             if let Some(e) = error() {
-                p { class: "mt-3 text-sm text-ctp-red", "{e}" }
+                p { class: "mt-3 text-sm text-ctp-red break-words", "{e}" }
             }
         }
     }
@@ -1109,7 +1109,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, on_change:
                 }
             }
             if let Some(e) = error() {
-                p { class: "text-sm text-ctp-red", "{e}" }
+                p { class: "text-sm text-ctp-red break-words", "{e}" }
             }
         }
     }

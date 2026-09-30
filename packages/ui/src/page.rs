@@ -69,7 +69,9 @@ pub fn PageHero(
                     div { class: "absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-ctp-base/80 to-transparent" }
                 }
             }
-            div { class: "flex items-center justify-between gap-4 mb-4",
+            // On phones the status gets its own line and the buttons wrap
+            // under it, instead of squeezing the status into a narrow column.
+            div { class: "mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4",
                 div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                     if loaded {
                         span { class: "relative flex h-2 w-2",

@@ -151,7 +151,7 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
                 }
             }
             if let Some(e) = error() {
-                p { class: "w-full text-xs text-ctp-red", "{e}" }
+                p { class: "w-full text-xs text-ctp-red break-words", "{e}" }
             }
         }
     }
@@ -266,7 +266,7 @@ pub fn AssetDialog(existing: Option<AssetInfo>, on_close: EventHandler<()>) -> E
                     }
                 }
                 if let Some(e) = error() {
-                    p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red", "{e}" }
+                    p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red break-words", "{e}" }
                 }
                 div { class: "flex justify-end gap-2",
                     ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }

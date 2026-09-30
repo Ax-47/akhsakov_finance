@@ -1060,7 +1060,7 @@ fn AiPortfolioDialog(on_close: EventHandler<()>) -> Element {
 fn ErrorLine(error: Option<String>) -> Element {
     rsx! {
         if let Some(e) = error {
-            p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red", "{e}" }
+            p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red break-words", "{e}" }
         }
     }
 }

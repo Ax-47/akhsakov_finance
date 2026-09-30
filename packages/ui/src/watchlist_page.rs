@@ -504,7 +504,7 @@ fn ListBar(lists: Vec<Watchlist>, current: Option<Uuid>, selected: Signal<Option
                 }
             }
             if let Some(e) = error() {
-                span { class: "text-xs text-ctp-red", "{e}" }
+                span { class: "text-xs text-ctp-red break-words", "{e}" }
             }
         }
     }

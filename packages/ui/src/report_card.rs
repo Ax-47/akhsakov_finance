@@ -37,7 +37,7 @@ pub fn ReportCard(portfolio: Option<Uuid>) -> Element {
 
     let body = match report.read().clone().flatten() {
         None => rsx! { p { class: "text-sm text-ctp-subtext0", {tr("Working out the month…")} } },
-        Some(Err(e)) => rsx! { p { class: "text-sm text-ctp-red", "{e}" } },
+        Some(Err(e)) => rsx! { p { class: "text-sm text-ctp-red break-words", "{e}" } },
         Some(Ok(r)) => {
             let text = report_text(&r, |v| fmt_usd(v, 2));
             let file = format!("report-{}.txt", r.month);

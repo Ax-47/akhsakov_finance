@@ -40,10 +40,11 @@ pub fn Card(
 }
 
 /// Pill-shaped segmented control container; fill it with [`ToggleButton`]s.
+/// Too wide for the screen, it scrolls sideways instead of wrapping labels.
 #[component]
 pub fn Segmented(children: Element) -> Element {
     rsx! {
-        div { class: "inline-flex gap-0.5 rounded-full border border-ctp-surface0 bg-ctp-crust/40 p-0.5",
+        div { class: "inline-flex max-w-full gap-0.5 overflow-x-auto rounded-full border border-ctp-surface0 bg-ctp-crust/40 p-0.5",
             {children}
         }
     }
@@ -54,9 +55,9 @@ pub fn ToggleButton(label: String, active: bool, onclick: EventHandler<MouseEven
     rsx! {
         button {
             class: if active {
-                "min-h-8 px-3.5 py-1.5 rounded-full text-sm font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
+                "min-h-8 shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-sm font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
             } else {
-                "min-h-8 px-3.5 py-1.5 rounded-full text-sm font-medium text-ctp-subtext0 hover:text-ctp-text cursor-pointer transition-colors"
+                "min-h-8 shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-sm font-medium text-ctp-subtext0 hover:text-ctp-text cursor-pointer transition-colors"
             },
             aria_pressed: active,
             onclick: move |e| onclick.call(e),

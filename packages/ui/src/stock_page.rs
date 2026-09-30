@@ -256,9 +256,20 @@ fn YouOwn(ticker: TickerSymbol) -> Element {
     rsx! {
         div { class: "mt-4 inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-ctp-surface0/70 bg-ctp-mantle/60 px-4 py-2 text-sm",
             span { class: "text-ctp-subtext0", {tr("You own")} }
-            span { class: "font-medium tabular-nums text-ctp-text", "{p.shares.normalize()} shares · {fmt_usd(p.market_value(), 2)}" }
-            span { class: "font-medium tabular-nums {signed_color(p.unrealized_pnl())}",
-                "{fmt_signed(p.unrealized_pnl(), 2)} ({p.unrealized_pnl_pct():+.2}%)"
+            // Without a price there's no value or gain to show: valuing the
+            // holding at zero read as a 100% loss.
+            if p.current_price.is_zero() {
+                span { class: "font-medium tabular-nums text-ctp-text",
+                    {crate::i18n::trf("{} shares · cost {}", &[&p.shares.normalize(), &fmt_usd(p.cost_basis(), 2)])}
+                }
+                span { class: "text-ctp-overlay1", {tr("no price yet")} }
+            } else {
+                span { class: "font-medium tabular-nums text-ctp-text",
+                    {crate::i18n::trf("{} shares · {}", &[&p.shares.normalize(), &fmt_usd(p.market_value(), 2)])}
+                }
+                span { class: "font-medium tabular-nums {signed_color(p.unrealized_pnl())}",
+                    "{fmt_signed(p.unrealized_pnl(), 2)} ({p.unrealized_pnl_pct():+.2}%)"
+                }
             }
         }
     }
@@ -382,7 +393,7 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
                     ActionButton { label: tr("Save"), onclick: save }
                     match status() {
                         Some(Ok(())) => rsx! { span { class: "text-sm text-ctp-green", {tr("Saved")} } },
-                        Some(Err(e)) => rsx! { span { class: "text-sm text-ctp-red", "{e}" } },
+                        Some(Err(e)) => rsx! { span { class: "text-sm text-ctp-red break-words", "{e}" } },
                         None => rsx! {},
                     }
                 }

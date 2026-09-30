@@ -514,7 +514,7 @@ fn RiskOverview(
                                 }
                             },
                             Some(Ok(())) => rsx! { span { class: "text-ctp-green", {tr("Alert set ✓ (see Watchlist → Alerts)")} } },
-                            Some(Err(e)) => rsx! { span { class: "text-ctp-red", "{e}" } },
+                            Some(Err(e)) => rsx! { span { class: "text-ctp-red break-words", "{e}" } },
                         }
                     }
                 }

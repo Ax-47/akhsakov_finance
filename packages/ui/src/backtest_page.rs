@@ -148,17 +148,22 @@ pub fn BacktestPage() -> Element {
                     div { class: "grid gap-2",
                         for (i, a) in assets().into_iter().enumerate() {
                             div { key: "{i}", class: "flex items-center gap-2",
-                                input {
-                                    class: "{INPUT} flex-1 uppercase",
-                                    placeholder: tr("Ticker, e.g. VOO"),
-                                    value: "{a.ticker}",
-                                    oninput: move |e| assets.write()[i].ticker = e.value(),
+                                div { class: "min-w-0 flex-1",
+                                    input {
+                                        class: "{INPUT} uppercase",
+                                        placeholder: tr("Ticker, e.g. VOO"),
+                                        value: "{a.ticker}",
+                                        oninput: move |e| assets.write()[i].ticker = e.value(),
+                                    }
                                 }
-                                input {
-                                    class: "{INPUT} w-24 text-right tabular-nums",
-                                    inputmode: "decimal",
-                                    value: "{a.weight}",
-                                    oninput: move |e| assets.write()[i].weight = e.value(),
+                                // INPUT is w-full, so the width lives on a wrapper.
+                                div { class: "w-20 shrink-0",
+                                    input {
+                                        class: "{INPUT} text-right tabular-nums",
+                                        inputmode: "decimal",
+                                        value: "{a.weight}",
+                                        oninput: move |e| assets.write()[i].weight = e.value(),
+                                    }
                                 }
                                 span { class: "text-sm text-ctp-subtext0", "%" }
                                 button {

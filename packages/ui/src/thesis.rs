@@ -85,7 +85,7 @@ pub fn ThesisTab(portfolio: Option<Uuid>) -> Element {
             Card { title: tr("Theses"), p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} } }
         },
         Some(Err(e)) => rsx! {
-            Card { title: tr("Theses"), p { class: "text-sm text-ctp-red", "{e}" } }
+            Card { title: tr("Theses"), p { class: "text-sm text-ctp-red break-words", "{e}" } }
         },
         Some(Ok(all)) => rsx! {
             for (id, name, held) in sections {
@@ -469,7 +469,7 @@ fn Journal(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -> Ele
                 ActionButton { label: tr("Add"), tone: ButtonTone::Quiet, onclick: move |_| add(t2.clone()) }
             }
             if let Some(e) = error() {
-                p { class: "mt-2 text-sm text-ctp-red", "{e}" }
+                p { class: "mt-2 text-sm text-ctp-red break-words", "{e}" }
             }
             if !log.is_empty() {
                 ul { class: "mt-3 grid gap-2.5",
