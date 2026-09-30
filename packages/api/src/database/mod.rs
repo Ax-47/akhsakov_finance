@@ -80,8 +80,12 @@ impl Database {
 
     fn init(conn: Connection, seed: bool) -> Result<Self, DatabaseError> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // Only a brand-new file gets the samples. Checking for "no
+        // portfolios" instead brought them back every time the app started
+        // after you'd deleted them all.
+        let fresh = conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? == 0;
         migrate(&conn)?;
-        if seed {
+        if seed && fresh {
             seed_sample_data(&conn)?;
         }
         Ok(Self(Arc::new(Mutex::new(conn))))
@@ -461,6 +465,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 /// The original demo portfolios, so a fresh install has something to show.
+/// Called only for a database that has just been created.
 fn seed_sample_data(conn: &Connection) -> rusqlite::Result<()> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM portfolios", [], |r| r.get(0))?;
     if count > 0 {
@@ -530,6 +535,24 @@ mod tests {
             .with(|c| c.pragma_query_value(None, "user_version", |r| r.get(0)))
             .unwrap();
         assert_eq!(version as usize, MIGRATIONS.len());
+    }
+
+    #[test]
+    fn deleted_samples_stay_deleted() {
+        let path = std::env::temp_dir().join(format!("akhsakov-seed-{}.db", uuid::Uuid::new_v4()));
+        let portfolios = |db: &Database| {
+            db.with(|c| c.query_row("SELECT COUNT(*) FROM portfolios", [], |r| r.get::<_, i64>(0)))
+                .unwrap()
+        };
+        let db = Database::open(&path).unwrap();
+        assert_eq!(portfolios(&db), 2, "a new file gets the samples");
+        db.with(|c| c.execute("DELETE FROM portfolios", [])).unwrap();
+        drop(db);
+
+        let reopened = Database::open(&path).unwrap();
+        assert_eq!(portfolios(&reopened), 0, "reopening doesn't bring them back");
+        drop(reopened);
+        let _ = std::fs::remove_file(&path);
     }
 }
 
