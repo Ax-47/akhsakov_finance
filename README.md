@@ -66,7 +66,13 @@ akhsakov-finance version
 
 ### ออก release
 
-push tag ที่ขึ้นต้นด้วย `v` (เช่น `git tag v0.2.0 && git push origin v0.2.0`) แล้ว workflow [Release](.github/workflows/release.yml) จะ build ทุกแพลตฟอร์ม ใส่เซิร์ฟเวอร์ไว้ในแต่ละ bundle และสร้าง GitHub release พร้อม `SHA256SUMS` ให้ installer ใช้
+push tag รูปแบบ `vX.Y.Z` (เช่น `git tag v0.2.0 && git push origin v0.2.0`) แล้ว workflow [Release](.github/workflows/release.yml) จะ:
+
+1. รัน CI ทั้งหมดบน commit นั้นก่อน ถ้าไม่ผ่านจะไม่ปล่อย release
+2. build ทุกแพลตฟอร์มโดยใช้เลขเวอร์ชันจาก tag ใส่เซิร์ฟเวอร์ไว้ในแต่ละ bundle แล้วลองติดตั้ง เปิดแอป และถอนการติดตั้งจริงบน Linux, macOS และ Windows
+3. เช็กว่ามีไฟล์ครบทุกตัวที่ installer หา แล้วสร้าง GitHub release พร้อม `SHA256SUMS`
+
+tag ที่มีส่วนต่อท้าย เช่น `v0.2.0-rc.1` จะออกเป็น pre-release ส่วนการกด Run workflow เอง หรือ PR ที่แก้ installer/การแพ็ก จะ build และทดสอบครบแต่ไม่ publish
 
 ถ้าอยากให้อัปเดตแอป Android ทับของเดิมได้ ต้อง sign ด้วย key เดิมทุกครั้ง: ตั้ง secret `ANDROID_KEYSTORE` (ไฟล์ .jks แบบ base64), `ANDROID_KEYSTORE_PASSWORD` และ `ANDROID_KEY_ALIAS` ถ้าไม่ตั้ง APK จะ sign ด้วย debug key ที่เปลี่ยนทุก build ต้องลบแอปเก่าก่อนติดตั้งเวอร์ชันใหม่
 
