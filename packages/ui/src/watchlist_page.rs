@@ -189,8 +189,8 @@ pub fn WatchlistPage() -> Element {
                     }
                 }
                 Card {
-                    title: current().map_or("Watching".to_string(), |l| l.name),
-                    subtitle: format!("{} stocks", tickers.read().len()),
+                    title: current().map_or(tr("Watching").to_string(), |l| l.name),
+                    subtitle: crate::i18n::trf("{} stocks", &[&tickers.read().len()]),
                     flush: true,
                     actions: rsx! {
                         form {

@@ -339,25 +339,14 @@ pub fn pearson(a: &[Option<f64>], b: &[Option<f64>]) -> Option<f64> {
 }
 
 fn describe_correlation(a: &str, b: &str, r: f64, n: usize) -> String {
-    let strength = match r.abs() {
-        v if v >= 0.7 => "strongly",
-        v if v >= 0.4 => "somewhat",
-        _ => "barely",
+    let template = match (r.abs(), r >= 0.0) {
+        (v, _) if v < 0.4 => "Over these {} quarters, {} and {} are barely related (correlation {}).",
+        (v, true) if v >= 0.7 => "Over these {} quarters, {} and {} strongly move together (correlation {}).",
+        (_, true) => "Over these {} quarters, {} and {} somewhat move together (correlation {}).",
+        (v, false) if v >= 0.7 => "Over these {} quarters, {} and {} strongly move in opposite directions (correlation {}).",
+        (_, false) => "Over these {} quarters, {} and {} somewhat move in opposite directions (correlation {}).",
     };
-    let direction = if r >= 0.0 {
-        "move together"
-    } else {
-        "move in opposite directions"
-    };
-    if r.abs() < 0.4 {
-        format!(
-            "Over these {n} quarters, {a} and {b} are {strength} related (correlation {r:+.2})."
-        )
-    } else {
-        format!(
-            "Over these {n} quarters, {a} and {b} {strength} {direction} (correlation {r:+.2})."
-        )
-    }
+    crate::i18n::trf(template, &[&n, &a, &b, &format!("{r:+.2}")])
 }
 
 /// Two measures of one stock over its recent quarters, on one chart.

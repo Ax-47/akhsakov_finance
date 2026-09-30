@@ -94,7 +94,7 @@ fn MptBody(
                     MetricTile {
                         label: tr("Average return"),
                         value: format!("{:+.2}%", a.weighted_avg_return),
-                        hint: format!("Value-weighted · spread ±{:.1}%", a.return_dispersion),
+                        hint: trf("Value-weighted · spread ±{}%", &[&format!("{:.1}", a.return_dispersion)]),
                         tone: signed_color(a.weighted_avg_return),
                     }
                 }

@@ -283,11 +283,11 @@ pub fn TransactionDialog(
                     }
                 }
                 if let Some(total) = f.total() {
-                    p { class: "text-xs text-ctp-subtext0", "Total: {total}" }
+                    p { class: "text-xs text-ctp-subtext0", {crate::i18n::trf("Total: {}", &[&total])} }
                 }
                 if f.currency != "USD" {
                     p { class: "text-xs text-ctp-subtext0",
-                        "Converted to USD at the {f.currency} rate on the trade date."
+                        {crate::i18n::trf("Converted to USD at the {} rate on the trade date.", &[&f.currency])}
                     }
                 }
                 ErrorLine { error: error() }

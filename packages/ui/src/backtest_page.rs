@@ -247,7 +247,7 @@ fn Results(outcome: Outcome) -> Element {
                 tone: "text-ctp-red",
             }
             MetricTile {
-                label: format!("vs {benchmark_name}"),
+                label: crate::i18n::trf("vs {}", &[&benchmark_name]),
                 value: format!("{vs_sign}{}", money(vs)),
                 hint: crate::i18n::trf("{} would be worth {}", &[&benchmark_name, &money(benchmark.final_value)]),
                 tone: vs_tone,

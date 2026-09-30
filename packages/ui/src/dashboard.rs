@@ -582,7 +582,7 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
     rsx! {
         tr {
             class: "group border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors cursor-pointer",
-            title: "Open {pos.ticker}",
+            title: trf("Open {}", &[&pos.ticker]),
             onclick: move |_| open_stock(&ticker),
             td { class: "pl-6 pr-4 py-3.5",
                 span { class: "flex items-center gap-2.5",

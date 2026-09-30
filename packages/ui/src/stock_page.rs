@@ -219,14 +219,14 @@ fn StockView(ticker: TickerSymbol) -> Element {
                     } else if let Some(f) = &f {
                         MeasureVsMeasure { fundamentals: f.clone() }
                     } else if loading {
-                        Unavailable { text: "Loading fundamentals…" }
+                        Unavailable { text: tr("Loading fundamentals…") }
                     } else {
-                        Unavailable { text: "Fundamentals aren't available for {ticker} right now." }
+                        Unavailable { text: crate::i18n::trf("Fundamentals aren't available for {} right now.", &[&ticker]) }
                     }
                 },
-                (_, None) if loading => rsx! { Unavailable { text: "Loading fundamentals…" } },
+                (_, None) if loading => rsx! { Unavailable { text: tr("Loading fundamentals…") } },
                 (_, None) => rsx! {
-                    Unavailable { text: "Fundamentals aren't available for {ticker} right now. Yahoo may be rate-limiting; try again shortly." }
+                    Unavailable { text: crate::i18n::trf("Fundamentals aren't available for {} right now. Yahoo may be rate-limiting; try again shortly.", &[&ticker]) }
                 },
                 (Tab::Statistics, Some(f)) => rsx! { Statistics { fundamentals: f.clone() } },
                 (Tab::Financials, Some(f)) => rsx! {
