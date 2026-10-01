@@ -1,7 +1,9 @@
+use crate::mcp::services::tools::FrozenMarket;
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
 use dtos::{
     ai_models::{AiRun, AiRunEvent, AiRunStatus, ModelProfile, NewAiTrader, TraderConfig, TraderMemory},
     ai_portfolio::AiPortfolioInfo,
+    mcp::{McpAccessPreset, McpConnection},
 };
 use reqwest::Url;
 use rusqlite::{params, OptionalExtension};
@@ -31,8 +33,8 @@ const ALLOWED_TOOLS: [&str; 5] = [
 
 #[derive(Clone)]
 pub struct ModelService {
-    db: Database,
-    mcp: McpService,
+    pub(super) db: Database,
+    pub(super) mcp: McpService,
     http: reqwest::Client,
 }
 
@@ -40,6 +42,13 @@ pub struct ModelService {
 struct Connection {
     profile: ModelProfile,
     api_key: String,
+}
+
+#[derive(Clone)]
+pub(super) struct RaceRunContext {
+    pub race_id: Uuid,
+    pub round: u32,
+    pub market: FrozenMarket,
 }
 
 fn storage(e: impl std::fmt::Display) -> ServiceError {
@@ -67,6 +76,43 @@ impl ModelService {
                 [],
             )
         });
+        let _ = service.db.transaction(|tx| {
+            let ids: Vec<String> = tx
+                .prepare("SELECT id FROM ai_races WHERE status='running'")?
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            tx.execute("UPDATE ai_races SET status='paused' WHERE status='running'", [])?;
+            let audit = |id: &str, kind: &str, detail: &str| {
+                tx.execute(
+                    "INSERT INTO ai_race_audit (race_id,sequence,kind,detail)
+                     VALUES (?1,COALESCE((SELECT MAX(sequence)+1 FROM ai_race_audit WHERE race_id=?1),1),?2,?3)",
+                    params![id, kind, detail],
+                )
+            };
+            for id in ids {
+                audit(&id, "recovered", "The app restarted, so the race was paused safely.")?;
+            }
+            // A round the restart cut short would stay claimed, and Resume
+            // would find nothing to run: the race would never move again.
+            // Forget it so it runs again, in full, after Resume.
+            let interrupted: Vec<(String, i64)> = tx
+                .prepare(
+                    "SELECT r.race_id, r.round_number FROM ai_race_rounds r
+                     JOIN ai_races a ON a.id = r.race_id
+                     WHERE r.status = 'running' AND a.status = 'paused'",
+                )?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            for (id, round) in interrupted {
+                tx.execute(
+                    "DELETE FROM ai_race_rounds WHERE race_id=?1 AND round_number=?2",
+                    params![id, round],
+                )?;
+                audit(&id, "round_interrupted", &format!("Round {round} was cut short by the restart; it runs again after Resume."))?;
+            }
+            Ok(())
+        });
+        service.relock_active_races();
         service
     }
 
@@ -92,6 +138,13 @@ impl ModelService {
         model: &str,
         api_key: Option<&str>,
     ) -> Result<ModelProfile, ServiceError> {
+        if let Some(id) = id {
+            if self.profile_active_in_race(id)? {
+                return Err(invalid(
+                    "Model profiles used by an active race cannot be changed.",
+                ));
+            }
+        }
         let name = name.trim();
         let model = model.trim();
         if name.is_empty() || model.is_empty() {
@@ -122,6 +175,11 @@ impl ModelService {
     }
 
     pub fn delete_profile(&self, id: Uuid) -> Result<(), ServiceError> {
+        if self.profile_active_in_race(id)? {
+            return Err(invalid(
+                "Model profiles used by an active race cannot be deleted.",
+            ));
+        }
         let changed = self
             .db
             .with(|c| {
@@ -170,14 +228,16 @@ impl ModelService {
         self.db
             .with(|c| {
                 c.query_row(
-                    "SELECT profile_id, strategy, memory_char_limit, context_token_limit
+                    "SELECT profile_id, strategy, memory_char_limit, context_token_limit, mcp_connection_id
                      FROM ai_trader_configs WHERE portfolio_id = ?1",
                     [portfolio_id.to_string()],
                     |r| {
                         let profile: Option<String> = r.get(0)?;
+                        let mcp: Option<String> = r.get(4)?;
                         Ok(TraderConfig {
                             portfolio_id,
                             profile_id: profile.and_then(|s| Uuid::parse_str(&s).ok()),
+                            mcp_connection_id: mcp.and_then(|s| Uuid::parse_str(&s).ok()),
                             strategy: r.get(1)?,
                             memory_char_limit: r.get::<_, i64>(2)? as u32,
                             context_token_limit: r.get::<_, i64>(3)? as u32,
@@ -192,6 +252,9 @@ impl ModelService {
 
     pub fn save_config(&self, config: TraderConfig) -> Result<TraderConfig, ServiceError> {
         self.ensure_ai_portfolio(config.portfolio_id)?;
+        if self.race_active_for(config.portfolio_id)? {
+            return Err(invalid("Strategy and model connection are locked while this portfolio is in an active race."));
+        }
         if config.strategy.trim().is_empty() {
             return Err(invalid("Trading strategy cannot be empty."));
         }
@@ -205,24 +268,34 @@ impl ModelService {
                 "Context window must be between 8,192 and 1,000,000 tokens.",
             ));
         }
+        if config.profile_id.is_some() && config.mcp_connection_id.is_some() {
+            return Err(invalid(
+                "Choose either a model profile or an MCP connection, not both.",
+            ));
+        }
         if let Some(id) = config.profile_id {
             self.profile(id)?;
+        }
+        if let Some(id) = config.mcp_connection_id {
+            self.check_mcp_driver(id, config.portfolio_id)?;
         }
         self.db
             .with(|c| {
                 c.execute(
                     "INSERT INTO ai_trader_configs
-                     (portfolio_id, profile_id, strategy, memory_char_limit, context_token_limit)
-                     VALUES (?1, ?2, ?3, ?4, ?5)
+                     (portfolio_id, profile_id, strategy, memory_char_limit, context_token_limit, mcp_connection_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                      ON CONFLICT(portfolio_id) DO UPDATE SET profile_id=excluded.profile_id,
                      strategy=excluded.strategy, memory_char_limit=excluded.memory_char_limit,
-                     context_token_limit=excluded.context_token_limit",
+                     context_token_limit=excluded.context_token_limit,
+                     mcp_connection_id=excluded.mcp_connection_id",
                     params![
                         config.portfolio_id.to_string(),
                         config.profile_id.map(|id| id.to_string()),
                         config.strategy.trim(),
                         config.memory_char_limit,
-                        config.context_token_limit
+                        config.context_token_limit,
+                        config.mcp_connection_id.map(|id| id.to_string())
                     ],
                 )
             })
@@ -329,7 +402,60 @@ impl ModelService {
     }
 
     pub async fn start_run(&self, portfolio_id: Uuid) -> Result<AiRun, ServiceError> {
+        if self.race_active_for(portfolio_id)? {
+            return Err(invalid(
+                "Manual trader runs are disabled while this portfolio is in an active race.",
+            ));
+        }
+        self.start_run_for(portfolio_id, None, RUN_TIMEOUT).await
+    }
+
+    /// An MCP connection may drive `portfolio` only if it is enabled, can
+    /// trade, and can reach that portfolio.
+    pub(super) fn check_mcp_driver(
+        &self,
+        connection_id: Uuid,
+        portfolio: Uuid,
+    ) -> Result<McpConnection, ServiceError> {
+        let connection = self
+            .mcp
+            .connections()?
+            .into_iter()
+            .find(|c| c.id == connection_id)
+            .ok_or_else(|| ServiceError::NotFound("MCP connection".into()))?;
+        if !connection.enabled {
+            return Err(invalid(format!(
+                "The MCP connection \"{}\" is disabled.",
+                connection.name
+            )));
+        }
+        if connection.preset != McpAccessPreset::Trader {
+            return Err(invalid(format!(
+                "The MCP connection \"{}\" needs the Trader access preset to trade this portfolio.",
+                connection.name
+            )));
+        }
+        if !connection.portfolio_ids.contains(&portfolio) {
+            return Err(invalid(format!(
+                "The MCP connection \"{}\" doesn't have access to this portfolio.",
+                connection.name
+            )));
+        }
+        Ok(connection)
+    }
+
+    pub(super) async fn start_run_for(
+        &self,
+        portfolio_id: Uuid,
+        race: Option<RaceRunContext>,
+        timeout: Duration,
+    ) -> Result<AiRun, ServiceError> {
         let config = self.config(portfolio_id)?;
+        if config.mcp_connection_id.is_some() {
+            return Err(invalid(
+                "This portfolio is driven by an MCP client; it trades when that client connects.",
+            ));
+        }
         let profile_id = config
             .profile_id
             .ok_or_else(|| invalid("Choose a model profile first."))?;
@@ -352,12 +478,15 @@ impl ModelService {
         self.db
             .with(|c| {
                 c.execute(
-                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model) VALUES (?1, ?2, 'running', ?3, ?4)",
+                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model, race_id, race_round)
+                     VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6)",
                     params![
                         run_id.to_string(),
                         portfolio_id.to_string(),
                         connection.profile.name,
-                        connection.profile.model
+                        connection.profile.model,
+                        race.as_ref().map(|v| v.race_id.to_string()),
+                        race.as_ref().map(|v| v.round)
                     ],
                 )
             })
@@ -375,7 +504,7 @@ impl ModelService {
         tokio::spawn(async move {
             let usage = Arc::new(Mutex::new(Usage::default()));
             let result = tokio::time::timeout(
-                RUN_TIMEOUT,
+                timeout,
                 runner.run_loop(
                     run_id,
                     portfolio_id,
@@ -383,6 +512,7 @@ impl ModelService {
                     &memory,
                     connection,
                     usage.clone(),
+                    race,
                 ),
             )
             .await;
@@ -393,7 +523,10 @@ impl ModelService {
                 Err(_) => runner.finish(
                     run_id,
                     None,
-                    Some("The model run exceeded two minutes.".into()),
+                    Some(format!(
+                        "The model run exceeded the {} second round deadline.",
+                        timeout.as_secs()
+                    )),
                     usage,
                 ),
             }
@@ -446,6 +579,7 @@ impl ModelService {
         memory: &TraderMemory,
         connection: Connection,
         usage: Arc<Mutex<Usage>>,
+        race: Option<RaceRunContext>,
     ) -> Result<String, ServiceError> {
         let portfolio = portfolio_id.to_string();
         let memory_budget = memory_prompt_budget(config);
@@ -466,6 +600,20 @@ impl ModelService {
         let tools = openai_tools();
         let mut tool_count = 0usize;
         for _ in 0..MAX_TURNS {
+            if let Some(context) = &race {
+                let stopped =
+                    self.db
+                        .with(|c| {
+                            c.query_row(
+                    "SELECT status NOT IN ('running','paused') FROM ai_races WHERE id=?1",
+                    [context.race_id.to_string()], |r| r.get::<_, bool>(0),
+                )
+                        })
+                        .map_err(storage)?;
+                if stopped {
+                    return Err(invalid("The race was stopped."));
+                }
+            }
             compact_messages(&mut messages, &tools, config.context_token_limit);
             let response = self
                 .request(
@@ -514,6 +662,21 @@ impl ModelService {
                 return Ok(text);
             }
             for call in calls {
+                if let Some(context) = &race {
+                    let stopped = self
+                        .db
+                        .with(|c| {
+                            c.query_row(
+                                "SELECT status NOT IN ('running','paused') FROM ai_races WHERE id=?1",
+                                [context.race_id.to_string()],
+                                |r| r.get::<_, bool>(0),
+                            )
+                        })
+                        .map_err(storage)?;
+                    if stopped {
+                        return Err(invalid("The race was stopped."));
+                    }
+                }
                 tool_count += 1;
                 if tool_count > MAX_TOOL_CALLS {
                     return Err(invalid("The model exceeded the 24 tool-call limit."));
@@ -522,12 +685,16 @@ impl ModelService {
                 let name = call["function"]["name"].as_str().unwrap_or_default();
                 let raw = call["function"]["arguments"].as_str().unwrap_or("{}");
                 let args = scoped_args(name, raw, &portfolio)?;
-                let result = self
-                    .mcp
-                    .tools()
-                    .call(name, &args)
-                    .await
-                    .flatten_result(name);
+                let result = match &race {
+                    Some(context) => {
+                        self.mcp
+                            .tools()
+                            .call_frozen(name, &args, &context.market)
+                            .await
+                    }
+                    None => self.mcp.tools().call(name, &args).await,
+                }
+                .flatten_result(name);
                 let (content, success) = match result {
                     Ok(value) => (serde_json::to_string(&value).unwrap_or_default(), true),
                     Err(error) => (error, false),
@@ -655,7 +822,7 @@ impl ModelService {
             .map_err(|_| ServiceError::Upstream("The model endpoint returned invalid JSON.".into()))
     }
 
-    fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
+    pub(super) fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
         let status = if response.is_some() {
             "completed"
         } else {
@@ -664,7 +831,7 @@ impl ModelService {
         let _ = self.db.with(|c| {
             c.execute(
                 "UPDATE ai_runs SET status=?2, finished_at=datetime('now'), final_response=?3, error=?4,
-                 prompt_tokens=?5, completion_tokens=?6, total_tokens=?7 WHERE id=?1",
+                 prompt_tokens=?5, completion_tokens=?6, total_tokens=?7 WHERE id=?1 AND status='running'",
                 params![
                     id.to_string(), status, response, error,
                     usage.prompt.map(|v| v as i64), usage.completion.map(|v| v as i64), usage.total.map(|v| v as i64)
@@ -673,7 +840,7 @@ impl ModelService {
         });
     }
 
-    fn record_event(
+    pub(super) fn record_event(
         &self,
         run_id: Uuid,
         sequence: i64,
@@ -777,7 +944,7 @@ impl ToolResultExt for Option<Result<Value, String>> {
 }
 
 #[derive(Clone, Default)]
-struct Usage {
+pub(super) struct Usage {
     prompt: Option<u64>,
     completion: Option<u64>,
     total: Option<u64>,

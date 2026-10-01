@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,
+    BacktestIcon, RaceIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,
 };
 
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -26,6 +26,8 @@ enum Route {
     Lesson { slug: String },
     #[route("/backtest")]
     Backtest {},
+    #[route("/race")]
+    Race {},
     #[route("/watchlist")]
     Watchlist {},
     #[route("/settings")]
@@ -110,6 +112,10 @@ fn Navbar() -> Element {
                 Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     BacktestIcon {}
                     span { class: NAV_LABEL, {ui::i18n::tr("Backtest")} }
+                }
+                Link { to: Route::Race {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    RaceIcon {}
+                    span { class: NAV_LABEL, {ui::i18n::tr("AI races")} }
                 }
                 Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     SettingsIcon {}
@@ -211,4 +217,9 @@ fn Stock(ticker: String) -> Element {
     rsx! {
         ui::StockPage { ticker }
     }
+}
+
+#[component]
+fn Race() -> Element {
+    rsx! { ui::RacePage {} }
 }

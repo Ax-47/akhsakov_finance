@@ -789,4 +789,31 @@ mod tests {
         }
         assert!(dist(sim.bodies[0].pos(), sim.bodies[1].pos()) >= 32.0);
     }
+
+    #[test]
+    fn dense_simulation_stays_finite_and_in_bounds() {
+        let count = 12;
+        let mut corr = vec![vec![0.0; count]; count];
+        for (i, row) in corr.iter_mut().enumerate() {
+            row[i] = 1.0;
+        }
+        let radii = vec![16.0; count];
+        let targets = spring_lengths(&corr, &radii);
+        let mut sim = Sim {
+            bodies: vec![Body::at(VIEW_W / 2.0, VIEW_H / 2.0); count],
+            alpha: 1.0,
+            dragged: None,
+        };
+        let mut frames = 0;
+        while sim.step(&targets, &radii) {
+            frames += 1;
+            assert!(frames < 1000, "simulation never settled");
+        }
+
+        for (body, radius) in sim.bodies.iter().zip(radii) {
+            assert!(body.x.is_finite() && body.y.is_finite());
+            assert!((radius + 4.0..=VIEW_W - radius - 4.0).contains(&body.x));
+            assert!((radius + 4.0..=VIEW_H - radius - 4.0).contains(&body.y));
+        }
+    }
 }

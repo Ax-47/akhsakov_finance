@@ -61,7 +61,7 @@ pub fn ThesisTab(portfolio: Option<Uuid>) -> Element {
     let data = use_context::<Signal<GetDashBoardResponse>>();
     let theses = use_theses();
     let today = use_today();
-    let connected = use_resource(|| async { api::get_connector_key().await.ok().flatten().is_some() });
+    let connected = use_resource(|| async { api::has_mcp_connections().await.unwrap_or(false) });
 
     let sections: Vec<(Uuid, String, Vec<TickerSymbol>)> = {
         let data = data.read();

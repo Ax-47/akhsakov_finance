@@ -77,9 +77,10 @@
 ### 12. AI connector และ model connections
 - MCP server แบบ provider-neutral ที่ `/mcp` ใช้กับไคลเอนต์ที่รองรับ Streamable HTTP พร้อมตัวอย่าง Generic, Claude, Codex, Antigravity / `agy`, Cursor / VS Code และ Other
 - บันทึก profile ของ API ที่เข้ากันได้กับ OpenAI Chat Completions ได้หลายชุด โดยไม่มี preset หรือโค้ดเฉพาะผู้ให้บริการ
+- พอร์ตเงินสมมติของ AI เลือก profile หรือ MCP connection (preset trader) และกลยุทธ์ได้; AI race ผสมผู้เข้าแข่งขันทั้งสองแบบได้ โดยไคลเอนต์ MCP ซื้อขายได้เฉพาะใน round window
 - พอร์ตเงินสมมติของ AI เลือก profile และกลยุทธ์ได้ กด Run AI trader เพื่อให้โมเดลดู thesis/ราคาและซื้อขายเฉพาะพอร์ตนั้น พร้อม audit log
 - persistent memory แยกต่อพอร์ต เก็บสรุปการตัดสินใจและคำถามค้างไว้ข้ามรอบ ตรวจ แก้ไข หรือล้างได้ พร้อมกำหนดขนาด memory/context window และย่อ tool context เก่าอัตโนมัติ
-- เปิด/ปิด MCP และสร้างคีย์ใหม่ได้ใน Settings สิ่งที่ AI เขียนมีป้าย AI กำกับ วิธีตั้งค่าอยู่ใน [AI_CONNECTOR.md](AI_CONNECTOR.md)
+- สร้าง MCP connections แยกตามไคลเอนต์ได้ใน Settings โดยกำหนด preset และพอร์ตที่เข้าถึงได้ พร้อม rotate/disable/delete และ audit log สิ่งที่ AI เขียนมีป้าย AI กำกับ วิธีตั้งค่าอยู่ใน [AI_CONNECTOR.md](AI_CONNECTOR.md)
 
 ### 13. ความปลอดภัยและผู้ใช้
 - ตั้งรหัสผ่านครั้งแรก, ล็อกอิน / ล็อกเอาต์, เปลี่ยนรหัสผ่าน

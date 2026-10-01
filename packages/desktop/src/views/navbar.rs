@@ -1,7 +1,7 @@
 use crate::{views::ScrollBench, Route};
 use dioxus::prelude::*;
 use ui::{
-    BacktestIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE,
+    BacktestIcon, RaceIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE,
 };
 
 /// Full-window shell: sidebar on the left, scrollable page on the right.
@@ -50,6 +50,10 @@ pub fn Navbar() -> Element {
                 Link { to: Route::Backtest {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     BacktestIcon {}
                     span { class: NAV_LABEL, {ui::i18n::tr("Backtest")} }
+                }
+                Link { to: Route::Race {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
+                    RaceIcon {}
+                    span { class: NAV_LABEL, {ui::i18n::tr("AI races")} }
                 }
                 Link { to: Route::Settings {}, class: NAV_LINK, active_class: NAV_LINK_ACTIVE,
                     SettingsIcon {}

@@ -5,3 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    volumes:
+      - type: bind
+        source: ${AKHSAKOV_DATA_DIR:-./data}
+        target: /data

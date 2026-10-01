@@ -24,3 +24,4 @@ pub mod dca;
 pub mod report;
 pub mod ai_portfolio;
 pub mod ai_models;
+pub mod mcp;

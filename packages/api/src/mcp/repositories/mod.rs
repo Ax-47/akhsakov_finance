@@ -1,12 +1,27 @@
-//! Storage port for the connector's key.
+//! Storage ports for named connector credentials and paper portfolios.
 
 use crate::shared::RepositoryError;
+use dtos::mcp::{McpAccessPreset, McpAuditEvent, McpConnection};
+use uuid::Uuid;
 
-pub trait KeyRepository: Send + Sync {
-    /// `None` while the connector is off.
-    fn key(&self) -> Result<Option<String>, RepositoryError>;
-    /// Replaces the key; `None` turns the connector off.
-    fn set_key(&self, key: Option<&str>) -> Result<(), RepositoryError>;
+#[derive(Debug, Clone)]
+pub struct ConnectionRecord {
+    pub connection: McpConnection,
+    pub token_hash: String,
+}
+
+pub trait ConnectionRepository: Send + Sync {
+    fn list(&self) -> Result<Vec<McpConnection>, RepositoryError>;
+    fn find(&self, id: Uuid) -> Result<Option<ConnectionRecord>, RepositoryError>;
+    fn create(&self, record: &ConnectionRecord) -> Result<(), RepositoryError>;
+    fn update(&self, id: Uuid, name: &str, preset: McpAccessPreset, enabled: bool, portfolios: &[Uuid]) -> Result<(), RepositoryError>;
+    fn rotate(&self, id: Uuid, token_hash: &str) -> Result<(), RepositoryError>;
+    fn delete(&self, id: Uuid) -> Result<(), RepositoryError>;
+    fn touch(&self, id: Uuid) -> Result<(), RepositoryError>;
+    fn audit(&self, id: Uuid, method: &str, tool: Option<&str>, portfolios: &[Uuid], success: bool, error: Option<&str>) -> Result<(), RepositoryError>;
+    fn events(&self, id: Uuid, limit: usize) -> Result<Vec<McpAuditEvent>, RepositoryError>;
+    /// Whether the connection drives a contestant in a running or paused race.
+    fn in_active_race(&self, id: Uuid) -> Result<bool, RepositoryError>;
 }
 
 /// Which portfolios an AI assistant manages.
@@ -36,4 +51,21 @@ pub struct LiveQuote {
 #[async_trait::async_trait]
 pub trait LivePrices: Send + Sync {
     async fn quote(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<LiveQuote, String>;
+}
+
+/// Market research the read tools pass on, so they can be tested without
+/// the network. Answers are JSON for the model to read.
+#[async_trait::async_trait]
+pub trait MarketData: Send + Sync {
+    /// Closes in USD (stocks and funds) as `(YYYY-MM-DD, close)`, oldest first.
+    async fn closes(
+        &self,
+        ticker: &types::ticker_symbol::TickerSymbol,
+        range: types::range::Range,
+        interval: types::interval::Interval,
+    ) -> Result<Vec<(String, f64)>, String>;
+    /// Valuation, profitability, dividends and analyst targets.
+    async fn fundamentals(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<serde_json::Value, String>;
+    /// Upcoming earnings and ex-dividend dates, soonest first.
+    async fn calendar(&self, tickers: Vec<types::ticker_symbol::TickerSymbol>) -> Result<serde_json::Value, String>;
 }

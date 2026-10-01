@@ -36,6 +36,8 @@ enum Route {
     Lesson { slug: String },
     #[route("/backtest")]
     Backtest {},
+    #[route("/race")]
+    Race {},
     #[route("/watchlist")]
     Watchlist {},
     #[route("/settings")]
@@ -259,4 +261,9 @@ fn Stock(ticker: String) -> Element {
     rsx! {
         ui::StockPage { ticker }
     }
+}
+
+#[component]
+fn Race() -> Element {
+    rsx! { ui::RacePage {} }
 }

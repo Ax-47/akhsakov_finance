@@ -1,7 +1,7 @@
 //! SQLite storage shared by every repository: one connection, versioned
 //! migrations, and a sample portfolio on first run.
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -115,6 +115,8 @@ impl Database {
                 let copy = Connection::open(&path)?;
                 copy.execute("DELETE FROM sessions", [])?;
                 copy.execute("DELETE FROM mcp_access", [])?;
+                copy.execute("DELETE FROM mcp_connections", [])?;
+                copy.execute("UPDATE ai_trader_configs SET mcp_connection_id = NULL", [])?;
                 copy.execute("DELETE FROM ai_model_secrets", [])?;
                 copy.execute_batch("VACUUM")?;
             }
@@ -159,13 +161,15 @@ impl Database {
     }
 }
 
-/// Accounts, sessions and the AI connector's key of the running server. A
+/// Accounts, sessions and MCP connections of the running server. A
 /// restore keeps them: a backup can't remove sign-in (by holding no
 /// accounts), add accounts, bring back old sessions or swap the key.
 struct Accounts {
     users: Vec<(String, String, String)>,
     sessions: Vec<(String, String, String, String)>,
-    connector: Option<String>,
+    mcp_connections: Vec<(String, String, i64, String, String, String, String, Option<String>)>,
+    mcp_scopes: Vec<(String, String)>,
+    mcp_audit: Vec<(i64, String, String, String, Option<String>, String, i64, Option<String>)>,
 }
 
 impl Accounts {
@@ -178,13 +182,21 @@ impl Accounts {
             .prepare("SELECT token, username, created_at, expires_at FROM sessions")?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        let connector = conn
-            .query_row("SELECT token FROM mcp_access WHERE id = 1", [], |r| r.get(0))
-            .optional()?;
+        let mcp_connections = conn
+            .prepare("SELECT id,name,enabled,preset,token_hash,created_at,updated_at,last_used_at FROM mcp_connections")?
+            .query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mcp_scopes = conn.prepare("SELECT connection_id,portfolio_id FROM mcp_connection_portfolios")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mcp_audit = conn.prepare("SELECT id,connection_id,at,method,tool,portfolio_ids,success,error_category FROM mcp_audit")?
+            .query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         Ok(Self {
             users,
             sessions,
-            connector,
+            mcp_connections,
+            mcp_scopes,
+            mcp_audit,
         })
     }
 
@@ -193,8 +205,18 @@ impl Accounts {
     fn write(&self, conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("DELETE FROM sessions", [])?;
         conn.execute("DELETE FROM mcp_access", [])?;
-        if let Some(token) = &self.connector {
-            conn.execute("INSERT INTO mcp_access (id, token) VALUES (1, ?1)", [token])?;
+        conn.execute("DELETE FROM mcp_connections", [])?;
+        for row in &self.mcp_connections {
+            conn.execute("INSERT INTO mcp_connections(id,name,enabled,preset,token_hash,created_at,updated_at,last_used_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", rusqlite::params![row.0,row.1,row.2,row.3,row.4,row.5,row.6,row.7])?;
+        }
+        for row in &self.mcp_scopes {
+            // A restore can replace the portfolio set. Keep the local
+            // credential, but never recreate a scope to a missing portfolio.
+            conn.execute("INSERT INTO mcp_connection_portfolios(connection_id,portfolio_id) SELECT ?1,?2 WHERE EXISTS(SELECT 1 FROM portfolios WHERE id=?2)", rusqlite::params![row.0,row.1])?;
+        }
+        conn.execute("UPDATE mcp_connections SET enabled=0 WHERE NOT EXISTS(SELECT 1 FROM mcp_connection_portfolios s WHERE s.connection_id=mcp_connections.id)", [])?;
+        for row in &self.mcp_audit {
+            conn.execute("INSERT INTO mcp_audit(id,connection_id,at,method,tool,portfolio_ids,success,error_category) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)", rusqlite::params![row.0,row.1,row.2,row.3,row.4,row.5,row.6,row.7])?;
         }
         if self.users.is_empty() {
             return Ok(());
@@ -457,6 +479,89 @@ const MIGRATIONS: &[&str] = &[
         updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
         source_run_id          TEXT REFERENCES ai_runs(id) ON DELETE SET NULL
     );",
+    // 15: synchronized, auditable competitions between AI portfolios
+    "CREATE TABLE ai_races (
+        id                         TEXT PRIMARY KEY,
+        name                       TEXT NOT NULL,
+        status                     TEXT NOT NULL DEFAULT 'draft',
+        starting_capital           REAL NOT NULL,
+        rounds                     INTEGER NOT NULL,
+        completed_rounds           INTEGER NOT NULL DEFAULT 0,
+        trading_frequency_minutes  INTEGER NOT NULL,
+        round_timeout_seconds      INTEGER NOT NULL,
+        created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+        started_at                 TEXT,
+        finished_at                TEXT
+    );
+    CREATE TABLE ai_race_contestants (
+        race_id       TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        portfolio_id  TEXT NOT NULL REFERENCES ai_portfolios(portfolio_id) ON DELETE RESTRICT,
+        PRIMARY KEY (race_id, portfolio_id)
+    );
+    CREATE TABLE ai_race_rounds (
+        race_id          TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        round_number     INTEGER NOT NULL,
+        status           TEXT NOT NULL,
+        snapshot_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        market_snapshot  TEXT NOT NULL DEFAULT '{}',
+        started_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        finished_at      TEXT,
+        PRIMARY KEY (race_id, round_number)
+    );
+    CREATE TABLE ai_race_metrics (
+        race_id             TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        round_number        INTEGER NOT NULL,
+        portfolio_id        TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        portfolio_value     REAL NOT NULL,
+        cash                REAL NOT NULL,
+        fees                REAL NOT NULL,
+        turnover            REAL NOT NULL,
+        failed_model_runs   INTEGER NOT NULL,
+        PRIMARY KEY (race_id, round_number, portfolio_id)
+    );
+    CREATE TABLE ai_race_audit (
+        race_id   TEXT NOT NULL REFERENCES ai_races(id) ON DELETE CASCADE,
+        sequence  INTEGER NOT NULL,
+        at        TEXT NOT NULL DEFAULT (datetime('now')),
+        kind      TEXT NOT NULL,
+        detail    TEXT NOT NULL,
+        PRIMARY KEY (race_id, sequence)
+    );
+    ALTER TABLE ai_runs ADD COLUMN race_id TEXT REFERENCES ai_races(id) ON DELETE SET NULL;
+    ALTER TABLE ai_runs ADD COLUMN race_round INTEGER;
+    CREATE INDEX ai_runs_race ON ai_runs(race_id, race_round);",
+    // 16: named, independently scoped MCP connections. The old plaintext
+    // global key is deliberately invalidated during this migration.
+    "DELETE FROM mcp_access;
+    CREATE TABLE mcp_connections (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        preset        TEXT NOT NULL CHECK(preset IN ('read_only','thesis_editor','trader')),
+        token_hash    TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        last_used_at  TEXT
+    );
+    CREATE TABLE mcp_connection_portfolios (
+        connection_id TEXT NOT NULL REFERENCES mcp_connections(id) ON DELETE CASCADE,
+        portfolio_id  TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+        PRIMARY KEY(connection_id, portfolio_id)
+    );
+    CREATE TABLE mcp_audit (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id   TEXT NOT NULL REFERENCES mcp_connections(id) ON DELETE CASCADE,
+        at              TEXT NOT NULL DEFAULT (datetime('now')),
+        method          TEXT NOT NULL,
+        tool            TEXT,
+        portfolio_ids   TEXT NOT NULL DEFAULT '[]',
+        success         INTEGER NOT NULL,
+        error_category  TEXT
+    );
+    CREATE INDEX mcp_audit_connection ON mcp_audit(connection_id, id DESC);",
+    // 17: an AI portfolio can be driven by an MCP connection instead of a
+    // model profile.
+    "ALTER TABLE ai_trader_configs ADD COLUMN mcp_connection_id TEXT REFERENCES mcp_connections(id) ON DELETE SET NULL;",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -630,28 +735,22 @@ mod backup_tests {
     }
 
     #[test]
-    fn backups_carry_no_connector_key_and_restores_keep_it() {
-        let set_key = |db: &Database, key: &str| {
-            db.with(|c| c.execute("INSERT OR REPLACE INTO mcp_access (id, token) VALUES (1, ?1)", [key]))
-                .unwrap();
-        };
-        let key = |db: &Database| -> Option<String> {
-            db.with(|c| c.query_row("SELECT token FROM mcp_access", [], |r| r.get(0)).optional())
-                .unwrap()
-        };
+    fn backups_carry_no_connector_credentials_and_restores_keep_local_connections() {
+        let add = |db: &Database, id: &str, hash: &str| db.with(|c| c.execute("INSERT INTO mcp_connections(id,name,preset,token_hash) VALUES(?1,'local','read_only',?2)", rusqlite::params![id,hash])).unwrap();
+        let count_connections=|db:&Database| count(db,"mcp_connections");
         let a = Database::in_memory().unwrap();
-        set_key(&a, "old-connector-key");
+        add(&a,"11111111-1111-1111-1111-111111111111","secret-hash-in-backup-source");
         let bytes = a.export().unwrap();
-        assert!(!bytes.windows(17).any(|w| w == b"old-connector-key"));
+        assert!(!bytes.windows(28).any(|w| w == b"secret-hash-in-backup-source"));
 
         let b = Database::in_memory().unwrap();
-        set_key(&b, "live-key");
+        add(&b,"22222222-2222-2222-2222-222222222222","live-local-hash");
         b.restore(&bytes).unwrap();
-        assert_eq!(key(&b).as_deref(), Some("live-key"));
+        assert_eq!(count_connections(&b),1);
 
         let c = Database::in_memory().unwrap();
         c.restore(&bytes).unwrap();
-        assert_eq!(key(&c), None);
+        assert_eq!(count_connections(&c),0);
     }
 
     #[test]

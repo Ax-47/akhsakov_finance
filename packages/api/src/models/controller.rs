@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRun, ModelProfile, NewAiTrader, TraderConfig, TraderMemory},
+    ai_models::{AiRace, AiRaceRun, AiRun, ModelProfile, NewAiRace, NewAiTrader, TraderConfig, TraderMemory},
     ai_portfolio::AiPortfolioInfo,
 };
 use uuid::Uuid;
@@ -86,4 +86,50 @@ pub async fn get_ai_trader_runs(portfolio_id: Uuid) -> Result<Vec<AiRun>, Server
 #[post("/api/models/trader/run/get", service: Extension<ModelService>)]
 pub async fn get_ai_trader_run(id: Uuid) -> Result<AiRun, ServerFnError> {
     Ok(service.run(id)?)
+}
+
+#[get("/api/models/races", service: Extension<ModelService>)]
+pub async fn get_ai_races() -> Result<Vec<AiRace>, ServerFnError> {
+    Ok(service.races()?)
+}
+
+#[post("/api/models/races/create", service: Extension<ModelService>)]
+pub async fn create_ai_race(input: NewAiRace) -> Result<AiRace, ServerFnError> {
+    Ok(service.create_race(input)?)
+}
+
+#[post("/api/models/races/get", service: Extension<ModelService>)]
+pub async fn get_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
+    Ok(service.race(id)?)
+}
+
+#[post("/api/models/races/start", service: Extension<ModelService>)]
+pub async fn start_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
+    Ok(service.start_race(id)?)
+}
+
+#[post("/api/models/races/pause", service: Extension<ModelService>)]
+pub async fn pause_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
+    Ok(service.pause_race(id)?)
+}
+
+#[post("/api/models/races/resume", service: Extension<ModelService>)]
+pub async fn resume_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
+    Ok(service.resume_race(id)?)
+}
+
+#[post("/api/models/races/stop", service: Extension<ModelService>)]
+pub async fn stop_ai_race(id: Uuid) -> Result<AiRace, ServerFnError> {
+    Ok(service.stop_race(id)?)
+}
+
+/// One contestant's runs in a race, by round, with every tool call.
+#[post("/api/models/races/runs", service: Extension<ModelService>)]
+pub async fn get_ai_race_runs(race_id: Uuid, portfolio_id: Uuid) -> Result<Vec<AiRaceRun>, ServerFnError> {
+    Ok(service.race_runs(race_id, portfolio_id)?)
+}
+
+#[post("/api/models/races/results", service: Extension<ModelService>)]
+pub async fn download_ai_race_results(id: Uuid) -> Result<String, ServerFnError> {
+    Ok(service.race_csv(id)?)
 }
