@@ -299,10 +299,17 @@ jobs:
           Start-Sleep 2
 
           # The app starts its own server, which stops when the app does.
+          # Each check is made once (a second query could see the server
+          # already gone), and a failure shows the server's log.
+          $log = Join-Path $env:LOCALAPPDATA 'akhsakov-finance\server.log'
+          $fail = { param($why) if (Test-Path $log) { Write-Host '--- server.log'; Get-Content $log -Tail 50 }; throw $why }
           & $cli run app
-          for ($i = 0; $i -lt 60 -and -not (& $status 8080); $i++) { Start-Sleep 1 }
-          if (-not (& $status 8080)) { throw 'the app did not start its server' }
-          Get-Process -Name 'akhsakov-finance' | Stop-Process -Force
+          $up = $false
+          for ($i = 0; $i -lt 60 -and -not $up; $i++) { Start-Sleep 1; $up = [bool](& $status 8080) }
+          if (-not $up) { & $fail 'the app did not start its server' }
+          $app = Get-Process -Name 'akhsakov-finance' -ErrorAction SilentlyContinue
+          if (-not $app) { & $fail 'the app closed by itself after starting its server' }
+          $app | Stop-Process -Force
           for ($i = 0; $i -lt 20 -and (& $status 8080); $i++) { Start-Sleep 1 }
           if (& $status 8080) { throw 'the server kept running after the app closed' }
 
