@@ -16,22 +16,21 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Mock OpenAI-compatible server (item 6) | #46 |
-| 2 | Retry and backoff (item 8) | #48 |
-| 3 | Per-profile settings (item 7) | #47 |
-| 4 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
-| 5 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
-| 6 | Emergency stop (item 15a) | #44 |
-| 7 | Scheduled runs (item 15) | #52 |
-| 8 | Notifications when a run finishes or fails (item 17) | #54 |
-| 9 | Usage and estimated cost (item 16) | #53 |
-| 10 | Capability detection (item 9) | #49 |
-| 11 | Streaming (item 11) | #51 |
-| 12 | Responses-style APIs (item 10) | #50 |
+| 1 | Retry and backoff (item 8) | #48 |
+| 2 | Per-profile settings (item 7) | #47 |
+| 3 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
+| 4 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
+| 5 | Emergency stop (item 15a) | #44 |
+| 6 | Scheduled runs (item 15) | #52 |
+| 7 | Notifications when a run finishes or fails (item 17) | #54 |
+| 8 | Usage and estimated cost (item 16) | #53 |
+| 9 | Capability detection (item 9) | #49 |
+| 10 | Streaming (item 11) | #51 |
+| 11 | Responses-style APIs (item 10) | #50 |
 
-Why this order: the mock server comes first because every model change after
-it adds test cases there. Retries come next because a single 429 fails a race
-round today. Goals and the mandate change what traders do, so they come before
+Why this order: the mock model server (item 6, done) came first because every
+model change after it adds test cases there. Retries come next because a
+single 429 fails a race round today. Goals and the mandate change what traders do, so they come before
 automation. The emergency stop and scheduled runs go together: portfolios use
 paper money, but model API calls cost real money, and a schedule can run up a
 bill unattended. Streaming and Responses-style APIs help fewer providers, so
@@ -70,7 +69,9 @@ rather than adding a second notion of goal.
 ## Phase 2: model compatibility
 
 6. **Mock OpenAI-compatible server for integration tests**, covering a full run
-   with tool calls. Every later item in this phase adds cases to it. (#46)
+   with tool calls. Every later item in this phase adds cases to it. Done
+   (#46): `packages/api/src/models/mock_model.rs`, with whole runs tested in
+   `run_tests.rs` next to it.
 7. **Per-profile settings**: timeout, max tokens, and custom headers beyond
    bearer authentication (headers stored with the secrets, not the profile).
    (#47)

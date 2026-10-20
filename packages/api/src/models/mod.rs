@@ -10,6 +10,10 @@ mod service;
 pub use service::ModelService;
 #[cfg(feature = "server")]
 mod race;
+#[cfg(all(test, feature = "server"))]
+mod mock_model;
+#[cfg(all(test, feature = "server"))]
+mod run_tests;
 
 #[cfg(feature = "server")]
 pub fn model_services_setup(

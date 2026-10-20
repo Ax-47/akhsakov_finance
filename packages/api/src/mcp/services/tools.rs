@@ -33,6 +33,12 @@ pub(crate) struct FrozenMarket(std::sync::Arc<tokio::sync::Mutex<HashMap<String,
 impl FrozenMarket {
     pub(crate) fn new() -> Self { Self::default() }
 
+    /// Freezes `ticker` at `quote`, as if the round had captured it.
+    #[cfg(test)]
+    pub(crate) async fn freeze(&self, ticker: &str, quote: crate::mcp::repositories::LiveQuote) {
+        self.0.lock().await.insert(ticker.to_string(), quote);
+    }
+
     async fn quote(&self, trading: &Trading, ticker: &TickerSymbol) -> Result<crate::mcp::repositories::LiveQuote, ServiceError> {
         let mut prices = self.0.lock().await;
         if let Some(value) = prices.get(ticker.as_str()).cloned() { return Ok(value); }
