@@ -939,7 +939,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Update", "อัปเดต"),
     ("Market price", "ราคาตลาด"),
     ("Enter a number", "กรอกตัวเลข"),
-    ("Enter a ticker (up to 10 letters), e.g. KFSSF", "กรอกรหัส (ไม่เกิน 10 ตัว) เช่น KFSSF"),
+    ("Enter a ticker (up to 20 letters), e.g. KFSSF", "กรอกรหัส (ไม่เกิน 20 ตัว) เช่น KFSSF"),
     ("Enter a number for the price", "กรอกราคาเป็นตัวเลข"),
     ("New asset", "สินทรัพย์ใหม่"),
     ("Edit asset", "แก้ไขสินทรัพย์"),
@@ -1390,4 +1390,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Your buy price, from a \"Price falls below\" alert", "ราคาที่อยากซื้อ จาก alert แบบ \"ราคาลงถึง\""),
     ("Buy ≤ {} · {}", "ซื้อที่ ≤ {} · {}"),
     ("Buy ≤ {}", "ซื้อที่ ≤ {}"),
+    ("Enter a number for the interest", "ใส่ตัวเลขของดอกเบี้ย"),
+    ("Interest a year, % (optional)", "ดอกเบี้ยต่อปี % (ไม่ใส่ก็ได้)"),
+    ("For a deposit or bond: its value grows by this much a year from the latest price you entered.", "สำหรับเงินฝากหรือหุ้นกู้: มูลค่าจะเพิ่มขึ้นปีละเท่านี้ นับจากราคาล่าสุดที่ใส่ไว้"),
+    ("{}% a year", "{}% ต่อปี"),
 ];

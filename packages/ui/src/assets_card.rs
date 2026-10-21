@@ -106,6 +106,9 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
             if let Some(w) = asset.wrapper {
                 span { class: "rounded-full bg-ctp-mauve/15 px-2 py-0.5 text-xs font-semibold text-ctp-mauve", "{w}" }
             }
+            if let Some(r) = asset.yearly_rate {
+                span { class: "rounded-full bg-ctp-green/15 px-2 py-0.5 text-xs text-ctp-green", {crate::i18n::trf("{}% a year", &[&r.normalize()])} }
+            }
             span { class: "min-w-0 flex-1 truncate text-ctp-subtext0", "{asset.name}" }
             if asset.manual {
                 span { class: "text-xs tabular-nums text-ctp-subtext0",
@@ -172,14 +175,23 @@ pub fn AssetDialog(existing: Option<AssetInfo>, on_close: EventHandler<()>) -> E
     let mut ticker = use_signal(move || s.ticker.to_string());
     let mut info = use_signal(move || start);
     let mut first_price = use_signal(String::new);
+    let rate_start = info.peek().yearly_rate.map(|r| r.normalize().to_string()).unwrap_or_default();
+    let mut rate = use_signal(move || rate_start);
     let mut error = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
 
     let submit = move |_| async move {
         let Ok(t) = TickerSymbol::new(&ticker()) else {
-            return error.set(Some(tr("Enter a ticker (up to 10 letters), e.g. KFSSF").into()));
+            return error.set(Some(tr("Enter a ticker (up to 20 letters), e.g. KFSSF").into()));
         };
-        let asset = AssetInfo { ticker: t.clone(), ..info() };
+        let yearly_rate = match rate().trim().replace(',', "").as_str() {
+            "" => None,
+            r => match Decimal::from_str(r) {
+                Ok(r) => Some(r),
+                Err(_) => return error.set(Some(tr("Enter a number for the interest").into())),
+            },
+        };
+        let asset = AssetInfo { ticker: t.clone(), yearly_rate, ..info() };
         let price = first_price().trim().replace(',', "");
         let price = if asset.manual && !price.is_empty() {
             match Decimal::from_str(&price) {
@@ -262,6 +274,11 @@ pub fn AssetDialog(existing: Option<AssetInfo>, on_close: EventHandler<()>) -> E
                         }
                         Field { label: tr("Price today (optional)"), hint: tr("NAV per unit, gold price, or 1 for a deposit"),
                             input { class: INPUT, inputmode: "decimal", value: "{first_price}", oninput: move |e| first_price.set(e.value()) }
+                        }
+                        div { class: "col-span-2",
+                            Field { label: tr("Interest a year, % (optional)"), hint: tr("For a deposit or bond: its value grows by this much a year from the latest price you entered."),
+                                input { class: INPUT, inputmode: "decimal", placeholder: "1.5", value: "{rate}", oninput: move |e| rate.set(e.value()) }
+                            }
                         }
                     }
                 }
