@@ -447,6 +447,7 @@ async fn profile_settings_shape_every_request_and_stay_secret() {
                 ("OpenAI-Organization".into(), secret.into()),
                 ("X-Project".into(), "proj-7".into()),
             ]),
+            ..Default::default()
         },
     );
     let profile = service.profiles().unwrap().into_iter().find(|p| p.id == id).unwrap();
@@ -899,4 +900,69 @@ async fn race_rounds_and_endings_are_summed_up() {
             ("🏁 AI race paused: Cup".to_string(), "It stopped on an error: boom".to_string()),
         ]
     );
+}
+
+#[tokio::test]
+async fn costs_are_estimated_summed_and_capped() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "priced").await;
+    let settings = |input: Option<f64>, output: Option<f64>| ModelProfileSettings {
+        input_price_per_million: input,
+        output_price_per_million: output,
+        ..Default::default()
+    };
+    let id = service.config(portfolio).unwrap().profile_id.unwrap();
+    assert!(service
+        .save_profile_with(Some(id), "priced", mock.base_url(), "priced", None, Some(&settings(Some(-1.0), None)))
+        .is_err());
+
+    // No prices: the cost stays unknown and the run counts as unpriced.
+    mock.script("priced", [Reply::text("Nothing."), Reply::text("{}")]);
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.cost_usd, None);
+
+    // $2 and $10 per million: each mock reply costs (10*2 + 5*10) / 1e6.
+    configure(&service, &mock, portfolio, settings(Some(2.0), Some(10.0)));
+    mock.script("priced", [Reply::text("Nothing."), Reply::text("{}")]);
+    let run = run_once(&service, portfolio).await;
+    let per_reply = (10.0 * 2.0 + 5.0 * 10.0) / 1_000_000.0;
+    assert!((run.cost_usd.unwrap() - 2.0 * per_reply).abs() < 1e-12, "{run:?}");
+    // A provider that reports no usage leaves the cost unknown.
+    mock.script(
+        "priced",
+        [
+            Reply::Ok(json!({"choices": [{"message": {"role": "assistant", "content": "No usage."}}]})),
+            Reply::Ok(json!({"choices": [{"message": {"role": "assistant", "content": "{}"}}]})),
+        ],
+    );
+    assert_eq!(run_once(&service, portfolio).await.cost_usd, None);
+
+    let usage = service.usage().unwrap();
+    let mine = usage.iter().find(|u| u.kind == "portfolio" && u.name == "priced").unwrap();
+    assert!((mine.cost_all - 2.0 * per_reply).abs() < 1e-12, "{mine:?}");
+    assert_eq!(mine.cost_7d, mine.cost_all);
+    assert_eq!(mine.tokens_all, 4 * 15, "two runs reported usage");
+    assert_eq!(mine.unpriced_runs, 2);
+    assert!(usage.iter().any(|u| u.kind == "profile" && u.name == "priced"));
+
+    // A run stops once it costs more than its limit.
+    let mut config = service.config(portfolio).unwrap();
+    assert!(service.save_config(TraderConfig { max_cost_per_run: Some(0.0), ..config.clone() }).is_err());
+    config.max_cost_per_run = Some(per_reply * 1.5);
+    service.save_config(config.clone()).unwrap();
+    mock.script(
+        "priced",
+        [Reply::tools(&[("get_quote", json!({"ticker": "NVDA"}))]), Reply::tools(&[("get_quote", json!({"ticker": "NVDA"}))])],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert!(error(&run).starts_with("The run reached its cost limit of $0.00"), "{}", error(&run));
+    assert!((run.cost_usd.unwrap() - 2.0 * per_reply).abs() < 1e-12, "what it spent is kept");
+
+    // And no run starts once the month's spending reaches its limit.
+    config.max_cost_per_run = None;
+    config.max_cost_per_month = Some(per_reply);
+    service.save_config(config).unwrap();
+    let refused = service.start_run(portfolio).await.unwrap_err().to_string();
+    assert!(refused.contains("monthly AI cost limit"), "{refused}");
 }

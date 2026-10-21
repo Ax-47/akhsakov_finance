@@ -642,6 +642,8 @@ fn ModelProfilesCard() -> Element {
     let mut headers = use_signal(String::new);
     let mut saved_headers = use_signal(Vec::<String>::new);
     let mut remove_headers = use_signal(|| false);
+    let mut input_price = use_signal(String::new);
+    let mut output_price = use_signal(String::new);
     let mut status = use_signal(|| None::<Result<String, String>>);
     let reload = move || {
         spawn(async move {
@@ -665,10 +667,12 @@ fn ModelProfilesCard() -> Element {
         headers.set(String::new());
         saved_headers.set(Vec::new());
         remove_headers.set(false);
+        input_price.set(String::new());
+        output_price.set(String::new());
     };
     let save = move |_| async move {
         let key = (!api_key().trim().is_empty()).then(|| api_key());
-        let settings = match profile_settings(&timeout(), &max_tokens(), &key_header(), &headers(), remove_headers()) {
+        let settings = match profile_settings(&timeout(), &max_tokens(), &key_header(), &headers(), remove_headers(), &input_price(), &output_price()) {
             Ok(settings) => settings,
             Err(message) => return status.set(Some(Err(message))),
         };
@@ -722,6 +726,8 @@ fn ModelProfilesCard() -> Element {
                                         headers.set(String::new());
                                         saved_headers.set(profile.extra_header_names.clone());
                                         remove_headers.set(false);
+                                        input_price.set(profile.input_price_per_million.map(|v| v.to_string()).unwrap_or_default());
+                                        output_price.set(profile.output_price_per_million.map(|v| v.to_string()).unwrap_or_default());
                                     },
                                 }
                                 crate::components::card::DeleteButton {
@@ -746,6 +752,8 @@ fn ModelProfilesCard() -> Element {
                         Field { label: tr("Timeout per answer (seconds)"), input { class: INPUT, r#type: "number", min: "1", max: "600", value: "{timeout}", oninput: move |e| timeout.set(e.value()) } }
                         Field { label: tr("Max tokens per answer"), input { class: INPUT, r#type: "number", min: "1", placeholder: tr("Provider default"), value: "{max_tokens}", oninput: move |e| max_tokens.set(e.value()) } }
                         Field { label: tr("API key header"), input { class: INPUT, placeholder: "Authorization: Bearer", value: "{key_header}", oninput: move |e| key_header.set(e.value()) } }
+                        Field { label: tr("Price per million input tokens (USD)"), input { class: INPUT, r#type: "number", min: "0", step: "any", placeholder: tr("Unknown"), value: "{input_price}", oninput: move |e| input_price.set(e.value()) } }
+                        Field { label: tr("Price per million output tokens (USD)"), input { class: INPUT, r#type: "number", min: "0", step: "any", placeholder: tr("Unknown"), value: "{output_price}", oninput: move |e| output_price.set(e.value()) } }
                         Field { label: tr("Extra headers (one per line, Name: value)"),
                             textarea {
                                 class: "{INPUT} min-h-24 font-mono",
@@ -796,7 +804,18 @@ fn profile_settings(
     key_header: &str,
     headers: &str,
     remove: bool,
+    input_price: &str,
+    output_price: &str,
 ) -> Result<ModelProfileSettings, String> {
+    let price = |value: &str| match value.trim() {
+        "" => Ok(None),
+        value => value
+            .parse::<f64>()
+            .map(Some)
+            .map_err(|_| tr("Enter prices as numbers, or leave them blank.").to_string()),
+    };
+    let input_price_per_million = price(input_price)?;
+    let output_price_per_million = price(output_price)?;
     let timeout_seconds = timeout
         .trim()
         .parse()
@@ -830,6 +849,8 @@ fn profile_settings(
         max_tokens,
         key_header: key_header.trim().to_string(),
         extra_headers,
+        input_price_per_million,
+        output_price_per_million,
     })
 }
 
@@ -844,6 +865,9 @@ fn profile_summary(profile: &ModelProfile) -> String {
     }
     if !profile.extra_header_names.is_empty() {
         parts.push(trf("Headers: {}", &[&profile.extra_header_names.join(", ")]));
+    }
+    if let (Some(input), Some(output)) = (profile.input_price_per_million, profile.output_price_per_million) {
+        parts.push(trf("${} / ${} per million tokens", &[&input, &output]));
     }
     parts.join(" · ")
 }
@@ -896,6 +920,7 @@ fn AiPortfolioCard() -> Element {
             subtitle: tr("Give an AI assistant paper money to manage through MCP or a configured model connection. It cannot trade in your real portfolios.").to_string(),
             crate::ai_stop::AiStopSwitch {}
             crate::ai_stop::AiNotifySetting {}
+            crate::ai_usage::AiUsageTable {}
             if !loaded() {
                 p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
             } else {
@@ -1254,6 +1279,30 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                         {tr("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.")}
                     }
                     div { class: "grid gap-3 md:grid-cols-2",
+                        Field { label: tr("Cost limit per run (USD)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "0",
+                                step: "any",
+                                placeholder: tr("None"),
+                                value: trader().max_cost_per_run.map(|v| v.to_string()).unwrap_or_default(),
+                                oninput: move |e| trader.write().max_cost_per_run = e.value().trim().parse().ok(),
+                            }
+                        }
+                        Field { label: tr("Cost limit per month (USD)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "0",
+                                step: "any",
+                                placeholder: tr("None"),
+                                value: trader().max_cost_per_month.map(|v| v.to_string()).unwrap_or_default(),
+                                oninput: move |e| trader.write().max_cost_per_month = e.value().trim().parse().ok(),
+                            }
+                        }
+                    }
+                    div { class: "grid gap-3 md:grid-cols-2",
                         Field { label: tr("Memory size (characters)"),
                             input {
                                 class: INPUT,
@@ -1428,6 +1477,12 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                             div { class: "flex flex-wrap justify-between gap-2",
                                 span { class: "font-medium text-ctp-text", "{run.status.label()}" }
                                 span { class: "text-ctp-overlay1", "{run.started_at}" }
+                            }
+                            if let Some(tokens) = run.total_tokens {
+                                p { class: "mt-1 text-ctp-overlay1",
+                                    {trf("{} tokens", &[&tokens])}
+                                    if let Some(cost) = run.cost_usd { " · ≈ {crate::ai_usage::cost_label(cost)}" }
+                                }
                             }
                             if let Some(text) = run.final_response { p { class: "mt-2 break-words whitespace-pre-wrap text-ctp-subtext0", "{text}" } }
                             if let Some(message) = run.error { p { class: "mt-2 break-words text-ctp-red", "{message}" } }

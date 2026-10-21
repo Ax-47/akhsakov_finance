@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use dtos::{
     ai_models::{
-        AiNotifyLevel, AiRace, AiRaceRun, AiRun, AiStopState, ModelProfile, ModelProfileSettings, NewAiRace,
+        AiNotifyLevel, AiRace, AiRaceRun, AiRun, AiStopState, AiUsageRow, ModelProfile, ModelProfileSettings, NewAiRace,
         NewAiTrader, TraderConfig, TraderMemory, TraderSchedule,
     },
     ai_portfolio::AiPortfolioInfo,
@@ -14,6 +14,12 @@ use uuid::Uuid;
 use super::ModelService;
 #[cfg(feature = "server")]
 use dioxus::server::axum::Extension;
+
+/// Tokens and estimated cost per AI portfolio, model profile and race.
+#[get("/api/models/usage", service: Extension<ModelService>)]
+pub async fn get_ai_usage() -> Result<Vec<AiUsageRow>, ServerFnError> {
+    Ok(service.usage()?)
+}
 
 /// Which AI events notify the user.
 #[get("/api/models/notify", service: Extension<ModelService>)]

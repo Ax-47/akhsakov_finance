@@ -430,6 +430,7 @@ fn Leaderboard(race: AiRace, open: Signal<Option<Uuid>>) -> Element {
                         th { class: "p-2 text-right", {tr("Turnover")} }
                         th { class: "p-2 text-right", {tr("Cash")} }
                         th { class: "p-2 text-right", {tr("Failed runs")} }
+                        th { class: "p-2 text-right", {tr("Model cost")} }
                     } }
                     tbody {
                         for row in race.leaderboard.clone() {
@@ -457,6 +458,7 @@ fn Leaderboard(race: AiRace, open: Signal<Option<Uuid>>) -> Element {
                                 td { class: "p-2 text-right tabular-nums", {money(row.turnover)} }
                                 td { class: "p-2 text-right tabular-nums", "{row.cash_allocation_pct:.1}%" }
                                 td { class: if row.failed_model_runs > 0 { "p-2 text-right tabular-nums text-ctp-peach" } else { "p-2 text-right tabular-nums" }, "{row.failed_model_runs}" }
+                                td { class: "p-2 text-right tabular-nums", {row.cost_usd.map(crate::ai_usage::cost_label).unwrap_or_else(|| "—".into())} }
                             }
                         }
                     }

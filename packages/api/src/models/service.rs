@@ -28,6 +28,10 @@ const MAX_CONTEXT_TOKENS: u32 = 1_000_000;
 const CONTEXT_SAFETY_TOKENS: usize = 512;
 const RUN_HISTORY_LIMIT: usize = 5;
 const MAX_HORIZON_YEARS: u32 = 50;
+/// Highest price per million tokens accepted, in USD.
+const MAX_PRICE: f64 = 10_000.0;
+/// Highest cost limit accepted, in USD.
+const MAX_COST_LIMIT: f64 = 1_000_000.0;
 /// Characters of goal data a run's prompt may carry.
 const GOALS_PROMPT_CHARS: usize = 4_000;
 /// Tries per model request, the first included.
@@ -71,7 +75,8 @@ struct Connection {
 /// The profile columns `profile_row` reads, after `FROM ai_model_profiles p
 /// LEFT JOIN ai_model_secrets s`.
 const PROFILE_COLUMNS: &str = "p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL,
-     p.timeout_seconds, p.max_tokens, p.key_header, COALESCE(s.extra_headers, '[]')";
+     p.timeout_seconds, p.max_tokens, p.key_header, COALESCE(s.extra_headers, '[]'),
+     p.input_price, p.output_price";
 
 #[derive(Clone)]
 pub(super) struct RaceRunContext {
@@ -249,12 +254,15 @@ impl ModelService {
                 )?;
                 if let Some(settings) = &settings {
                     tx.execute(
-                        "UPDATE ai_model_profiles SET timeout_seconds=?2, max_tokens=?3, key_header=?4 WHERE id=?1",
+                        "UPDATE ai_model_profiles SET timeout_seconds=?2, max_tokens=?3, key_header=?4,
+                         input_price=?5, output_price=?6 WHERE id=?1",
                         params![
                             id.to_string(),
                             settings.timeout_seconds,
                             settings.max_tokens,
-                            settings.key_header
+                            settings.key_header,
+                            settings.input_price_per_million,
+                            settings.output_price_per_million
                         ],
                     )?;
                 }
@@ -332,7 +340,7 @@ impl ModelService {
             .with(|c| {
                 c.query_row(
                     "SELECT profile_id, strategy, memory_char_limit, context_token_limit, mcp_connection_id,
-                            horizon_years, max_drawdown_pct, benchmark
+                            horizon_years, max_drawdown_pct, benchmark, max_cost_per_run, max_cost_per_month
                      FROM ai_trader_configs WHERE portfolio_id = ?1",
                     [portfolio_id.to_string()],
                     |r| {
@@ -348,6 +356,8 @@ impl ModelService {
                             horizon_years: r.get(5)?,
                             max_drawdown_pct: r.get(6)?,
                             benchmark: r.get(7)?,
+                            max_cost_per_run: r.get(8)?,
+                            max_cost_per_month: r.get(9)?,
                         })
                     },
                 )
@@ -392,6 +402,10 @@ impl ModelService {
                 .as_str()
                 .to_string(),
         };
+        let limit_ok = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0 && v <= MAX_COST_LIMIT);
+        if !limit_ok(config.max_cost_per_run) || !limit_ok(config.max_cost_per_month) {
+            return Err(invalid("Cost limits must be more than zero USD, or blank."));
+        }
         if config.profile_id.is_some() && config.mcp_connection_id.is_some() {
             return Err(invalid(
                 "Choose either a model profile or an MCP connection, not both.",
@@ -408,14 +422,15 @@ impl ModelService {
                 c.execute(
                     "INSERT INTO ai_trader_configs
                      (portfolio_id, profile_id, strategy, memory_char_limit, context_token_limit, mcp_connection_id,
-                      horizon_years, max_drawdown_pct, benchmark)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                      horizon_years, max_drawdown_pct, benchmark, max_cost_per_run, max_cost_per_month)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                      ON CONFLICT(portfolio_id) DO UPDATE SET profile_id=excluded.profile_id,
                      strategy=excluded.strategy, memory_char_limit=excluded.memory_char_limit,
                      context_token_limit=excluded.context_token_limit,
                      mcp_connection_id=excluded.mcp_connection_id,
                      horizon_years=excluded.horizon_years, max_drawdown_pct=excluded.max_drawdown_pct,
-                     benchmark=excluded.benchmark",
+                     benchmark=excluded.benchmark, max_cost_per_run=excluded.max_cost_per_run,
+                     max_cost_per_month=excluded.max_cost_per_month",
                     params![
                         config.portfolio_id.to_string(),
                         config.profile_id.map(|id| id.to_string()),
@@ -425,7 +440,9 @@ impl ModelService {
                         config.mcp_connection_id.map(|id| id.to_string()),
                         config.horizon_years,
                         config.max_drawdown_pct,
-                        benchmark
+                        benchmark,
+                        config.max_cost_per_run,
+                        config.max_cost_per_month
                     ],
                 )
             })
@@ -608,21 +625,31 @@ impl ModelService {
         if already_running {
             return Err(invalid("This portfolio already has a run in progress."));
         }
+        if let Some(limit) = config.max_cost_per_month {
+            let spent = self.month_cost(portfolio_id)?;
+            if spent >= limit {
+                return Err(invalid(format!(
+                    "This portfolio reached its monthly AI cost limit of ${limit:.2} (about ${spent:.2} so far)."
+                )));
+            }
+        }
         let memory = self.memory(portfolio_id)?;
         let connection = self.connection(profile_id)?;
         let run_id = Uuid::new_v4();
         self.db
             .with(|c| {
                 c.execute(
-                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model, race_id, race_round)
-                     VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6)",
+                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model, race_id, race_round, price_in, price_out)
+                     VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         run_id.to_string(),
                         portfolio_id.to_string(),
                         connection.profile.name,
                         connection.profile.model,
                         race.as_ref().map(|v| v.race_id.to_string()),
-                        race.as_ref().map(|v| v.round)
+                        race.as_ref().map(|v| v.round),
+                        connection.profile.input_price_per_million,
+                        connection.profile.output_price_per_million
                     ],
                 )
             })
@@ -685,7 +712,7 @@ impl ModelService {
             .with(|c| {
                 c.prepare(
                     "SELECT id, portfolio_id, status, profile_name, model, started_at, finished_at,
-                            final_response, error, prompt_tokens, completion_tokens, total_tokens
+                            final_response, error, prompt_tokens, completion_tokens, total_tokens, cost_usd
                      FROM ai_runs WHERE portfolio_id = ?1 ORDER BY started_at DESC LIMIT ?2",
                 )?
                 .query_map(
@@ -703,7 +730,7 @@ impl ModelService {
             .with(|c| {
                 c.query_row(
                     "SELECT id, portfolio_id, status, profile_name, model, started_at, finished_at,
-                            final_response, error, prompt_tokens, completion_tokens, total_tokens
+                            final_response, error, prompt_tokens, completion_tokens, total_tokens, cost_usd
                      FROM ai_runs WHERE id = ?1",
                     [id.to_string()],
                     run_row,
@@ -786,6 +813,15 @@ impl ModelService {
                 )
                 .await?;
             usage_add(&usage, &response["usage"]);
+            if let Some(limit) = config.max_cost_per_run {
+                if let Some(spent) = usage_snapshot(&usage).cost(&connection.profile) {
+                    if spent > limit {
+                        return Err(invalid(format!(
+                            "The run reached its cost limit of ${limit:.2} (about ${spent:.2} spent)."
+                        )));
+                    }
+                }
+            }
             let message = response["choices"][0]["message"].clone();
             if !message.is_object() {
                 return Err(ServiceError::Upstream(
@@ -1090,7 +1126,10 @@ impl ModelService {
         let _ = self.db.with(|c| {
             c.execute(
                 "UPDATE ai_runs SET status=?2, finished_at=datetime('now'), final_response=?3, error=?4,
-                 prompt_tokens=?5, completion_tokens=?6, total_tokens=?7 WHERE id=?1 AND status='running'",
+                 prompt_tokens=?5, completion_tokens=?6, total_tokens=?7,
+                 cost_usd = CASE WHEN ?5 IS NULL OR ?6 IS NULL OR price_in IS NULL OR price_out IS NULL THEN NULL
+                            ELSE (?5 * price_in + ?6 * price_out) / 1000000.0 END
+                 WHERE id=?1 AND status='running'",
                 params![
                     id.to_string(), status, response, error,
                     usage.prompt.map(|v| v as i64), usage.completion.map(|v| v as i64), usage.total.map(|v| v as i64)
@@ -1226,6 +1265,14 @@ fn usage_snapshot(usage: &Arc<Mutex<Usage>>) -> Usage {
 }
 
 impl Usage {
+    /// The estimated cost in USD at the profile's prices, if both the
+    /// prices and the split of tokens are known.
+    fn cost(&self, profile: &ModelProfile) -> Option<f64> {
+        let input = profile.input_price_per_million?;
+        let output = profile.output_price_per_million?;
+        Some((self.prompt? as f64 * input + self.completion? as f64 * output) / 1_000_000.0)
+    }
+
     fn add(&mut self, value: &Value) {
         add_opt(&mut self.prompt, value["prompt_tokens"].as_u64());
         add_opt(&mut self.completion, value["completion_tokens"].as_u64());
@@ -1400,6 +1447,8 @@ fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ModelProfile> {
         key_header: r.get(7)?,
         // Names only: the values are secrets.
         extra_header_names: parse_headers(&headers).into_iter().map(|(name, _)| name).collect(),
+        input_price_per_million: r.get(9)?,
+        output_price_per_million: r.get(10)?,
     })
 }
 
@@ -1423,6 +1472,12 @@ fn checked_settings(settings: &ModelProfileSettings) -> Result<ModelProfileSetti
     if !(MIN_MODEL_TIMEOUT_SECONDS..=MAX_MODEL_TIMEOUT_SECONDS).contains(&settings.timeout_seconds) {
         return Err(invalid(format!(
             "The timeout must be between {MIN_MODEL_TIMEOUT_SECONDS} and {MAX_MODEL_TIMEOUT_SECONDS} seconds."
+        )));
+    }
+    let price_ok = |p: Option<f64>| p.is_none_or(|p| p.is_finite() && (0.0..=MAX_PRICE).contains(&p));
+    if !price_ok(settings.input_price_per_million) || !price_ok(settings.output_price_per_million) {
+        return Err(invalid(format!(
+            "Prices per million tokens must be between 0 and {MAX_PRICE} USD, or blank."
         )));
     }
     if settings.max_tokens == Some(0) {
@@ -1475,6 +1530,8 @@ fn checked_settings(settings: &ModelProfileSettings) -> Result<ModelProfileSetti
         max_tokens: settings.max_tokens,
         key_header,
         extra_headers,
+        input_price_per_million: settings.input_price_per_million,
+        output_price_per_million: settings.output_price_per_million,
     })
 }
 
@@ -1509,6 +1566,7 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AiRun> {
         prompt_tokens: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
         completion_tokens: r.get::<_, Option<i64>>(10)?.map(|v| v as u64),
         total_tokens: r.get::<_, Option<i64>>(11)?.map(|v| v as u64),
+        cost_usd: r.get(12)?,
         events: vec![],
     })
 }

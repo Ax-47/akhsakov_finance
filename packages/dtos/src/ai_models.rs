@@ -38,6 +38,13 @@ pub struct ModelProfile {
     /// secret and never leave the server.
     #[serde(default)]
     pub extra_header_names: Vec<String>,
+    /// What the provider charges per million prompt tokens, in USD, as
+    /// the user entered it; `None` leaves costs unknown.
+    #[serde(default)]
+    pub input_price_per_million: Option<f64>,
+    /// Per million completion tokens, in USD.
+    #[serde(default)]
+    pub output_price_per_million: Option<f64>,
 }
 
 /// Which AI events reach the user's notifications.
@@ -124,6 +131,10 @@ pub struct ModelProfileSettings {
     /// `(name, value)` pairs to send with every request. `None` keeps the
     /// saved ones; an empty list removes them.
     pub extra_headers: Option<Vec<(String, String)>>,
+    #[serde(default)]
+    pub input_price_per_million: Option<f64>,
+    #[serde(default)]
+    pub output_price_per_million: Option<f64>,
 }
 
 impl Default for ModelProfileSettings {
@@ -133,6 +144,8 @@ impl Default for ModelProfileSettings {
             max_tokens: None,
             key_header: String::new(),
             extra_headers: None,
+            input_price_per_million: None,
+            output_price_per_million: None,
         }
     }
 }
@@ -157,6 +170,13 @@ pub struct TraderConfig {
     /// A ticker to measure the trader against; empty for none.
     #[serde(default)]
     pub benchmark: String,
+    /// Stop a run once its estimated cost passes this many USD.
+    #[serde(default)]
+    pub max_cost_per_run: Option<f64>,
+    /// Start no run once this calendar month's estimated cost reaches this
+    /// many USD.
+    #[serde(default)]
+    pub max_cost_per_month: Option<f64>,
 }
 
 impl TraderConfig {
@@ -171,6 +191,8 @@ impl TraderConfig {
             horizon_years: None,
             max_drawdown_pct: None,
             benchmark: String::new(),
+            max_cost_per_run: None,
+            max_cost_per_month: None,
         }
     }
 }
@@ -263,7 +285,28 @@ pub struct AiRun {
     pub prompt_tokens: Option<u64>,
     pub completion_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    /// Estimated from the profile's prices at the time; `None` when the
+    /// prices or the token counts are unknown.
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
     pub events: Vec<AiRunEvent>,
+}
+
+/// Tokens and estimated cost over the last 7 and 30 days and all time,
+/// for one AI portfolio, model profile or race.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiUsageRow {
+    /// "portfolio", "profile" or "race".
+    pub kind: String,
+    pub name: String,
+    pub tokens_7d: u64,
+    pub cost_7d: f64,
+    pub tokens_30d: u64,
+    pub cost_30d: f64,
+    pub tokens_all: u64,
+    pub cost_all: f64,
+    /// Runs whose cost is unknown and left out of the sums.
+    pub unpriced_runs: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,6 +367,9 @@ pub struct AiRaceStanding {
     pub turnover: f64,
     pub cash_allocation_pct: f64,
     pub failed_model_runs: u32,
+    /// The contestant's estimated model cost in this race, if known.
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -443,6 +489,7 @@ mod tests {
                 turnover: 0.0,
                 cash_allocation_pct: 0.0,
                 failed_model_runs: 0,
+                cost_usd: None,
             }],
             audit: vec![],
             history: vec![

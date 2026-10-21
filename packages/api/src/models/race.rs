@@ -876,6 +876,7 @@ impl ModelService {
                     0.0
                 },
                 failed_model_runs: last_row.4 as u32,
+                cost_usd: self.race_cost(race.id, contestant.portfolio_id)?,
             });
         }
         out.sort_by(|a, b| b.total_return_pct.total_cmp(&a.total_return_pct));
