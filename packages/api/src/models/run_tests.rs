@@ -392,6 +392,7 @@ async fn race_contestants_share_one_frozen_market_and_late_ones_fail() {
                 usd_per_unit: dec!(1),
                 timestamp: 1_767_600_000,
                 stale: false,
+                hand_priced: false,
             },
         )
         .await;

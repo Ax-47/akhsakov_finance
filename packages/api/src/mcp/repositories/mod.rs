@@ -47,6 +47,9 @@ pub struct LiveQuote {
     pub timestamp: i64,
     /// The provider couldn't be reached; this is the last saved price.
     pub stale: bool,
+    /// The user enters this asset's prices by hand (a Thai fund, a deposit,
+    /// a gold bar…), so there is no market to trade at.
+    pub hand_priced: bool,
 }
 
 /// Market prices port, so the trading tools can be tested without Yahoo.

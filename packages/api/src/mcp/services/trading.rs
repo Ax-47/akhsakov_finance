@@ -292,6 +292,11 @@ impl Trading {
                 "Only an old saved price for {ticker} is available right now; try again later."
             )));
         }
+        if q.hand_priced {
+            return Err(invalid(format!(
+                "{ticker} is priced by hand, not by a market, so it can't be traded here."
+            )));
+        }
         if q.price <= Decimal::ZERO || q.usd_per_unit <= Decimal::ZERO {
             return Err(ServiceError::Upstream(format!("{ticker} has no usable price.")));
         }
