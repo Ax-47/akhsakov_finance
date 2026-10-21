@@ -53,6 +53,8 @@ pub struct ModelService {
     pub(super) db: Database,
     pub(super) mcp: McpService,
     http: reqwest::Client,
+    /// True while the emergency stop is on; running trader runs watch it.
+    pub(super) stop: Arc<tokio::sync::watch::Sender<bool>>,
 }
 
 #[derive(Clone)]
@@ -108,9 +110,11 @@ fn invalid(message: impl Into<String>) -> ServiceError {
 
 impl ModelService {
     pub fn new(db: Database, mcp: McpService) -> Self {
+        let halted = mcp.trading().halted().unwrap_or(false);
         let service = Self {
             db,
             mcp,
+            stop: Arc::new(tokio::sync::watch::channel(halted).0),
             http: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(45))
@@ -568,6 +572,7 @@ impl ModelService {
         race: Option<RaceRunContext>,
         timeout: Duration,
     ) -> Result<AiRun, ServiceError> {
+        self.ensure_not_halted()?;
         let config = self.config(portfolio_id)?;
         if config.mcp_connection_id.is_some() {
             return Err(invalid(
@@ -623,9 +628,10 @@ impl ModelService {
             run_id,
             deadline: tokio::time::Instant::now() + timeout,
         };
+        let mut stop = self.stop.subscribe();
         tokio::spawn(async move {
             let usage = Arc::new(Mutex::new(Usage::default()));
-            let result = tokio::time::timeout(
+            let run = tokio::time::timeout(
                 timeout,
                 runner.run_loop(
                     &retry,
@@ -636,8 +642,12 @@ impl ModelService {
                     usage.clone(),
                     race,
                 ),
-            )
-            .await;
+            );
+            // The emergency stop ends the run where it stands.
+            let result = tokio::select! {
+                result = run => result,
+                _ = stop.wait_for(|halted| *halted) => Ok(Err(invalid("Stopped by the emergency stop."))),
+            };
             let usage = usage_snapshot(&usage);
             match result {
                 Ok(Ok(response)) => runner.finish(run_id, Some(response), None, usage),

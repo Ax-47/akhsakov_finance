@@ -10,6 +10,8 @@ mod service;
 pub use service::ModelService;
 #[cfg(feature = "server")]
 mod race;
+#[cfg(feature = "server")]
+mod stop;
 #[cfg(all(test, feature = "server"))]
 mod mock_model;
 #[cfg(all(test, feature = "server"))]

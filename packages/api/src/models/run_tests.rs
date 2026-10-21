@@ -635,3 +635,65 @@ async fn each_run_starts_with_the_mandate_and_goals() {
     assert!(goals["goals"][0]["on_track"].is_boolean(), "{goals}");
     assert_eq!(goals["portfolio_value"], 5000.0);
 }
+
+#[tokio::test]
+async fn the_emergency_stop_halts_runs_races_and_orders_and_survives_a_restart() {
+    use dtos::{ai_models::AI_STOPPED_MESSAGE, mcp::McpAccessPreset};
+    let service = service();
+    let mock = MockModel::start().await;
+    let runner = trader(&service, &mock, "stopped").await;
+    let racer = trader(&service, &mock, "racer").await;
+    let rival = trader(&service, &mock, "rival").await;
+    let bot = service.mcp.create_connection("Bot", McpAccessPreset::Trader, vec![runner]).unwrap();
+
+    // A run waiting on a slow model, and a race between two other traders.
+    mock.script("stopped", [Reply::text("Too late.").after(Duration::from_secs(30))]);
+    let pending = service.start_run(runner).await.unwrap();
+    let race = service
+        .create_race(NewAiRace {
+            name: "Halted".into(),
+            contestant_ids: vec![racer, rival],
+            starting_capital: 5_000.0,
+            rounds: 3,
+            trading_frequency_minutes: 1,
+            round_timeout_seconds: 15,
+        })
+        .unwrap();
+    service
+        .db
+        .with(|c| c.execute("UPDATE ai_races SET status='running' WHERE id=?1", [race.id.to_string()]))
+        .unwrap();
+
+    let state = service.set_ai_stop(true, "misha").unwrap();
+    assert!(state.active);
+    assert_eq!((state.history[0].actor.as_str(), state.history[0].active), ("misha", true));
+    let ended = settle(&service, pending).await;
+    assert_eq!(ended.status, AiRunStatus::Failed);
+    assert_eq!(error(&ended), "Stopped by the emergency stop.");
+    assert_eq!(service.race(race.id).unwrap().status, dtos::ai_models::AiRaceStatus::Paused);
+
+    let refused = |e: crate::shared::ServiceError| assert_eq!(e.to_string(), crate::shared::ServiceError::Validation(AI_STOPPED_MESSAGE.into()).to_string());
+    refused(service.start_run(runner).await.unwrap_err());
+    refused(service.resume_race(race.id).unwrap_err());
+    let crate::mcp::services::Access::Granted(access) = service.mcp.authorize(Some(&bot.token)) else {
+        panic!("the connection should authenticate")
+    };
+    let order = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"place_order","arguments":{"ticker":"NVDA","side":"buy","shares":1,"reason":"test"}}});
+    let reply = service.mcp.handle_scoped(order.clone(), &access).await.unwrap();
+    assert_eq!(reply["result"]["isError"], true, "{reply}");
+    assert!(reply.to_string().contains("emergency stop"), "{reply}");
+
+    // A restart keeps the stop on.
+    let restarted = ModelService::new(service.db.clone(), service.mcp.clone());
+    assert!(restarted.ai_stop().unwrap().active);
+    refused(restarted.start_run(runner).await.unwrap_err());
+
+    // Off again: orders and runs go ahead; the race waits to be resumed.
+    let state = restarted.set_ai_stop(false, "misha").unwrap();
+    assert!(!state.active);
+    assert_eq!(state.history.len(), 2);
+    let reply = service.mcp.handle_scoped(order, &access).await.unwrap();
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    assert_eq!(restarted.race(race.id).unwrap().status, dtos::ai_models::AiRaceStatus::Paused);
+    restarted.stop_race(race.id).unwrap();
+}

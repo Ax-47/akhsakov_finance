@@ -883,6 +883,7 @@ fn AiPortfolioCard() -> Element {
         Card {
             title: tr("AI paper portfolios"),
             subtitle: tr("Give an AI assistant paper money to manage through MCP or a configured model connection. It cannot trade in your real portfolios.").to_string(),
+            crate::ai_stop::AiStopSwitch {}
             if !loaded() {
                 p { class: "text-sm text-ctp-subtext0", {tr("Loading…")} }
             } else {

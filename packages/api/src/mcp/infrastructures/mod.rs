@@ -105,6 +105,16 @@ impl AiPortfolioRepository for SqliteAiPortfolioRepository {
         self.db.with(|c| c.execute("DELETE FROM ai_portfolios WHERE portfolio_id = ?1", [id.to_string()]))?;
         Ok(())
     }
+
+    fn trading_halted(&self) -> Result<bool, RepositoryError> {
+        Ok(self.db.with(|c| {
+            c.query_row(
+                "SELECT COALESCE((SELECT active FROM ai_stop_log ORDER BY id DESC LIMIT 1), 0)",
+                [],
+                |r| r.get(0),
+            )
+        })?)
+    }
 }
 
 /// [`LivePrices`] from the app's quote service (Yahoo, or prices entered by

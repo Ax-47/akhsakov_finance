@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 use dtos::{
     ai_models::{
-        AiRace, AiRaceRun, AiRun, ModelProfile, ModelProfileSettings, NewAiRace, NewAiTrader,
-        TraderConfig, TraderMemory,
+        AiRace, AiRaceRun, AiRun, AiStopState, ModelProfile, ModelProfileSettings, NewAiRace,
+        NewAiTrader, TraderConfig, TraderMemory,
     },
     ai_portfolio::AiPortfolioInfo,
 };
@@ -14,6 +14,26 @@ use uuid::Uuid;
 use super::ModelService;
 #[cfg(feature = "server")]
 use dioxus::server::axum::Extension;
+
+/// Whether the emergency stop is on, and who flipped it lately.
+#[get("/api/models/stop", service: Extension<ModelService>)]
+pub async fn get_ai_stop() -> Result<AiStopState, ServerFnError> {
+    Ok(service.ai_stop()?)
+}
+
+/// Turns the emergency stop for all AI trading on or off.
+#[post(
+    "/api/models/stop/set",
+    service: Extension<ModelService>,
+    auth: Extension<crate::auth::AuthService>,
+    headers: dioxus::server::axum::http::HeaderMap
+)]
+pub async fn set_ai_stop(active: bool) -> Result<AiStopState, ServerFnError> {
+    let actor = auth
+        .user_for(crate::auth::bearer(&headers))?
+        .unwrap_or_else(|| "local user".into());
+    Ok(service.set_ai_stop(active, &actor)?)
+}
 
 #[get("/api/models/profiles", service: Extension<ModelService>)]
 pub async fn get_model_profiles() -> Result<Vec<ModelProfile>, ServerFnError> {

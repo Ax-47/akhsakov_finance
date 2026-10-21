@@ -281,6 +281,7 @@ impl ModelService {
     }
 
     pub fn start_race(&self, id: Uuid) -> Result<AiRace, ServiceError> {
+        self.ensure_not_halted()?;
         let race = self.race(id)?;
         if race.status != AiRaceStatus::Draft {
             return Err(invalid("Only a draft race can be started."));
@@ -364,6 +365,7 @@ impl ModelService {
     }
 
     pub fn resume_race(&self, id: Uuid) -> Result<AiRace, ServiceError> {
+        self.ensure_not_halted()?;
         let race = self.change_race_state(id, "paused", "running", "resumed", "Race resumed.")?;
         self.lock_gates(&race, None);
         self.spawn_race(id);
