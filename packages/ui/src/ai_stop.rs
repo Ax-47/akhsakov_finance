@@ -64,9 +64,9 @@ pub fn AiStopSwitch() -> Element {
                 if let Some(event) = last {
                     p { class: "text-xs text-ctp-overlay1",
                         if event.active {
-                            {trf("Turned on by {} at {}", &[&event.actor, &event.at])}
+                            {trf("Turned on by {} at {}", &[&event.actor, &crate::format::fmt_when(&event.at)])}
                         } else {
-                            {trf("Turned off by {} at {}", &[&event.actor, &event.at])}
+                            {trf("Turned off by {} at {}", &[&event.actor, &crate::format::fmt_when(&event.at)])}
                         }
                     }
                 }

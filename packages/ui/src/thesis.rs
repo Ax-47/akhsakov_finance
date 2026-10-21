@@ -472,7 +472,7 @@ fn Journal(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -> Ele
                 ul { class: "mt-3 grid gap-2.5",
                     for e in log {
                         li { key: "{e.id}", class: "group flex items-start gap-3 text-sm",
-                            span { class: "w-20 shrink-0 pt-0.5 text-xs tabular-nums text-ctp-overlay1", title: "{e.created_at} UTC",
+                            span { class: "w-20 shrink-0 pt-0.5 text-xs tabular-nums text-ctp-overlay1", title: crate::format::fmt_when(&e.created_at),
                                 {e.created_at.get(..10).unwrap_or(&e.created_at).to_string()}
                             }
                             if e.author == Author::Ai {

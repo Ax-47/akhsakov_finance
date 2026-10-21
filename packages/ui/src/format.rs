@@ -2,11 +2,61 @@
 
 use dioxus::{core::Runtime, prelude::*};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 thread_local! {
     /// (symbol, USD → display rate). Set once settings load.
     static DISPLAY: RefCell<(&'static str, Decimal)> = const { RefCell::new(("$", Decimal::ONE)) };
+    /// Minutes the viewer's clock is ahead of UTC, once the webview says.
+    static UTC_OFFSET: Cell<i32> = const { Cell::new(0) };
+}
+
+/// Bumped when the viewer's time zone becomes known, so times already on
+/// screen are redrawn in it.
+static ZONE_VERSION: GlobalSignal<u32> = Signal::global(|| 0);
+
+/// Learns the viewer's time zone after the first render (the server renders
+/// in UTC, so hydration still matches).
+pub fn use_time_zone_init() {
+    use_effect(|| {
+        spawn(async {
+            if let Ok(minutes) = document::eval("return -new Date().getTimezoneOffset();").join::<i32>().await {
+                UTC_OFFSET.with(|o| o.set(minutes));
+                *ZONE_VERSION.write() += 1;
+            }
+        });
+    });
+}
+
+const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// A stored time (SQLite's `YYYY-MM-DD HH:MM:SS` or RFC 3339, in UTC) in the
+/// viewer's time zone: `21 Oct 2026, 13:50`. A bare date stays a date, and
+/// text that isn't a time comes back as it was. Uses today's offset, so a
+/// time on the other side of a daylight-saving change can be an hour out.
+pub fn fmt_when(raw: &str) -> String {
+    if Runtime::try_current().is_some() {
+        ZONE_VERSION.read();
+    }
+    when_in(raw, UTC_OFFSET.with(Cell::get))
+}
+
+fn when_in(raw: &str, offset_minutes: i32) -> String {
+    use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Timelike};
+    let text = raw.trim();
+    let month = |m0: u32| crate::i18n::tr(MONTHS[m0 as usize]);
+    if let Ok(d) = NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+        return format!("{} {} {}", d.day(), month(d.month0()), d.year());
+    }
+    let utc = DateTime::parse_from_rfc3339(text)
+        .map(|t| t.naive_utc())
+        .or_else(|_| NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f"))
+        .or_else(|_| NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f"));
+    let Ok(utc) = utc else {
+        return raw.to_string();
+    };
+    let local = utc + chrono::Duration::minutes(offset_minutes.into());
+    format!("{} {} {}, {:02}:{:02}", local.day(), month(local.month0()), local.year(), local.hour(), local.minute())
 }
 
 /// Bumped on every currency change. Formatting reads it, so any component
@@ -161,6 +211,16 @@ mod tests {
         assert_eq!(fmt_shares(dec!(0.000000004)), "0");
         assert_eq!(fmt_shares(dec!(-0.0215678)), "-0.02157");
         assert_eq!(fmt_shares(dec!(12.3456789)), "12.3457");
+    }
+
+    #[test]
+    fn readable_times_in_the_viewers_zone() {
+        // Bangkok is seven hours ahead of UTC.
+        assert_eq!(when_in("2026-10-21 18:05:09", 420), "22 Oct 2026, 01:05");
+        assert_eq!(when_in("2026-10-21T06:50:21.123Z", 420), "21 Oct 2026, 13:50");
+        assert_eq!(when_in("2026-10-21T06:50:21+00:00", -240), "21 Oct 2026, 02:50");
+        assert_eq!(when_in("2026-01-05", 420), "5 Jan 2026");
+        assert_eq!(when_in("never", 0), "never");
     }
 
     #[test]

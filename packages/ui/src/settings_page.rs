@@ -536,7 +536,7 @@ fn ConnectorCard() -> Element {
                             div { class: "flex flex-wrap items-center justify-between gap-2",
                                 div {
                                     p { class: "font-medium text-ctp-text", "{connection.name}" }
-                                    p { class: "text-xs text-ctp-subtext0", {format!("{} · {} · {} portfolios · last used {}", if connection.enabled { "enabled" } else { "disabled" }, connection.preset.key(), connection.portfolio_ids.len(), connection.last_used_at.as_deref().unwrap_or("never"))} }
+                                    p { class: "text-xs text-ctp-subtext0", {format!("{} · {} · {} portfolios · last used {}", if connection.enabled { "enabled" } else { "disabled" }, connection.preset.key(), connection.portfolio_ids.len(), connection.last_used_at.as_deref().map_or("never".to_string(), crate::format::fmt_when))} }
                                 }
                                 div { class: "flex flex-wrap gap-2",
                                     GhostButton { label: tr("Edit"), onclick: { let c=connection.clone(); move |_| { editing.set(Some(c.id));editing_enabled.set(c.enabled);name.set(c.name.clone());preset.set(c.preset);selected.set(c.portfolio_ids.clone()); } } }
@@ -613,7 +613,7 @@ fn ConnectorCard() -> Element {
                             p { class:"font-medium","Latest audit events" }
                             if audit().is_empty() { p { class:"text-xs text-ctp-subtext0","No events yet." } }
                             for event in audit() {
-                                p { key:"{event.id}", class:"text-xs text-ctp-subtext0", {format!("{} · {} {} · {}",event.at,event.method,event.tool.as_deref().unwrap_or(""),if event.success{"success"}else{event.error_category.as_deref().unwrap_or("error")})} }
+                                p { key:"{event.id}", class:"text-xs text-ctp-subtext0", {format!("{} · {} {} · {}",crate::format::fmt_when(&event.at),event.method,event.tool.as_deref().unwrap_or(""),if event.success{"success"}else{event.error_category.as_deref().unwrap_or("error")})} }
                             }
                         }
                     }
@@ -1392,7 +1392,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                     }
                                 }
                                 if let Some(updated) = memory().updated_at {
-                                    span { class: "text-xs text-ctp-overlay1", {trf("Updated {}", &[&updated])} }
+                                    span { class: "text-xs text-ctp-overlay1", {trf("Updated {}", &[&crate::format::fmt_when(&updated)])} }
                                 }
                             }
                             Field { label: tr("Decision summary"),
@@ -1504,10 +1504,10 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                 }
                             }
                             if let Some(next) = schedule().next_run_at.filter(|_| schedule().enabled) {
-                                p { class: "text-xs text-ctp-subtext0", {trf("Next run: {}", &[&next])} }
+                                p { class: "text-xs text-ctp-subtext0", {trf("Next run: {}", &[&crate::format::fmt_when(&next)])} }
                             }
                             if let Some(last) = schedule().last_run_at {
-                                p { class: "text-xs text-ctp-overlay1", {trf("Last run: {}", &[&last])} }
+                                p { class: "text-xs text-ctp-overlay1", {trf("Last run: {}", &[&crate::format::fmt_when(&last)])} }
                             }
                             if let Some(note) = schedule().last_note {
                                 p { class: "text-xs text-ctp-peach break-words", "{note}" }
@@ -1522,7 +1522,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                         div { key: "{run.id}", class: "min-w-0 rounded-xl bg-ctp-crust/30 p-3 text-xs",
                             div { class: "flex flex-wrap justify-between gap-2",
                                 span { class: "font-medium text-ctp-text", "{run.status.label()}" }
-                                span { class: "text-ctp-overlay1", "{run.started_at}" }
+                                span { class: "text-ctp-overlay1", {crate::format::fmt_when(&run.started_at)} }
                             }
                             if let Some(tokens) = run.total_tokens {
                                 p { class: "mt-1 text-ctp-overlay1",
