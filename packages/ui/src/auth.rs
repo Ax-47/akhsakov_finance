@@ -233,17 +233,16 @@ pub fn SecurityCard() -> Element {
                                 span { key: "{u.username}", class: "inline-flex items-center gap-2 rounded-full bg-ctp-surface0 px-3 py-1 text-sm",
                                     "{u.username}"
                                     if !me {
-                                        button {
-                                            class: "text-ctp-subtext0 cursor-pointer hover:text-ctp-red",
+                                        crate::components::card::DeleteButton {
                                             title: tr("Remove account"),
-                                            onclick: move |_| {
+                                            icon: "×",
+                                            onconfirm: move |_| {
                                                 let name = name.clone();
                                                 async move {
                                                     note.set(Some(api::remove_user(name.clone()).await.map(|()| format!("Removed {name}.")).map_err(message)));
                                                     auth.recheck();
                                                 }
                                             },
-                                            "×"
                                         }
                                     }
                                 }

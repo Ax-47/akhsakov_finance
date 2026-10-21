@@ -1292,4 +1292,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Not yet", "ยังไม่ถึง"),
     ("Rebalances", "จำนวนครั้งที่ปรับสมดุล"),
     ("Prices include dividends, reinvested; taxes aren't counted.", "ราคารวมปันผลที่นำไปลงทุนต่อแล้ว ยังไม่หักภาษี"),
+    ("The old secret stops working at once; apps using it need the new one. Continue?", "secret เดิมจะใช้ไม่ได้ทันที แอปที่ใช้อยู่ต้องได้ secret ใหม่ ทำต่อไหม?"),
+    ("Apps using this connection lose access at once. Continue?", "แอปที่ใช้การเชื่อมต่อนี้จะเข้าถึงไม่ได้ทันที ทำต่อไหม?"),
+    ("The race ends for good and can't be resumed. Continue?", "การแข่งจะจบถาวรและทำต่อไม่ได้ ทำต่อไหม?"),
 ];
