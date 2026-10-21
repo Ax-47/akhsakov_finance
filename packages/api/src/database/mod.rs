@@ -592,6 +592,11 @@ const MIGRATIONS: &[&str] = &[
         last_run_at   TEXT,
         last_note     TEXT
     );",
+    // 22: preferences for AI features, such as which events notify the user
+    "CREATE TABLE ai_preferences (
+        key    TEXT PRIMARY KEY,
+        value  TEXT NOT NULL
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

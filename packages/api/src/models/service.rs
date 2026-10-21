@@ -55,6 +55,10 @@ pub struct ModelService {
     http: reqwest::Client,
     /// True while the emergency stop is on; running trader runs watch it.
     pub(super) stop: Arc<tokio::sync::watch::Sender<bool>>,
+    /// Where AI events are announced; none in most tests.
+    pub(super) notifications: Option<crate::notifications::NotificationService>,
+    /// Races this start-up paused because the app had stopped mid-race.
+    pub(super) paused_on_start: Arc<Vec<Uuid>>,
 }
 
 #[derive(Clone)]
@@ -111,10 +115,12 @@ fn invalid(message: impl Into<String>) -> ServiceError {
 impl ModelService {
     pub fn new(db: Database, mcp: McpService) -> Self {
         let halted = mcp.trading().halted().unwrap_or(false);
-        let service = Self {
+        let mut service = Self {
             db,
             mcp,
             stop: Arc::new(tokio::sync::watch::channel(halted).0),
+            notifications: None,
+            paused_on_start: Arc::default(),
             http: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(45))
@@ -127,7 +133,7 @@ impl ModelService {
                 [],
             )
         });
-        let _ = service.db.transaction(|tx| {
+        let paused = service.db.transaction(|tx| {
             let ids: Vec<String> = tx
                 .prepare("SELECT id FROM ai_races WHERE status='running'")?
                 .query_map([], |r| r.get(0))?
@@ -140,8 +146,8 @@ impl ModelService {
                     params![id, kind, detail],
                 )
             };
-            for id in ids {
-                audit(&id, "recovered", "The app restarted, so the race was paused safely.")?;
+            for id in &ids {
+                audit(id, "recovered", "The app restarted, so the race was paused safely.")?;
             }
             // A round the restart cut short would stay claimed, and Resume
             // would find nothing to run: the race would never move again.
@@ -161,8 +167,15 @@ impl ModelService {
                 )?;
                 audit(&id, "round_interrupted", &format!("Round {round} was cut short by the restart; it runs again after Resume."))?;
             }
-            Ok(())
+            Ok(ids)
         });
+        service.paused_on_start = Arc::new(
+            paused
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|id| Uuid::parse_str(id).ok())
+                .collect(),
+        );
         service.relock_active_races();
         service
     }
@@ -1084,6 +1097,7 @@ impl ModelService {
                 ],
             )
         });
+        self.announce_run(id);
     }
 
     /// Appends an event to the run, after the ones it already has.
