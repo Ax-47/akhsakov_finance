@@ -11,7 +11,7 @@ use crate::{
 };
 use dtos::ai_models::{
     AiRun, AiRunEvent, AiRunStatus, ModelProfileSettings, NewAiRace, NewAiTrader,
-    NewModelConnection, MODEL_RETRY_EVENT,
+    NewModelConnection, TraderConfig, MODEL_RETRY_EVENT,
 };
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -582,4 +582,56 @@ async fn traders_keep_their_own_theses_and_read_their_goals() {
     assert!(system.contains("save_thesis") && system.contains("get_my_goals"), "{system}");
     let goals = requests[1].body["messages"].as_array().unwrap().last().unwrap()["content"].as_str().unwrap().to_string();
     assert!(goals.contains("Double it") && !goals.contains("House"), "{goals}");
+}
+
+#[tokio::test]
+async fn each_run_starts_with_the_mandate_and_goals() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "mandated").await;
+    let mut config = service.config(portfolio).unwrap();
+    for bad in [
+        TraderConfig { horizon_years: Some(0), ..config.clone() },
+        TraderConfig { horizon_years: Some(51), ..config.clone() },
+        TraderConfig { max_drawdown_pct: Some(0), ..config.clone() },
+        TraderConfig { max_drawdown_pct: Some(101), ..config.clone() },
+        TraderConfig { benchmark: "not a ticker!".into(), ..config.clone() },
+    ] {
+        assert!(service.save_config(bad).is_err());
+    }
+
+    // No mandate and no goals yet.
+    mock.script("mandated", [Reply::text("Nothing to do."), Reply::text("{}")]);
+    run_once(&service, portfolio).await;
+    let system = |n: usize| mock.received("mandated")[n].body["messages"][0]["content"].as_str().unwrap().to_string();
+    let first = system(0);
+    assert!(first.contains("- None beyond the strategy."), "{first}");
+    assert!(first.contains("No goals set for this portfolio."), "{first}");
+
+    config.horizon_years = Some(10);
+    config.max_drawdown_pct = Some(20);
+    config.benchmark = " spy ".into();
+    let saved = service.save_config(config).unwrap();
+    assert_eq!((saved.horizon_years, saved.max_drawdown_pct, saved.benchmark.as_str()), (Some(10), Some(20), "SPY"));
+    service
+        .db
+        .with(|c| {
+            c.execute(
+                "INSERT INTO goals (id, name, target, date, monthly, portfolio_id)
+                 VALUES ('55555555-5555-5555-5555-555555555555', 'Retire early', '20000', '2040-01-01', '100', ?1)",
+                [portfolio.to_string()],
+            )
+        })
+        .unwrap();
+    mock.script("mandated", [Reply::text("Nothing to do."), Reply::text("{}")]);
+    run_once(&service, portfolio).await;
+    let second = system(2);
+    assert!(second.contains("- Invest for a horizon of about 10 years."), "{second}");
+    assert!(second.contains("within 20%"), "{second}");
+    assert!(second.contains("Measure yourself against SPY"), "{second}");
+    let goals = second.split("<goals>").nth(1).and_then(|g| g.split("</goals>").next()).unwrap();
+    let goals: Value = serde_json::from_str(goals.trim()).unwrap();
+    assert_eq!(goals["goals"][0]["name"], "Retire early");
+    assert!(goals["goals"][0]["on_track"].is_boolean(), "{goals}");
+    assert_eq!(goals["portfolio_value"], 5000.0);
 }

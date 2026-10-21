@@ -16,14 +16,13 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
-| 2 | Emergency stop (item 15a) | #44 |
-| 3 | Scheduled runs (item 15) | #52 |
-| 4 | Notifications when a run finishes or fails (item 17) | #54 |
-| 5 | Usage and estimated cost (item 16) | #53 |
-| 6 | Capability detection (item 9) | #49 |
-| 7 | Streaming (item 11) | #51 |
-| 8 | Responses-style APIs (item 10) | #50 |
+| 1 | Emergency stop (item 15a) | #44 |
+| 2 | Scheduled runs (item 15) | #52 |
+| 3 | Notifications when a run finishes or fails (item 17) | #54 |
+| 4 | Usage and estimated cost (item 16) | #53 |
+| 5 | Capability detection (item 9) | #49 |
+| 6 | Streaming (item 11) | #51 |
+| 7 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -45,7 +44,7 @@ Per-run order limits, cash reserve and concentration limits, and approval mode
 limits would not protect anything real. The emergency stop moved to Phase 4
 as item 15a, because model API calls do cost real money.
 
-## Phase 1.5: a goal for each portfolio
+## Phase 1.5: a goal for each portfolio (done)
 
 Traders should know what they are trading for. Reuse the existing `goals`
 table from `planning` (target, date, monthly contribution, `portfolio_id`)
@@ -53,13 +52,14 @@ rather than adding a second notion of goal.
 
 5a. **Trader mandate**: add horizon, maximum acceptable drawdown and a
     benchmark ticker to `TraderConfig` (additive migration), editable next to
-    the strategy in settings. (#57)
+    the strategy in settings. Done (#57).
 5b. **`get_my_goals` tool**: read-only, `portfolio` forced to the trader's
     own. Traders cannot create, change or delete goals. Done, for MCP
     clients and for traders the app runs (#56).
 5c. **Goals in the prompt**: at the start of each run, include the
     portfolio's goals, their `GoalProjection` (on track, required return) and
-    the mandate, so the trader knows whether it is ahead or behind. (#57)
+    the mandate, so the trader knows whether it is ahead or behind. Done
+    (#57).
 
 ## Phase 2: model compatibility
 

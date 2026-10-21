@@ -1208,4 +1208,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Max {} tokens", "สูงสุด {} token"),
     ("Key in {}", "ส่ง key ใน {}"),
     ("Headers: {}", "header: {}"),
+    ("Horizon (years)", "ระยะเวลาลงทุน (ปี)"),
+    ("Largest drawdown accepted (%)", "ยอมให้ลดลงจากจุดสูงสุดได้มากสุด (%)"),
+    ("Benchmark to beat", "ดัชนีที่ต้องการชนะ"),
+    ("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.", "trader จะได้รับกรอบนี้และเป้าหมายของพอร์ตทุกครั้งที่เริ่มรัน ตั้งเป้าหมายได้ที่แท็บ Plan ของพอร์ต"),
 ];
