@@ -99,9 +99,14 @@ pub fn fmt_compact(value: f64) -> String {
 }
 
 /// A share count people can read: at most 4 decimals, no trailing zeros,
-/// thousands grouped — `1.405399` → `1.4054`, `1500` → `1,500`.
+/// thousands grouped — `1.405399` → `1.4054`, `1500` → `1,500`. Amounts
+/// under one keep 4 significant digits, up to 8 decimals, so small crypto
+/// holdings don't round away: `0.00012345` → `0.0001234`.
 pub fn fmt_shares(shares: Decimal) -> String {
-    let rounded = shares.round_dp(4).normalize();
+    let dp = (4..=8)
+        .find(|&dp| shares.abs() * Decimal::from(10u64.pow(dp)) >= Decimal::from(1000))
+        .unwrap_or(8);
+    let rounded = shares.round_dp(dp).normalize();
     let text = rounded.abs().to_string();
     let (whole, frac) = text.split_once('.').unwrap_or((&text, ""));
     let mut grouped = String::new();
@@ -152,6 +157,10 @@ mod tests {
         assert_eq!(fmt_shares(dec!(1.405399)), "1.4054");
         assert_eq!(fmt_shares(dec!(1500)), "1,500");
         assert_eq!(fmt_shares(dec!(0.5000)), "0.5");
+        assert_eq!(fmt_shares(dec!(0.00012345)), "0.0001234");
+        assert_eq!(fmt_shares(dec!(0.000000004)), "0");
+        assert_eq!(fmt_shares(dec!(-0.0215678)), "-0.02157");
+        assert_eq!(fmt_shares(dec!(12.3456789)), "12.3457");
     }
 
     #[test]
