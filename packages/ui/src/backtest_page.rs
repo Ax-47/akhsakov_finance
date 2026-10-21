@@ -124,9 +124,24 @@ impl Years {
     }
 }
 
+/// How many mixes can be compared at once.
+const MAX_MIXES: usize = 3;
+
+/// Line colours for the mixes, in order; the benchmark is sky.
+const MIX_COLORS: [&str; MAX_MIXES] = [
+    "var(--catppuccin-color-mauve)",
+    "var(--catppuccin-color-peach)",
+    "var(--catppuccin-color-green)",
+];
+
+fn mix_name(i: usize) -> String {
+    crate::i18n::trf("Mix {}", &[&(i + 1)])
+}
+
 #[derive(Clone, PartialEq)]
 struct Outcome {
-    mix: BacktestResult,
+    /// Each mix's name and result, in the order they were set up.
+    mixes: Vec<(String, BacktestResult)>,
     benchmark: BacktestResult,
     benchmark_name: String,
     /// First month every asset had a price; earlier months are partial.
@@ -140,12 +155,21 @@ pub fn BacktestPage() -> Element {
     // read when "use mine" is pressed, not on every price update.
     let portfolio = use_portfolio_memo(None);
     let has_holdings = use_memo(move || !portfolio.read().allocation.is_empty());
-    let mut assets = use_signal(|| {
-        vec![
+    let mut mixes = use_signal(|| {
+        vec![vec![
             Asset { ticker: "VOO".into(), weight: "60".into() },
             Asset { ticker: "QQQ".into(), weight: "40".into() },
-        ]
+        ]]
     });
+    // The mix being edited.
+    let mut active = use_signal(|| 0usize);
+    let assets = use_memo(move || mixes.read().get(active()).cloned().unwrap_or_default());
+    let mut edit = move |change: &dyn Fn(&mut Vec<Asset>)| {
+        let at = active();
+        if let Some(mix) = mixes.write().get_mut(at) {
+            change(mix);
+        }
+    };
     let (symbol, rate) = display_currency();
     let mut initial = use_signal(move || format!("{:.0}", 10_000.0 * rate));
     let mut monthly = use_signal(move || format!("{:.0}", 500.0 * rate));
@@ -162,7 +186,7 @@ pub fn BacktestPage() -> Element {
         running.set(true);
         let result = match rebalance().plan(&drift()) {
             Ok(rebalance) => simulate(
-                assets(),
+                mixes(),
                 &initial(),
                 &monthly(),
                 years(),
@@ -186,9 +210,10 @@ pub fn BacktestPage() -> Element {
             .map(|(t, w)| Asset { ticker: t.to_string(), weight: format!("{:.1}", w.to_f64().unwrap_or(0.0)) })
             .collect();
         if !mine.is_empty() {
-            assets.set(mine);
+            edit(&|mix| *mix = mine.clone());
         }
     };
+    let mix_count = mixes.read().len();
 
     rsx! {
         Page {
@@ -210,9 +235,26 @@ pub fn BacktestPage() -> Element {
                             if has_holdings() {
                                 GhostButton { label: tr("Use my portfolio"), onclick: use_mine }
                             }
-                            GhostButton { label: tr("＋ Add"), onclick: move |_| assets.write().push(Asset { ticker: String::new(), weight: "10".into() }) }
+                            GhostButton { label: tr("＋ Add"), onclick: move |_| edit(&|mix| mix.push(Asset { ticker: String::new(), weight: "10".into() })) }
                         }
                     },
+                    if mix_count > 1 {
+                        div { class: "mb-3 flex flex-wrap items-center justify-between gap-2",
+                            Segmented {
+                                for k in 0..mix_count {
+                                    ToggleButton { key: "{k}", label: mix_name(k), active: active() == k, onclick: move |_| active.set(k) }
+                                }
+                            }
+                            GhostButton {
+                                label: tr("Remove this mix"),
+                                onclick: move |_| {
+                                    let at = active();
+                                    mixes.write().remove(at);
+                                    active.set(at.saturating_sub(1));
+                                },
+                            }
+                        }
+                    }
                     div { class: "grid gap-2",
                         for (i, a) in assets().into_iter().enumerate() {
                             div { key: "{i}", class: "flex items-center gap-2",
@@ -221,7 +263,7 @@ pub fn BacktestPage() -> Element {
                                         class: "{INPUT} uppercase",
                                         placeholder: tr("Ticker, e.g. VOO"),
                                         value: "{a.ticker}",
-                                        oninput: move |e| assets.write()[i].ticker = e.value(),
+                                        oninput: move |e| edit(&|mix| mix[i].ticker = e.value()),
                                     }
                                 }
                                 // INPUT is w-full, so the width lives on a wrapper.
@@ -230,16 +272,28 @@ pub fn BacktestPage() -> Element {
                                         class: "{INPUT} text-right tabular-nums",
                                         inputmode: "decimal",
                                         value: "{a.weight}",
-                                        oninput: move |e| assets.write()[i].weight = e.value(),
+                                        oninput: move |e| edit(&|mix| mix[i].weight = e.value()),
                                     }
                                 }
                                 span { class: "text-sm text-ctp-subtext0", "%" }
                                 button {
                                     class: "rounded-full px-2 py-1 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
                                     title: tr("Remove"),
-                                    onclick: move |_| { assets.write().remove(i); },
+                                    onclick: move |_| edit(&|mix| { mix.remove(i); }),
                                     "×"
                                 }
+                            }
+                        }
+                    }
+                    if mix_count < MAX_MIXES {
+                        div { class: "mt-3",
+                            GhostButton {
+                                label: tr("＋ Compare another mix"),
+                                onclick: move |_| {
+                                    let copy = assets();
+                                    mixes.write().push(copy);
+                                    active.set(mix_count);
+                                },
                             }
                         }
                     }
@@ -296,7 +350,8 @@ pub fn BacktestPage() -> Element {
                 Some(Err(message)) => rsx! {
                     div { class: "mt-5", Card { title: tr("Result"), p { class: "text-sm text-ctp-red", "{message}" } } }
                 },
-                Some(Ok(o)) => rsx! { Results { outcome: o } },
+                Some(Ok(o)) if o.mixes.len() == 1 => rsx! { Results { outcome: o } },
+                Some(Ok(o)) => rsx! { Comparison { outcome: o } },
             }
         }
     }
@@ -304,7 +359,8 @@ pub fn BacktestPage() -> Element {
 
 #[component]
 fn Results(outcome: Outcome) -> Element {
-    let Outcome { mix, benchmark, benchmark_name, note } = outcome;
+    let Outcome { mixes, benchmark, benchmark_name, note } = outcome;
+    let mix = mixes.into_iter().next().map(|(_, r)| r).unwrap_or_default();
     let risk_free = use_context::<AppSettings>().0.read().risk_free.to_f64().unwrap_or(0.0) / 100.0;
     let sharpe = mix.sharpe(risk_free);
     let bench_sharpe = benchmark.sharpe(risk_free);
@@ -401,10 +457,115 @@ fn Results(outcome: Outcome) -> Element {
     }
 }
 
-/// Fetches monthly prices, aligns them by month and runs the plan for the
+/// Several mixes side by side: one line each on the chart and a column each
+/// in a table of the same measures.
+#[component]
+fn Comparison(outcome: Outcome) -> Element {
+    let Outcome { mixes, benchmark, benchmark_name, note } = outcome;
+    let risk_free = use_context::<AppSettings>().0.read().risk_free.to_f64().unwrap_or(0.0) / 100.0;
+    let money = |v: f64| fmt_usd(Decimal::try_from(v).unwrap_or_default(), 0);
+    let pct = |v: Option<f64>| v.map_or("—".into(), |v| format!("{:+.2}%", v * 100.0));
+    let year = |y: &Option<(String, f64)>| y.as_ref().map_or("—".into(), |(y, r)| format!("{:+.1}% ({y})", r * 100.0));
+    let labels: Vec<String> = mixes[0].1.points.iter().map(|p| p.0.get(..7).unwrap_or_default().to_string()).collect();
+    let mut columns: Vec<(String, &'static str, BacktestResult)> =
+        mixes.into_iter().zip(MIX_COLORS).map(|((name, r), color)| (name, color, r)).collect();
+    columns.push((benchmark_name, "var(--catppuccin-color-sky)", benchmark));
+    let rows: Vec<(&'static str, Vec<String>)> = vec![
+        (tr("Would be worth"), columns.iter().map(|c| money(c.2.final_value)).collect()),
+        (tr("Invested"), columns.iter().map(|c| money(c.2.invested)).collect()),
+        (tr("Yearly return"), columns.iter().map(|c| pct(c.2.irr)).collect()),
+        (tr("Growth rate"), columns.iter().map(|c| pct(c.2.cagr)).collect()),
+        (tr("Worst fall"), columns.iter().map(|c| format!("{:.1}%", c.2.max_drawdown * 100.0)).collect()),
+        (
+            tr("Back to its peak"),
+            columns
+                .iter()
+                .map(|c| match (c.2.max_drawdown < 0.0, c.2.recovery_months) {
+                    (false, _) => "—".to_string(),
+                    (true, Some(months)) => crate::i18n::trf("{} months", &[&months]),
+                    (true, None) => tr("Not yet").to_string(),
+                })
+                .collect(),
+        ),
+        (tr("Ups and downs"), columns.iter().map(|c| c.2.volatility.map_or("—".into(), |v| format!("{:.1}%", v * 100.0))).collect()),
+        (tr("Sharpe ratio"), columns.iter().map(|c| c.2.sharpe(risk_free).map_or("—".into(), |v| format!("{v:.2}"))).collect()),
+        (tr("Best year"), columns.iter().map(|c| year(&c.2.best_year)).collect()),
+        (tr("Worst year"), columns.iter().map(|c| year(&c.2.worst_year)).collect()),
+        (tr("Fees"), columns.iter().map(|c| money(c.2.fees_paid)).collect()),
+        (tr("Rebalances"), columns.iter().map(|c| c.2.rebalances.to_string()).collect()),
+    ];
+    let growth = |r: &BacktestResult| -> Vec<Option<Decimal>> {
+        r.points
+            .iter()
+            .map(|(_, v, inv)| (*inv > 0.0).then(|| Decimal::try_from((v / inv - 1.0) * 100.0).ok()).flatten())
+            .collect()
+    };
+    let series: Vec<Series> =
+        columns.iter().map(|(name, color, r)| Series { name: name.clone(), color: (*color).into(), values: growth(r) }).collect();
+    rsx! {
+        div { class: "mt-5 motion-safe:animate-rise",
+            Card { title: tr("Compare"), flush: true,
+                div { class: "overflow-x-auto",
+                    table { class: "w-full text-sm whitespace-nowrap",
+                        thead {
+                            tr { class: "text-xs text-ctp-subtext0",
+                                th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "" }
+                                for (name, color, _) in columns.iter() {
+                                    th { key: "{name}", class: "px-4 py-2.5 text-right font-medium",
+                                        span { class: "inline-flex items-center gap-1.5",
+                                            span { class: "h-2 w-2 rounded-full", style: "background:{color};" }
+                                            "{name}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        tbody {
+                            for (label, values) in rows {
+                                tr { key: "{label}", class: "border-t border-ctp-surface0/60",
+                                    td { class: "pl-6 pr-4 py-2.5 text-ctp-subtext1", "{label}" }
+                                    for (i, value) in values.into_iter().enumerate() {
+                                        td { key: "{i}", class: "px-4 py-2.5 text-right tabular-nums", "{value}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Prices include dividends, reinvested; taxes aren't counted.")} }
+        div { class: "mt-5 motion-safe:animate-rise",
+            Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| tr("Value ÷ amount invested so far").into()),
+                document::Script { src: asset!("/assets/js/growth_chart.js") }
+                GrowthChart { chart_dates: labels, series, height: Decimal::from(280) }
+            }
+        }
+    }
+}
+
+/// Every ticker in the mixes once, in the order first seen.
+fn unique_tickers(mixes: &[Vec<(TickerSymbol, f64)>]) -> Vec<TickerSymbol> {
+    let mut tickers: Vec<TickerSymbol> = Vec::new();
+    for (t, _) in mixes.iter().flatten() {
+        if !tickers.contains(t) {
+            tickers.push(t.clone());
+        }
+    }
+    tickers
+}
+
+/// One mix's price columns, picked from `prices` (one per `tickers`).
+fn mix_prices(mix: &[(TickerSymbol, f64)], tickers: &[TickerSymbol], prices: &[Vec<Option<f64>>]) -> Vec<Vec<Option<f64>>> {
+    mix.iter()
+        .filter_map(|(t, _)| tickers.iter().position(|x| x == t).map(|i| prices[i].clone()))
+        .collect()
+}
+
+/// Fetches monthly prices, aligns them by month and runs the plan for each
 /// mix and the benchmark.
 async fn simulate(
-    assets: Vec<Asset>,
+    mixes: Vec<Vec<Asset>>,
     initial: &str,
     monthly: &str,
     years: Years,
@@ -423,20 +584,30 @@ async fn simulate(
     }
     // Amounts are typed in the display currency; prices are USD.
     let (initial, monthly) = (initial / rate, monthly / rate);
-    let mut picked: Vec<(TickerSymbol, f64)> = Vec::new();
-    for a in &assets {
-        if a.ticker.trim().is_empty() {
-            continue;
+    let several = mixes.len() > 1;
+    let mut picked: Vec<Vec<(TickerSymbol, f64)>> = Vec::new();
+    for (k, assets) in mixes.iter().enumerate() {
+        let mut mix = Vec::new();
+        for a in assets {
+            if a.ticker.trim().is_empty() {
+                continue;
+            }
+            let t = TickerSymbol::new(&a.ticker).map_err(|_| format!("“{}” isn't a ticker", a.ticker))?;
+            let w = a.weight.trim().parse::<f64>().ok().filter(|w| *w > 0.0).ok_or(crate::i18n::trf("Enter a weight for {}", &[&t]))?;
+            mix.push((t, w));
         }
-        let t = TickerSymbol::new(&a.ticker).map_err(|_| format!("“{}” isn't a ticker", a.ticker))?;
-        let w = a.weight.trim().parse::<f64>().ok().filter(|w| *w > 0.0).ok_or(crate::i18n::trf("Enter a weight for {}", &[&t]))?;
-        picked.push((t, w));
-    }
-    if picked.is_empty() {
-        return Err("Add at least one ticker".into());
+        if mix.is_empty() {
+            return Err(if several {
+                crate::i18n::trf("Add at least one ticker to {}", &[&mix_name(k)])
+            } else {
+                "Add at least one ticker".into()
+            });
+        }
+        picked.push(mix);
     }
 
-    let mut symbols: Vec<TickerSymbol> = picked.iter().map(|(t, _)| t.clone()).collect();
+    let tickers = unique_tickers(&picked);
+    let mut symbols = tickers.clone();
     symbols.push(benchmark.clone());
     let charts = get_charts(symbols, years.range(), Interval::M1, false)
         .await
@@ -452,8 +623,8 @@ async fn simulate(
             })
             .unwrap_or_default()
     };
-    let series: Vec<BTreeMap<String, f64>> = picked.iter().map(|(t, _)| monthly_closes(t)).collect();
-    if let Some((t, _)) = picked.iter().zip(&series).find(|(_, s)| s.is_empty()).map(|(p, _)| p) {
+    let series: Vec<BTreeMap<String, f64>> = tickers.iter().map(monthly_closes).collect();
+    if let Some(t) = tickers.iter().zip(&series).find(|(_, s)| s.is_empty()).map(|(t, _)| t) {
         return Err(crate::i18n::trf("No price history for {}", &[&t]));
     }
     let bench = monthly_closes(&benchmark);
@@ -468,35 +639,35 @@ async fn simulate(
         .iter()
         .map(|s| dates.iter().map(|d| s.get(d).copied()).collect())
         .collect();
-    let late = picked
+    let late = tickers
         .iter()
         .zip(&prices)
         .filter(|(_, p)| p.first().is_some_and(Option::is_none))
-        .map(|((t, _), p)| {
+        .map(|(t, p)| {
             let first = p.iter().position(Option::is_some).and_then(|i| dates.get(i)).cloned().unwrap_or_default();
             format!("{t} from {}", first.get(..7).unwrap_or_default())
         })
         .collect::<Vec<_>>();
 
-    let plan = BacktestPlan {
-        weights: picked.iter().map(|(_, w)| *w).collect(),
-        initial,
-        contribution: monthly,
-        rebalance,
-        fees,
-    };
-    let mix = backtest(&dates, &prices, &plan);
+    let plan = BacktestPlan { weights: vec![], initial, contribution: monthly, rebalance, fees };
+    let mut results = Vec::new();
+    for (k, mix) in picked.iter().enumerate() {
+        let columns = mix_prices(mix, &tickers, &prices);
+        let weights = mix.iter().map(|(_, w)| *w).collect();
+        let result = backtest(&dates, &columns, &BacktestPlan { weights, ..plan.clone() });
+        if result.points.is_empty() {
+            return Err("Not enough price history".into());
+        }
+        results.push((mix_name(k), result));
+    }
     let bench_prices = vec![dates.iter().map(|d| bench.get(d).copied()).collect()];
     let benchmark_result = backtest(
         &dates,
         &bench_prices,
         &BacktestPlan { weights: vec![1.0], ..plan },
     );
-    if mix.points.is_empty() {
-        return Err("Not enough price history".into());
-    }
     Ok(Outcome {
-        mix,
+        mixes: results,
         benchmark: benchmark_result,
         benchmark_name: dtos::settings::benchmark_name(benchmark.as_str()),
         note: (!late.is_empty()).then(|| crate::i18n::trf("Not listed yet at the start: {}. Until then the others take their share.", &[&late.join(", ")])),
@@ -509,6 +680,16 @@ mod tests {
 
     fn inputs(rate: &str, per_trade: &str, yearly: &str) -> FeeInputs {
         FeeInputs { rate: rate.into(), per_trade: per_trade.into(), yearly: yearly.into() }
+    }
+
+    #[test]
+    fn mixes_share_one_price_fetch() {
+        let t = |s: &str| TickerSymbol::new(s).unwrap();
+        let mixes = vec![vec![(t("VOO"), 60.0), (t("QQQ"), 40.0)], vec![(t("BND"), 50.0), (t("VOO"), 50.0)]];
+        let tickers = unique_tickers(&mixes);
+        assert_eq!(tickers, [t("VOO"), t("QQQ"), t("BND")]);
+        let prices = vec![vec![Some(1.0)], vec![Some(2.0)], vec![Some(3.0)]];
+        assert_eq!(mix_prices(&mixes[1], &tickers, &prices), [vec![Some(3.0)], vec![Some(1.0)]]);
     }
 
     #[test]
