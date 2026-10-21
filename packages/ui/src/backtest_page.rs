@@ -230,7 +230,7 @@ pub fn BacktestPage() -> Element {
                 }
             }
 
-            div { class: "mt-10 grid gap-5 lg:grid-cols-[1fr_320px] motion-safe:animate-rise",
+            div { class: "mt-10 grid gap-5 lg:grid-cols-[1fr_360px] motion-safe:animate-rise",
                 Card {
                     title: tr("Mix"),
                     subtitle: {let base = crate::i18n::trf("Weights add up to {}%", &[&format!("{weights_total:.0}")]); if (weights_total - 100.0).abs() > 0.5 { format!("{base} — {}", tr("they'll be scaled to 100%")) } else { base }},
@@ -303,7 +303,9 @@ pub fn BacktestPage() -> Element {
                     }
                 }
                 Card { title: tr("Plan"),
-                    div { class: "grid gap-4",
+                    // One column that can't grow past the card, so wide choices
+                    // scroll instead of pushing the fields out.
+                    div { class: "grid grid-cols-1 gap-4",
                         Field { label: format!("{} ({})", tr("Start with"), symbol.trim()),
                             input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{initial}", oninput: move |e| initial.set(e.value()) }
                         }
