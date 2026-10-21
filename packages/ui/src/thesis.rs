@@ -289,7 +289,8 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
     let mut conviction = use_signal(|| saved.conviction);
     let mut review_on = use_signal(|| saved.review_on.clone().unwrap_or_default());
     let mut status = use_signal(|| saved.status);
-    let mut note = use_signal(|| None::<Result<&'static str, String>>);
+    let mut error = use_signal(|| None::<String>);
+    let toasts = use_context::<crate::notify::Toasts>();
     let mut confirm_delete = use_signal(|| false);
 
     let t = ticker.clone();
@@ -300,7 +301,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                 "" => None,
                 s => match Decimal::from_str(s) {
                     Ok(p) => Some(p),
-                    Err(_) => return note.set(Some(Err(tr("Enter a number for the target price").into()))),
+                    Err(_) => return error.set(Some(tr("Enter a number for the target price").into())),
                 },
             };
             let draft = ThesisDraft {
@@ -313,10 +314,11 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
             };
             match api::save_thesis(portfolio, t, draft).await {
                 Ok(()) => {
-                    note.set(Some(Ok(tr("Saved"))));
+                    error.set(None);
+                    toasts.show(tr("Thesis saved"), "");
                     reload.bump();
                 }
-                Err(e) => note.set(Some(Err(error_text(e)))),
+                Err(e) => error.set(Some(error_text(e))),
             }
         }
     };
@@ -326,7 +328,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
         async move {
             match api::delete_thesis(portfolio, t).await {
                 Ok(()) => reload.bump(),
-                Err(e) => note.set(Some(Err(error_text(e)))),
+                Err(e) => error.set(Some(error_text(e))),
             }
             confirm_delete.set(false);
         }
@@ -339,7 +341,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                     class: "{INPUT} min-h-28 resize-y",
                     placeholder: tr("e.g. The leader in AI chips; data-centre sales keep growing faster than the market expects."),
                     value: "{text}",
-                    oninput: move |e| { text.set(e.value()); note.set(None); },
+                    oninput: move |e| { text.set(e.value()); error.set(None); },
                 }
             }
             Field { label: tr("Sell if…"), hint: tr("What would prove you wrong. Decide it now, while you're calm."),
@@ -347,7 +349,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                     class: "{INPUT} min-h-16 resize-y",
                     placeholder: tr("e.g. Two quarters of falling data-centre revenue, or it goes above 35% of the portfolio."),
                     value: "{exit_if}",
-                    oninput: move |e| { exit_if.set(e.value()); note.set(None); },
+                    oninput: move |e| { exit_if.set(e.value()); error.set(None); },
                 }
             }
             div { class: "grid gap-4 sm:grid-cols-3",
@@ -357,7 +359,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                         inputmode: "decimal",
                         placeholder: "250",
                         value: "{target}",
-                        oninput: move |e| { target.set(e.value()); note.set(None); },
+                        oninput: move |e| { target.set(e.value()); error.set(None); },
                     }
                 }
                 Field { label: tr("Review on"),
@@ -365,7 +367,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                         class: INPUT,
                         r#type: "date",
                         value: "{review_on}",
-                        oninput: move |e| { review_on.set(e.value()); note.set(None); },
+                        oninput: move |e| { review_on.set(e.value()); error.set(None); },
                     }
                 }
                 div {
@@ -382,7 +384,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                                 aria_pressed: conviction() == Some(n),
                                 onclick: move |_| {
                                     conviction.set(if conviction() == Some(n) { None } else { Some(n) });
-                                    note.set(None);
+                                    error.set(None);
                                 },
                                 "{n}"
                             }
@@ -398,7 +400,7 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                             key: "{s:?}",
                             label: tr(s.label()),
                             active: status() == s,
-                            onclick: move |_| { status.set(s); note.set(None); },
+                            onclick: move |_| { status.set(s); error.set(None); },
                         }
                     }
                 }
@@ -414,10 +416,8 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                         ActionButton { label: tr("Delete thesis"), tone: ButtonTone::Quiet, onclick: move |_| confirm_delete.set(true) }
                     }
                 }
-                match note() {
-                    Some(Ok(m)) => rsx! { span { class: "text-sm text-ctp-green", "{m}" } },
-                    Some(Err(m)) => rsx! { span { class: "text-sm text-ctp-red", "{m}" } },
-                    None => rsx! {},
+                if let Some(m) = error() {
+                    span { class: "text-sm text-ctp-red", "{m}" }
                 }
             }
             Journal { portfolio, ticker, thesis }

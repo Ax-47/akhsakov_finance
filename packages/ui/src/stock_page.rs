@@ -351,7 +351,8 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
     let mut text = use_signal(String::new);
     let mut tags = use_signal(String::new);
     let mut loaded = use_signal(|| false);
-    let mut status = use_signal(|| None::<Result<(), String>>);
+    let mut error = use_signal(|| None::<String>);
+    let toasts = use_context::<crate::notify::Toasts>();
     // Fill the fields once the saved note arrives.
     use_effect(move || {
         if let Some(note) = &*saved.read() {
@@ -370,11 +371,12 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
             let tag_list: Vec<String> = tags().split(',').map(str::to_string).collect();
             match api::save_note(t, text(), tag_list).await {
                 Ok(()) => {
-                    status.set(Some(Ok(())));
+                    error.set(None);
+                    toasts.show(tr("Note saved"), "");
                     loaded.set(false);
                     refresh.reload();
                 }
-                Err(e) => status.set(Some(Err(e.to_string()))),
+                Err(e) => error.set(Some(e.to_string())),
             }
         }
     };
@@ -387,20 +389,18 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
                     class: "{INPUT} min-h-28 resize-y",
                     placeholder: tr("e.g. Buy more below $150. Watch margins in the next report."),
                     value: "{text}",
-                    oninput: move |e| { text.set(e.value()); status.set(None); },
+                    oninput: move |e| { text.set(e.value()); error.set(None); },
                 }
                 div { class: "flex flex-wrap items-center gap-3",
                     input {
                         class: "{INPUT} flex-1",
                         placeholder: tr("Tags, comma separated: dividend, long term"),
                         value: "{tags}",
-                        oninput: move |e| { tags.set(e.value()); status.set(None); },
+                        oninput: move |e| { tags.set(e.value()); error.set(None); },
                     }
                     ActionButton { label: tr("Save"), onclick: save }
-                    match status() {
-                        Some(Ok(())) => rsx! { span { class: "text-sm text-ctp-green", {tr("Saved")} } },
-                        Some(Err(e)) => rsx! { span { class: "text-sm text-ctp-red break-words", "{e}" } },
-                        None => rsx! {},
+                    if let Some(e) = error() {
+                        span { class: "text-sm text-ctp-red break-words", "{e}" }
                     }
                 }
             }
