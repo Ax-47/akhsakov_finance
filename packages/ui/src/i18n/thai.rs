@@ -1394,4 +1394,6 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Interest a year, % (optional)", "ดอกเบี้ยต่อปี % (ไม่ใส่ก็ได้)"),
     ("For a deposit or bond: its value grows by this much a year from the latest price you entered.", "สำหรับเงินฝากหรือหุ้นกู้: มูลค่าจะเพิ่มขึ้นปีละเท่านี้ นับจากราคาล่าสุดที่ใส่ไว้"),
     ("{}% a year", "{}% ต่อปี"),
+    ("AI traders", "AI เทรดเดอร์"),
+    ("Let an AI invest paper money for you and see how it does. Connect a model in Settings first.", "ให้ AI ลงทุนด้วยเงินสมมติแทนคุณ แล้วดูว่าทำได้ดีแค่ไหน เชื่อมต่อโมเดลใน Settings ก่อน"),
 ];
