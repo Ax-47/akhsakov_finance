@@ -597,6 +597,15 @@ const MIGRATIONS: &[&str] = &[
         key    TEXT PRIMARY KEY,
         value  TEXT NOT NULL
     );",
+    // 23: model prices entered per profile, each run's estimated cost (at
+    // the prices when it started) and per-portfolio cost limits
+    "ALTER TABLE ai_model_profiles ADD COLUMN input_price REAL;
+    ALTER TABLE ai_model_profiles ADD COLUMN output_price REAL;
+    ALTER TABLE ai_runs ADD COLUMN price_in REAL;
+    ALTER TABLE ai_runs ADD COLUMN price_out REAL;
+    ALTER TABLE ai_runs ADD COLUMN cost_usd REAL;
+    ALTER TABLE ai_trader_configs ADD COLUMN max_cost_per_run REAL;
+    ALTER TABLE ai_trader_configs ADD COLUMN max_cost_per_month REAL;",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

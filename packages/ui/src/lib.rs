@@ -41,6 +41,7 @@ pub mod server_address;
 pub use app::App;
 
 mod ai_stop;
+mod ai_usage;
 mod alerts;
 mod assets_card;
 mod components;

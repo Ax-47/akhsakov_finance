@@ -16,6 +16,8 @@ mod stop;
 mod schedule;
 #[cfg(feature = "server")]
 mod announce;
+#[cfg(feature = "server")]
+mod usage;
 #[cfg(all(test, feature = "server"))]
 mod mock_model;
 #[cfg(all(test, feature = "server"))]
