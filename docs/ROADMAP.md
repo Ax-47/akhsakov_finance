@@ -16,11 +16,10 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Notifications when a run finishes or fails (item 17) | #54 |
-| 2 | Usage and estimated cost (item 16) | #53 |
-| 3 | Capability detection (item 9) | #49 |
-| 4 | Streaming (item 11) | #51 |
-| 5 | Responses-style APIs (item 10) | #50 |
+| 1 | Usage and estimated cost (item 16) | #53 |
+| 2 | Capability detection (item 9) | #49 |
+| 3 | Streaming (item 11) | #51 |
+| 4 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -97,7 +96,8 @@ rather than adding a second notion of goal.
 16. **Usage and estimated cost** per run and per profile. Token counts are
     already stored per run; the cost estimate is not. (#53)
 17. **Notifications** when a run finishes or fails, using the existing
-    notifications module. (#54)
+    notifications module. Done (#54): failures only by default, or also
+    trades and race results, or never; race rounds are summed up.
 
 ## Phase 5: race mode (done)
 

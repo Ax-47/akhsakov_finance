@@ -1236,5 +1236,9 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Next run: {}", "รันครั้งถัดไป: {}"),
     ("Last run: {}", "รันล่าสุด: {}"),
     ("Schedule saved.", "บันทึกตารางเวลาแล้ว"),
+    ("Notify me about AI runs and races", "แจ้งเตือนเรื่องการรันและ race ของ AI"),
+    ("Only when something fails", "เฉพาะตอนมีอะไรล้มเหลว"),
+    ("Failures, trades and race results", "ตอนล้มเหลว, ตอนซื้อขาย และผล race"),
+    ("Never", "ไม่ต้องแจ้ง"),
     ("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.", "trader จะได้รับกรอบนี้และเป้าหมายของพอร์ตทุกครั้งที่เริ่มรัน ตั้งเป้าหมายได้ที่แท็บ Plan ของพอร์ต"),
 ];

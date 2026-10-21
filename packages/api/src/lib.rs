@@ -89,7 +89,7 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         market.clone(),
         research.clone(),
     );
-    let models = models::model_services_setup(db.clone(), connector.clone());
+    let models = models::model_services_setup(db.clone(), connector.clone(), notifications.clone());
     // Layers wrap what's added before them: the sign-in check runs first,
     // then the services are attached.
     let router = mcp::routes(router, connector.clone())

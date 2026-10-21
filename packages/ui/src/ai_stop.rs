@@ -3,7 +3,7 @@
 use crate::errors::error_message;
 use crate::i18n::{tr, trf};
 use dioxus::prelude::*;
-use dtos::ai_models::AiStopState;
+use dtos::ai_models::{AiNotifyLevel, AiStopState};
 
 /// Shows whether AI trading is stopped and turns the stop on (after a
 /// second tap to confirm) or off.
@@ -90,6 +90,50 @@ pub fn AiStopSwitch() -> Element {
                     onblur: move |_| armed.set(false),
                     if armed() { {tr("Stop all AI trading?")} } else { {tr("Stop all AI")} }
                 }
+            }
+        }
+    }
+}
+
+/// Chooses which AI events reach the user's notifications.
+#[component]
+pub fn AiNotifySetting() -> Element {
+    let mut level = use_signal(|| None::<AiNotifyLevel>);
+    let mut error = use_signal(|| None::<String>);
+    use_hook(move || {
+        spawn(async move {
+            match api::get_ai_notify_level().await {
+                Ok(value) => level.set(Some(value)),
+                Err(e) => error.set(Some(error_message(e))),
+            }
+        });
+    });
+    let Some(current) = level() else {
+        return rsx! {};
+    };
+    rsx! {
+        crate::components::card::Field { label: tr("Notify me about AI runs and races"),
+            select {
+                class: crate::components::card::INPUT,
+                onchange: move |e| {
+                    let chosen = match e.value().as_str() {
+                        "off" => AiNotifyLevel::Off,
+                        "all" => AiNotifyLevel::All,
+                        _ => AiNotifyLevel::Failures,
+                    };
+                    spawn(async move {
+                        match api::set_ai_notify_level(chosen).await {
+                            Ok(value) => level.set(Some(value)),
+                            Err(e) => error.set(Some(error_message(e))),
+                        }
+                    });
+                },
+                option { value: "failures", selected: current == AiNotifyLevel::Failures, {tr("Only when something fails")} }
+                option { value: "all", selected: current == AiNotifyLevel::All, {tr("Failures, trades and race results")} }
+                option { value: "off", selected: current == AiNotifyLevel::Off, {tr("Never")} }
+            }
+            if let Some(message) = error() {
+                p { class: "text-xs text-ctp-red break-words", "{message}" }
             }
         }
     }

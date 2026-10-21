@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use dtos::{
     ai_models::{
-        AiRace, AiRaceRun, AiRun, AiStopState, ModelProfile, ModelProfileSettings, NewAiRace,
+        AiNotifyLevel, AiRace, AiRaceRun, AiRun, AiStopState, ModelProfile, ModelProfileSettings, NewAiRace,
         NewAiTrader, TraderConfig, TraderMemory, TraderSchedule,
     },
     ai_portfolio::AiPortfolioInfo,
@@ -14,6 +14,17 @@ use uuid::Uuid;
 use super::ModelService;
 #[cfg(feature = "server")]
 use dioxus::server::axum::Extension;
+
+/// Which AI events notify the user.
+#[get("/api/models/notify", service: Extension<ModelService>)]
+pub async fn get_ai_notify_level() -> Result<AiNotifyLevel, ServerFnError> {
+    Ok(service.notify_level()?)
+}
+
+#[post("/api/models/notify/set", service: Extension<ModelService>)]
+pub async fn set_ai_notify_level(level: AiNotifyLevel) -> Result<AiNotifyLevel, ServerFnError> {
+    Ok(service.set_notify_level(level)?)
+}
 
 /// Whether the emergency stop is on, and who flipped it lately.
 #[get("/api/models/stop", service: Extension<ModelService>)]

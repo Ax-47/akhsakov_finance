@@ -779,3 +779,124 @@ async fn scheduled_runs_start_once_per_slot_and_skip_when_they_must() {
     let off = service.save_schedule(TraderSchedule { enabled: false, ..base }).unwrap();
     assert!(off.next_run_at.is_none());
 }
+
+#[tokio::test]
+async fn runs_and_races_notify_at_the_chosen_level() {
+    use crate::notifications::{infrastructures::{HttpPusher, SqliteNotificationRepository}, NotificationService};
+    use dtos::ai_models::AiNotifyLevel;
+    use std::sync::Arc;
+    let db = Database::in_memory().unwrap();
+    let connector = crate::mcp::services::tests::service_with_database(db.clone());
+    let notifications = NotificationService::new(
+        Arc::new(SqliteNotificationRepository::new(db.clone())),
+        Arc::new(HttpPusher::new()),
+    );
+    let service = ModelService::new(db, connector).with_notifications(notifications.clone());
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "noisy").await;
+    let wait_for = |count: usize| {
+        let notifications = notifications.clone();
+        async move {
+            for _ in 0..100 {
+                let all = notifications.recent().unwrap();
+                if all.len() >= count {
+                    return all;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            notifications.recent().unwrap()
+        }
+    };
+    let buy = || Reply::tools(&[("place_order", json!({"ticker": "NVDA", "side": "buy", "shares": 1, "reason": "Test."}))]);
+
+    // By default only failures notify: a run that trades says nothing.
+    assert_eq!(service.notify_level().unwrap(), AiNotifyLevel::Failures);
+    mock.script("noisy", [buy(), Reply::text("Bought one NVDA.\nMore detail."), Reply::text("{}")]);
+    run_once(&service, portfolio).await;
+    mock.script("noisy", [Reply::error(401, "Bad key.")]);
+    run_once(&service, portfolio).await;
+    let sent = wait_for(1).await;
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].title, "🤖 AI run failed: noisy");
+    assert_eq!(sent[0].body, "Model endpoint returned 401: Bad key.");
+
+    // With everything on, a run that trades is summed up in one line.
+    service.set_notify_level(AiNotifyLevel::All).unwrap();
+    mock.script("noisy", [buy(), Reply::text("Bought one NVDA.\nMore detail."), Reply::text("{}")]);
+    run_once(&service, portfolio).await;
+    let sent = wait_for(2).await;
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    let traded = sent.iter().find(|n| n.title.contains("traded")).expect("a trade notification");
+    assert_eq!(traded.title, "🤖 AI run traded: noisy");
+    assert_eq!(traded.body, "1 trade. Bought one NVDA.");
+
+    // The emergency stop doesn't notify about the runs it ends.
+    mock.script("noisy", [Reply::text("Late.").after(Duration::from_secs(30))]);
+    let pending = service.start_run(portfolio).await.unwrap();
+    service.set_ai_stop(true, "misha").unwrap();
+    settle(&service, pending).await;
+    service.set_ai_stop(false, "misha").unwrap();
+
+    // Off means nothing at all.
+    service.set_notify_level(AiNotifyLevel::Off).unwrap();
+    mock.script("noisy", [Reply::error(401, "Bad key.")]);
+    run_once(&service, portfolio).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(notifications.recent().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn race_rounds_and_endings_are_summed_up() {
+    use crate::notifications::{infrastructures::{HttpPusher, SqliteNotificationRepository}, NotificationService};
+    use std::sync::Arc;
+    let db = Database::in_memory().unwrap();
+    let connector = crate::mcp::services::tests::service_with_database(db.clone());
+    let notifications = NotificationService::new(
+        Arc::new(SqliteNotificationRepository::new(db.clone())),
+        Arc::new(HttpPusher::new()),
+    );
+    let service = ModelService::new(db, connector).with_notifications(notifications.clone());
+    let mock = MockModel::start().await;
+    let (a, b) = (trader(&service, &mock, "alpha").await, trader(&service, &mock, "beta").await);
+    let race = service
+        .create_race(NewAiRace {
+            name: "Cup".into(),
+            contestant_ids: vec![a, b],
+            starting_capital: 5_000.0,
+            rounds: 2,
+            trading_frequency_minutes: 1,
+            round_timeout_seconds: 15,
+        })
+        .unwrap();
+    service
+        .db
+        .with(|c| {
+            for (portfolio, status) in [(a, "failed"), (b, "completed")] {
+                c.execute(
+                    "INSERT INTO ai_runs (id, portfolio_id, status, profile_name, model, race_id, race_round)
+                     VALUES (?1, ?2, ?3, 'p', 'm', ?4, 1)",
+                    rusqlite::params![Uuid::new_v4().to_string(), portfolio.to_string(), status, race.id.to_string()],
+                )?;
+            }
+            c.execute("UPDATE ai_races SET status='completed' WHERE id=?1", [race.id.to_string()])
+        })
+        .unwrap();
+    service.announce_round(race.id, 1);
+    service.announce_race_paused(race.id, "It stopped on an error: boom");
+    for _ in 0..100 {
+        if notifications.recent().unwrap().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut sent: Vec<(String, String)> =
+        notifications.recent().unwrap().into_iter().map(|n| (n.title, n.body)).collect();
+    sent.sort();
+    assert_eq!(
+        sent,
+        [
+            ("🏁 AI race Cup: round 1".to_string(), "1 of 2 contestants failed this round. The race goes on.".to_string()),
+            ("🏁 AI race paused: Cup".to_string(), "It stopped on an error: boom".to_string()),
+        ]
+    );
+}

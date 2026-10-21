@@ -478,6 +478,7 @@ impl ModelService {
                         [id.to_string()],
                     )
                 });
+                runner.announce_race_paused(id, &format!("It stopped on an error: {error}"));
             }
         });
     }
@@ -592,6 +593,7 @@ impl ModelService {
                     run_ids.len()
                 ),
             )?;
+            self.announce_round(id, round);
             if round >= race.rounds {
                 self.complete_race(id)?;
                 return Ok(());
@@ -706,7 +708,9 @@ impl ModelService {
             [id.to_string()],
         )).map_err(storage)?;
         self.release_gates(&self.race(id)?);
-        self.audit(id, "completed", "All scheduled rounds completed.")
+        self.audit(id, "completed", "All scheduled rounds completed.")?;
+        self.announce_race_end(id);
+        Ok(())
     }
 
     /// Records a run for an MCP contestant and lets its connection trade

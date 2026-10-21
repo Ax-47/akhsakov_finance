@@ -40,6 +40,18 @@ pub struct ModelProfile {
     pub extra_header_names: Vec<String>,
 }
 
+/// Which AI events reach the user's notifications.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AiNotifyLevel {
+    Off,
+    /// Failed runs, failed race rounds and races paused by an error or a restart.
+    #[default]
+    Failures,
+    /// Failures, and also runs that traded and races that finished.
+    All,
+}
+
 /// When a scheduled trader may run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
