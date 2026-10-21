@@ -64,7 +64,7 @@ pub fn CAPMCard(
                     Stepper {
                         label: tr("Risk-free"),
                         suffix: "%",
-                        aria_label: "Risk-free rate",
+                        aria_label: tr("Risk-free rate"),
                         value: rf_str(),
                         step: 0.25,
                         on_change: move |v| rf_str.set(v),
@@ -72,7 +72,7 @@ pub fn CAPMCard(
                     Stepper {
                         label: tr("Market"),
                         suffix: "%",
-                        aria_label: "Expected market return",
+                        aria_label: tr("Expected market return"),
                         value: rm_str(),
                         step: 0.25,
                         on_change: move |v| rm_str.set(v),
@@ -241,11 +241,11 @@ fn SecurityMarketLine(result: PortfolioCAPM) -> Element {
                 span { class: "flex gap-4 text-ctp-overlay1",
                     span { class: "flex items-center gap-1.5",
                         span { class: "h-2 w-2 rounded-full", style: "background:{GAIN_HEX};" }
-                        "beat the line"
+                        {tr("beat the line")}
                     }
                     span { class: "flex items-center gap-1.5",
                         span { class: "h-2 w-2 rounded-full", style: "background:{LOSS_HEX};" }
-                        "fell short"
+                        {tr("fell short")}
                     }
                 }
             }
@@ -364,7 +364,7 @@ fn PositionRow(
             td { class: "{cell} text-ctp-subtext0", {p.years.map(held_label).unwrap_or_else(|| "—".into())} }
             td { class: "px-4 py-2 text-right",
                 Stepper {
-                    aria_label: "Beta for {p.ticker}",
+                    aria_label: trf("Beta for {}", &[&p.ticker]),
                     placeholder,
                     value,
                     step: 0.05,

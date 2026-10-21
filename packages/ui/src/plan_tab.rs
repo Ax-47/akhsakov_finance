@@ -191,7 +191,7 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                                 span { class: "w-14 text-right text-xs tabular-nums text-ctp-subtext0", "{current_pct(&ticker):.1}%" }
                                 span { class: "text-ctp-overlay1", "→" }
                                 Stepper {
-                                    aria_label: "Target weight for {ticker}",
+                                    aria_label: crate::i18n::trf("Target weight for {}", &[&ticker]),
                                     value: weight,
                                     step: 1.0,
                                     decimals: 0,
@@ -200,7 +200,7 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                                 }
                                 button {
                                     class: "ml-auto inline-flex h-8 min-w-8 items-center justify-center rounded-full px-2 text-sm text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-red",
-                                    "aria-label": "Remove {ticker}",
+                                    "aria-label": crate::i18n::trf("Remove {}", &[&ticker]),
                                     onclick: move |_| {
                                         rows.write().remove(i);
                                     },

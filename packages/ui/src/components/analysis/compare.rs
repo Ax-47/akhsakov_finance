@@ -424,7 +424,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
                     class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer \
                             transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
                     title: tr("Swap"),
-                    "aria-label": "Swap measures",
+                    "aria-label": crate::i18n::tr("Swap measures"),
                     onclick: move |_| {
                         let (x, y) = (a(), b());
                         a.set(y);
@@ -639,7 +639,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                                 button {
                                     class: "flex h-5 w-5 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer \
                                             transition-colors hover:bg-ctp-surface0 hover:text-ctp-red",
-                                    "aria-label": "Remove {t}",
+                                    "aria-label": crate::i18n::trf("Remove {}", &[&t]),
                                     onclick: move |_| {
                                         tickers.write().remove(i);
                                     },

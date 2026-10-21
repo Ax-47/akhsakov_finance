@@ -294,7 +294,7 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
                     h2 { class: "text-lg font-semibold text-ctp-text", "{title}" }
                     button {
                         class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
-                        "aria-label": "Close",
+                        "aria-label": tr("Close"),
                         onclick: move |_| on_close.call(()),
                         "×"
                     }

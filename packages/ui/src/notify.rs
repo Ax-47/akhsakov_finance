@@ -87,7 +87,7 @@ pub fn ToastHost() -> Element {
                         div { class: "text-sm font-semibold text-ctp-text", "{t.title}" }
                         button {
                             class: "text-ctp-subtext0 cursor-pointer hover:text-ctp-text",
-                            "aria-label": "Dismiss",
+                            "aria-label": crate::i18n::tr("Dismiss"),
                             onclick: move |_| toasts.dismiss(t.id),
                             "×"
                         }

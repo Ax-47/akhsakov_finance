@@ -47,7 +47,7 @@ pub fn SearchBox() -> Element {
                     r#type: "search",
                     "data-global-search": "true",
                     placeholder: tr("Search stocks…  ( / )"),
-                    "aria-label": "Search stocks",
+                    "aria-label": crate::i18n::tr("Search stocks"),
                     value: "{query}",
                     oninput: move |e| query.set(e.value()),
                     onfocus: move |_| focused.set(true),

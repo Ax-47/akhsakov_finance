@@ -103,7 +103,7 @@ pub fn ThaiTaxCard(transactions: Vec<Transaction>) -> Element {
                 div { class: "flex flex-wrap items-center gap-2",
                     select {
                         class: "rounded-full border border-ctp-surface1 bg-ctp-crust/40 px-3 py-1 text-sm text-ctp-text cursor-pointer [&_option]:bg-ctp-mantle",
-                        "aria-label": "Tax year",
+                        "aria-label": crate::i18n::tr("Tax year"),
                         onchange: move |e| year.set(e.value().parse().ok()),
                         for t in years.iter() {
                             option { key: "{t.year}", value: "{t.year}", selected: t.year == chosen, "{t.year}" }

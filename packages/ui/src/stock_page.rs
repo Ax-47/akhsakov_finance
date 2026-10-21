@@ -432,7 +432,7 @@ fn Peers(ticker: TickerSymbol) -> Element {
     rsx! {
         Card {
             title: tr("Peers"),
-            subtitle: format!("Largest {} companies in the {}", group.sector, tr(group.index.label())),
+            subtitle: crate::i18n::trf("Largest {} companies in the {}", &[&crate::i18n::tr_str(&group.sector), &tr(group.index.label())]),
             flush: true,
             crate::stock_table::StockTable { rows: group.rows.clone(), highlight: Some(ticker.to_string()) }
             div { class: "h-3" }

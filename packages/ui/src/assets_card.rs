@@ -121,7 +121,7 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
                         class: "w-24 rounded-full border border-ctp-surface0 bg-ctp-crust/40 px-3 py-1 text-right text-sm tabular-nums text-ctp-text outline-none focus:border-ctp-mauve",
                         inputmode: "decimal",
                         placeholder: tr("Today's price"),
-                        "aria-label": "Today's price for {asset.ticker}",
+                        "aria-label": crate::i18n::trf("Today's price for {}", &[&asset.ticker]),
                         value: "{new_price}",
                         oninput: move |e| new_price.set(e.value()),
                     }
@@ -133,7 +133,7 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
             span { class: "flex gap-1 opacity-40 transition-opacity group-hover:opacity-100 focus-within:opacity-100",
                 button {
                     class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
-                    "aria-label": "Edit {asset.ticker}",
+                    "aria-label": crate::i18n::trf("Edit {}", &[&asset.ticker]),
                     onclick: move |_| on_edit.call(edit.clone()),
                     "✎"
                 }
