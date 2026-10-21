@@ -1254,5 +1254,11 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("{} tokens", "{} token"),
     ("Model cost", "ค่าโมเดล"),
     ("Race", "การแข่ง"),
+    ("Connection and tool calling work.", "เชื่อมต่อได้และเรียกเครื่องมือได้"),
+    ("The endpoint answered, but this model didn't call a tool, so it can't run an AI trader.", "ผู้ให้บริการตอบกลับ แต่โมเดลนี้ไม่เรียกเครื่องมือ จึงใช้เป็น AI trader ไม่ได้"),
+    ("Tool calls", "เรียกเครื่องมือ"),
+    ("JSON arguments", "อาร์กิวเมนต์ JSON"),
+    ("Several calls at once", "เรียกหลายครั้งพร้อมกัน"),
+    ("Forced tool choice", "บังคับเลือกเครื่องมือ"),
     ("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.", "trader จะได้รับกรอบนี้และเป้าหมายของพอร์ตทุกครั้งที่เริ่มรัน ตั้งเป้าหมายได้ที่แท็บ Plan ของพอร์ต"),
 ];

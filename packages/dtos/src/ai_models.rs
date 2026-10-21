@@ -45,6 +45,25 @@ pub struct ModelProfile {
     /// Per million completion tokens, in USD.
     #[serde(default)]
     pub output_price_per_million: Option<f64>,
+    /// What the model did when the connection was last tested; cleared
+    /// when the endpoint or model changes.
+    #[serde(default)]
+    pub capabilities: Option<ModelCapabilities>,
+}
+
+/// What a model did when its connection was tested.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelCapabilities {
+    /// It called a tool, on its own or when told to. Without this it
+    /// can't trade.
+    pub tool_calls: bool,
+    /// Its tool arguments were valid JSON objects.
+    pub json_arguments: bool,
+    /// It made several tool calls in one answer.
+    pub parallel_tool_calls: bool,
+    /// It obeyed `tool_choice` naming a tool.
+    pub tool_choice: bool,
+    pub tested_at: String,
 }
 
 /// Which AI events reach the user's notifications.

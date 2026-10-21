@@ -16,9 +16,8 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Capability detection (item 9) | #49 |
-| 2 | Streaming (item 11) | #51 |
-| 3 | Responses-style APIs (item 10) | #50 |
+| 1 | Streaming (item 11) | #51 |
+| 2 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -71,7 +70,9 @@ rather than adding a second notion of goal.
    Done (#48): up to four attempts, honouring `Retry-After`, logged as
    `model_retry` run events, within the run or round deadline.
 9. **Capability detection** (tool calling, JSON mode) when a profile is
-   tested, with a clear error when a model cannot call tools. (#49)
+   tested, with a clear error when a model cannot call tools. Done (#49):
+   the result is kept with the profile, and odd tool-call shapes are
+   normalised in one place.
 10. **Responses-style APIs** for providers without Chat Completions. (#50)
 11. **Streaming** responses, shown live in the run view. (#51)
 

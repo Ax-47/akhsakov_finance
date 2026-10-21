@@ -606,6 +606,8 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE ai_runs ADD COLUMN cost_usd REAL;
     ALTER TABLE ai_trader_configs ADD COLUMN max_cost_per_run REAL;
     ALTER TABLE ai_trader_configs ADD COLUMN max_cost_per_month REAL;",
+    // 24: what each profile's model could do when its connection was tested
+    "ALTER TABLE ai_model_profiles ADD COLUMN capabilities TEXT;",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

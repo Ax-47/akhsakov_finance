@@ -700,6 +700,9 @@ fn ModelProfilesCard() -> Element {
                                 div { class: "text-xs text-ctp-subtext0", "{profile.model} · {profile.base_url}" }
                                 div { class: "text-xs text-ctp-overlay1", if profile.has_key { "API key saved" } else { "API key required" } }
                                 div { class: "text-xs text-ctp-overlay1", "{profile_summary(&profile)}" }
+                                if let Some(caps) = &profile.capabilities {
+                                    div { class: if caps.tool_calls { "text-xs text-ctp-subtext0" } else { "text-xs text-ctp-red" }, "{capability_summary(caps)}" }
+                                }
                             }
                             div { class: "flex flex-wrap gap-2",
                                 GhostButton {
@@ -707,9 +710,11 @@ fn ModelProfilesCard() -> Element {
                                     onclick: move |_| async move {
                                         status.set(Some(Ok("Testing connection…".into())));
                                         match api::test_model_profile(profile.id).await {
-                                            Ok(()) => status.set(Some(Ok("Connection and tool calling work.".into()))),
+                                            Ok(caps) if caps.tool_calls => status.set(Some(Ok(tr("Connection and tool calling work.").to_string()))),
+                                            Ok(_) => status.set(Some(Err(tr("The endpoint answered, but this model didn't call a tool, so it can't run an AI trader.").to_string()))),
                                             Err(e) => status.set(Some(Err(server_message(e)))),
                                         }
+                                        reload();
                                     },
                                 }
                                 GhostButton {
@@ -852,6 +857,21 @@ fn profile_settings(
         input_price_per_million,
         output_price_per_million,
     })
+}
+
+/// What the model did when its connection was tested, in one line.
+fn capability_summary(caps: &dtos::ai_models::ModelCapabilities) -> String {
+    let mark = |ok: bool| if ok { "✓" } else { "✗" };
+    [
+        (tr("Tool calls"), caps.tool_calls),
+        (tr("JSON arguments"), caps.json_arguments),
+        (tr("Several calls at once"), caps.parallel_tool_calls),
+        (tr("Forced tool choice"), caps.tool_choice),
+    ]
+    .iter()
+    .map(|(label, ok)| format!("{label} {}", mark(*ok)))
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
 
 /// One line on a saved profile's request settings.

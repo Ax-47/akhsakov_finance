@@ -459,10 +459,11 @@ async fn profile_settings_shape_every_request_and_stay_secret() {
     mock.script("custom", [Reply::text("Nothing to do."), Reply::text("{}")]);
     let run = run_once(&service, portfolio).await;
     assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
-    mock.script("custom", [Reply::tools(&[("connection_test", json!({}))])]);
+    let probe = || Reply::tools(&[("get_price", json!({"ticker": "NVDA"}))]);
+    mock.script("custom", [probe(), probe()]);
     service.test_profile(id).await.unwrap();
     let requests = mock.received("custom");
-    assert_eq!(requests.len(), 3, "the run, its memory and the profile test");
+    assert_eq!(requests.len(), 4, "the run, its memory and the profile test's two questions");
     for request in &requests {
         assert_eq!(request.header("api-key"), Some(API_KEY));
         assert_eq!(request.header("authorization"), None, "the key goes only where asked");
@@ -965,4 +966,81 @@ async fn costs_are_estimated_summed_and_capped() {
     service.save_config(config).unwrap();
     let refused = service.start_run(portfolio).await.unwrap_err().to_string();
     assert!(refused.contains("monthly AI cost limit"), "{refused}");
+}
+
+#[tokio::test]
+async fn testing_a_profile_records_what_the_model_can_do() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let able = trader(&service, &mock, "able").await;
+    let able_profile = service.config(able).unwrap().profile_id.unwrap();
+    // Two calls at once, arguments sent as an object (normalised to JSON
+    // text), then the forced call.
+    mock.script(
+        "able",
+        [
+            Reply::message(json!({"role": "assistant", "content": null, "tool_calls": [
+                {"id": "a", "type": "function", "function": {"name": "get_price", "arguments": {"ticker": "NVDA"}}},
+                {"id": "b", "type": "function", "function": {"name": "get_price", "arguments": "{\"ticker\":\"MSFT\"}"}}
+            ]})),
+            Reply::tools(&[("get_price", json!({"ticker": "NVDA"}))]),
+        ],
+    );
+    let caps = service.test_profile(able_profile).await.unwrap();
+    assert!(caps.tool_calls && caps.json_arguments && caps.parallel_tool_calls && caps.tool_choice, "{caps:?}");
+    let stored = service.profiles().unwrap().into_iter().find(|p| p.id == able_profile).unwrap();
+    assert_eq!(stored.capabilities.as_ref(), Some(&caps));
+    // Renaming keeps the result; another model clears it.
+    service.save_profile(Some(able_profile), "Renamed", mock.base_url(), "able", None).unwrap();
+    assert!(service.profiles().unwrap().iter().any(|p| p.id == able_profile && p.capabilities.is_some()));
+    service.save_profile(Some(able_profile), "Renamed", mock.base_url(), "other-model", None).unwrap();
+    assert!(service.profiles().unwrap().iter().any(|p| p.id == able_profile && p.capabilities.is_none()));
+
+    // A model that only talks can't be a trader.
+    let chatty = trader(&service, &mock, "chatty").await;
+    let chatty_profile = service.config(chatty).unwrap().profile_id.unwrap();
+    mock.script("chatty", [Reply::text("NVDA is about $200."), Reply::text("About $200.")]);
+    let caps = service.test_profile(chatty_profile).await.unwrap();
+    assert!(!caps.tool_calls && !caps.json_arguments && !caps.parallel_tool_calls && !caps.tool_choice, "{caps:?}");
+    let refused = service.start_run(chatty).await.unwrap_err().to_string();
+    assert!(refused.contains("can't run an AI trader"), "{refused}");
+    assert!(service.save_config(service.config(chatty).unwrap()).is_err());
+    let other = service
+        .create_trader(NewAiTrader {
+            name: "Another".into(),
+            starting_cash: dec!(1000),
+            profile_id: Some(chatty_profile),
+            connection: None,
+            strategy: "Anything.".into(),
+        })
+        .await;
+    assert!(other.is_err());
+}
+
+#[tokio::test]
+async fn tool_calls_in_odd_shapes_still_run() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "odd").await;
+    // No id, no type, arguments as an object, then as an empty string.
+    mock.script(
+        "odd",
+        [
+            Reply::message(json!({"role": "assistant", "tool_calls": [
+                {"function": {"name": "get_quote", "arguments": {"ticker": "NVDA"}}},
+                {"function": {"name": "get_my_portfolio", "arguments": ""}}
+            ]})),
+            Reply::text("Looked around."),
+            Reply::text("{}"),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert!(run.events.iter().all(|e| e.success), "{:?}", run.events);
+    assert!(run.events[0].arguments.contains("NVDA"));
+    let sent = &mock.received("odd")[1].body["messages"];
+    let assistant = &sent.as_array().unwrap()[2];
+    assert_eq!(assistant["tool_calls"][0]["id"], "call_0");
+    assert_eq!(assistant["tool_calls"][0]["type"], "function");
+    assert!(assistant["tool_calls"][0]["function"]["arguments"].is_string());
 }
