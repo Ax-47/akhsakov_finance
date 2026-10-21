@@ -608,6 +608,8 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE ai_trader_configs ADD COLUMN max_cost_per_month REAL;",
     // 24: what each profile's model could do when its connection was tested
     "ALTER TABLE ai_model_profiles ADD COLUMN capabilities TEXT;",
+    // 25: whether a profile speaks Chat Completions or a Responses-style API
+    "ALTER TABLE ai_model_profiles ADD COLUMN api_style TEXT NOT NULL DEFAULT 'chat_completions';",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

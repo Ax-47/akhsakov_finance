@@ -1044,3 +1044,48 @@ async fn tool_calls_in_odd_shapes_still_run() {
     assert_eq!(assistant["tool_calls"][0]["type"], "function");
     assert!(assistant["tool_calls"][0]["function"]["arguments"].is_string());
 }
+
+#[tokio::test]
+async fn a_responses_style_profile_runs_a_whole_trade() {
+    use dtos::ai_models::ApiStyle;
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "responder").await;
+    let id = configure(&service, &mock, portfolio, ModelProfileSettings { api_style: ApiStyle::Responses, ..Default::default() });
+    let usage = json!({"input_tokens": 10, "output_tokens": 5, "total_tokens": 15});
+    let call = |id: &str, name: &str, args: Value| {
+        Reply::Ok(json!({"output": [{"type": "function_call", "call_id": id, "name": name, "arguments": args.to_string()}], "usage": usage}))
+    };
+    let say = |text: &str| Reply::Ok(json!({"output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}], "usage": usage}));
+    mock.script(
+        "responder",
+        [
+            call("q1", "get_quote", json!({"ticker": "NVDA"})),
+            call("o1", "place_order", json!({"ticker": "NVDA", "side": "buy", "shares": 1, "reason": "Responses test."})),
+            say("Bought one NVDA."),
+            say(r#"{"decision_summary":"Holds NVDA.","unresolved_questions":""}"#),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert_eq!(run.final_response.as_deref(), Some("Bought one NVDA."));
+    assert_eq!(run.total_tokens, Some(60));
+    assert!(run.events.iter().any(|e| e.tool == "place_order" && e.success));
+    assert_eq!(service.memory(portfolio).unwrap().decision_summary, "Holds NVDA.");
+
+    let sent = mock.received("responder");
+    let first = &sent[0].body;
+    assert!(first.get("messages").is_none() && first["input"].is_array(), "{first}");
+    assert!(first["instructions"].as_str().unwrap().contains("paper-money portfolio"));
+    assert_eq!(first["tools"][0]["type"], "function");
+    assert!(first["tools"][0]["name"].is_string(), "flat tool definitions");
+    // The tool result goes back as a function_call_output for its call.
+    let second = sent[1].body["input"].as_array().unwrap();
+    assert_eq!(second[second.len() - 2]["type"], "function_call");
+    assert_eq!(second.last().unwrap()["type"], "function_call_output");
+    assert_eq!(second.last().unwrap()["call_id"], "q1");
+
+    // Testing the connection works the same way.
+    mock.script("responder", [call("p1", "get_price", json!({"ticker": "NVDA"})), call("p2", "get_price", json!({"ticker": "NVDA"}))]);
+    assert!(service.test_profile(id).await.unwrap().tool_calls);
+}

@@ -1260,5 +1260,9 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("JSON arguments", "อาร์กิวเมนต์ JSON"),
     ("Several calls at once", "เรียกหลายครั้งพร้อมกัน"),
     ("Forced tool choice", "บังคับเลือกเครื่องมือ"),
+    ("API style", "รูปแบบ API"),
+    ("Chat Completions (most providers)", "Chat Completions (ผู้ให้บริการส่วนใหญ่)"),
+    ("Responses", "Responses"),
+    ("Responses API", "Responses API"),
     ("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.", "trader จะได้รับกรอบนี้และเป้าหมายของพอร์ตทุกครั้งที่เริ่มรัน ตั้งเป้าหมายได้ที่แท็บ Plan ของพอร์ต"),
 ];

@@ -2,7 +2,7 @@ use crate::mcp::services::tools::FrozenMarket;
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
 use dtos::{
     ai_models::{
-        AiRun, AiRunEvent, AiRunStatus, ModelCapabilities, ModelProfile, ModelProfileSettings, NewAiTrader,
+        AiRun, AiRunEvent, AiRunStatus, ApiStyle, ModelCapabilities, ModelProfile, ModelProfileSettings, NewAiTrader,
         TraderConfig, TraderMemory, MAX_EXTRA_HEADERS, MAX_MODEL_TIMEOUT_SECONDS,
         MIN_MODEL_TIMEOUT_SECONDS, MODEL_RETRY_EVENT,
     },
@@ -76,7 +76,7 @@ struct Connection {
 /// LEFT JOIN ai_model_secrets s`.
 const PROFILE_COLUMNS: &str = "p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL,
      p.timeout_seconds, p.max_tokens, p.key_header, COALESCE(s.extra_headers, '[]'),
-     p.input_price, p.output_price, p.capabilities";
+     p.input_price, p.output_price, p.capabilities, p.api_style";
 
 #[derive(Clone)]
 pub(super) struct RaceRunContext {
@@ -257,14 +257,20 @@ impl ModelService {
                 if let Some(settings) = &settings {
                     tx.execute(
                         "UPDATE ai_model_profiles SET timeout_seconds=?2, max_tokens=?3, key_header=?4,
-                         input_price=?5, output_price=?6 WHERE id=?1",
+                         input_price=?5, output_price=?6, api_style=?7,
+                         capabilities = CASE WHEN api_style = ?7 THEN capabilities END
+                         WHERE id=?1",
                         params![
                             id.to_string(),
                             settings.timeout_seconds,
                             settings.max_tokens,
                             settings.key_header,
                             settings.input_price_per_million,
-                            settings.output_price_per_million
+                            settings.output_price_per_million,
+                            match settings.api_style {
+                                ApiStyle::ChatCompletions => "chat_completions",
+                                ApiStyle::Responses => "responses",
+                            }
                         ],
                     )?;
                 }
@@ -1126,12 +1132,15 @@ impl ModelService {
 
     async fn send(&self, connection: &Connection, body: &Value) -> Result<Value, Failure> {
         let profile = &connection.profile;
-        let endpoint = format!("{}/chat/completions", profile.base_url);
         let timeout = Duration::from_secs(u64::from(profile.timeout_seconds));
         let mut body = body.clone();
         if let Some(max_tokens) = profile.max_tokens {
             body["max_tokens"] = json!(max_tokens);
         }
+        let (endpoint, body) = match profile.api_style {
+            ApiStyle::ChatCompletions => (format!("{}/chat/completions", profile.base_url), body),
+            ApiStyle::Responses => (format!("{}/responses", profile.base_url), super::responses::request(&body)),
+        };
         let mut request = self.http.post(endpoint).timeout(timeout).json(&body);
         request = if profile.key_header.is_empty() {
             request.bearer_auth(&connection.api_key)
@@ -1168,8 +1177,12 @@ impl ModelService {
                 retry_after,
             });
         }
-        serde_json::from_str(&text)
-            .map_err(|_| Failure::fatal("The model endpoint returned invalid JSON."))
+        let reply: Value = serde_json::from_str(&text)
+            .map_err(|_| Failure::fatal("The model endpoint returned invalid JSON."))?;
+        Ok(match profile.api_style {
+            ApiStyle::ChatCompletions => reply,
+            ApiStyle::Responses => super::responses::reply(&reply),
+        })
     }
 
     pub(super) fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
@@ -1507,6 +1520,11 @@ fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ModelProfile> {
         capabilities: r
             .get::<_, Option<String>>(11)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        api_style: if r.get::<_, String>(12)? == "responses" {
+            ApiStyle::Responses
+        } else {
+            ApiStyle::ChatCompletions
+        },
     })
 }
 
@@ -1590,6 +1608,7 @@ fn checked_settings(settings: &ModelProfileSettings) -> Result<ModelProfileSetti
         extra_headers,
         input_price_per_million: settings.input_price_per_million,
         output_price_per_million: settings.output_price_per_million,
+        api_style: settings.api_style,
     })
 }
 
