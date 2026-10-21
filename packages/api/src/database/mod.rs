@@ -580,6 +580,18 @@ const MIGRATIONS: &[&str] = &[
         actor   TEXT NOT NULL,
         at      TEXT NOT NULL DEFAULT (datetime('now'))
     );",
+    // 21: scheduled trader runs. next_run_at is claimed before each run,
+    // so a restart never runs the same slot twice.
+    "CREATE TABLE ai_trader_schedules (
+        portfolio_id  TEXT PRIMARY KEY REFERENCES ai_portfolios(portfolio_id) ON DELETE CASCADE,
+        enabled       INTEGER NOT NULL DEFAULT 0,
+        every_hours   INTEGER NOT NULL DEFAULT 24,
+        weekdays      TEXT NOT NULL DEFAULT '1234567',
+        market_hours  TEXT NOT NULL DEFAULT 'any',
+        next_run_at   TEXT,
+        last_run_at   TEXT,
+        last_note     TEXT
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

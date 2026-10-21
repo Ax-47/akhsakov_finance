@@ -697,3 +697,85 @@ async fn the_emergency_stop_halts_runs_races_and_orders_and_survives_a_restart()
     assert_eq!(restarted.race(race.id).unwrap().status, dtos::ai_models::AiRaceStatus::Paused);
     restarted.stop_race(race.id).unwrap();
 }
+
+#[tokio::test]
+async fn scheduled_runs_start_once_per_slot_and_skip_when_they_must() {
+    use chrono::{Duration as Hours, Utc};
+    use dtos::ai_models::{MarketHours, TraderSchedule};
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "scheduled").await;
+    let base = TraderSchedule { enabled: true, every_hours: 1, ..TraderSchedule::new(portfolio) };
+    assert!(service.save_schedule(TraderSchedule { every_hours: 0, ..base.clone() }).is_err());
+    assert!(service.save_schedule(TraderSchedule { every_hours: 169, ..base.clone() }).is_err());
+    assert!(service.save_schedule(TraderSchedule { weekdays: vec![], ..base.clone() }).is_err());
+    assert!(service.save_schedule(TraderSchedule { weekdays: vec![8], ..base.clone() }).is_err());
+    let saved = service
+        .save_schedule(TraderSchedule { weekdays: vec![3, 1, 1, 2, 4, 5, 6, 7], ..base.clone() })
+        .unwrap();
+    assert_eq!(saved.weekdays, [1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(saved.market_hours, MarketHours::Any);
+    assert!(saved.next_run_at.is_some());
+
+    let due = |at: chrono::DateTime<Utc>| {
+        service
+            .db
+            .with(|c| {
+                c.execute(
+                    "UPDATE ai_trader_schedules SET next_run_at=?2 WHERE portfolio_id=?1",
+                    [portfolio.to_string(), at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)],
+                )
+            })
+            .unwrap();
+    };
+    let now = Utc::now();
+    // Due since three hours ago, as if the app had been off: one run, not three.
+    due(now - Hours::hours(3));
+    mock.script("scheduled", [Reply::text("Nothing to do."), Reply::text("{}")]);
+    assert_eq!(service.run_due_schedules(now).await.unwrap(), 1);
+    let runs = service.runs(portfolio).unwrap();
+    assert_eq!(runs.len(), 1);
+    settle(&service, runs[0].clone()).await;
+    let after = service.schedule(portfolio).unwrap();
+    assert!(after.next_run_at.as_deref() > Some(now.to_rfc3339().as_str()), "{after:?}");
+    assert!(after.last_run_at.is_some() && after.last_note.is_none(), "{after:?}");
+    // The slot is taken: neither this service nor a restarted one runs it again.
+    assert_eq!(service.run_due_schedules(now).await.unwrap(), 0);
+    let restarted = ModelService::new(service.db.clone(), service.mcp.clone());
+    assert_eq!(restarted.run_due_schedules(now).await.unwrap(), 0);
+
+    // The emergency stop skips a due run and moves the schedule on.
+    service.set_ai_stop(true, "misha").unwrap();
+    due(now - Hours::minutes(1));
+    assert_eq!(service.run_due_schedules(now).await.unwrap(), 0);
+    let skipped = service.schedule(portfolio).unwrap();
+    assert!(skipped.last_note.as_deref().unwrap().contains("emergency stop"), "{skipped:?}");
+    assert!(skipped.next_run_at.as_deref() > Some(now.to_rfc3339().as_str()));
+    service.set_ai_stop(false, "misha").unwrap();
+
+    // So does an active race.
+    let rival = trader(&service, &mock, "rival").await;
+    let race = service
+        .create_race(NewAiRace {
+            name: "Busy".into(),
+            contestant_ids: vec![portfolio, rival],
+            starting_capital: 5_000.0,
+            rounds: 1,
+            trading_frequency_minutes: 1,
+            round_timeout_seconds: 15,
+        })
+        .unwrap();
+    service
+        .db
+        .with(|c| c.execute("UPDATE ai_races SET status='paused' WHERE id=?1", [race.id.to_string()]))
+        .unwrap();
+    due(now - Hours::minutes(1));
+    assert_eq!(service.run_due_schedules(now).await.unwrap(), 0);
+    let skipped = service.schedule(portfolio).unwrap();
+    assert!(skipped.last_note.as_deref().unwrap().contains("active race"), "{skipped:?}");
+    assert_eq!(service.runs(portfolio).unwrap().len(), 1, "no run started");
+
+    // Turned off, nothing is due.
+    let off = service.save_schedule(TraderSchedule { enabled: false, ..base }).unwrap();
+    assert!(off.next_run_at.is_none());
+}

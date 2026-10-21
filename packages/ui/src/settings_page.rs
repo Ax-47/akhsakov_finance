@@ -13,8 +13,8 @@ use crate::{
 use dioxus::prelude::*;
 use dtos::{
     ai_models::{
-        AiRun, AiRunStatus, ModelProfile, ModelProfileSettings, TraderConfig, TraderMemory,
-        DEFAULT_MODEL_TIMEOUT_SECONDS,
+        AiRun, AiRunStatus, MarketHours, ModelProfile, ModelProfileSettings, TraderConfig,
+        TraderMemory, TraderSchedule, DEFAULT_MODEL_TIMEOUT_SECONDS,
     },
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
@@ -777,6 +777,17 @@ fn ModelProfilesCard() -> Element {
     }
 }
 
+/// ISO weekday numbers and their short names, Monday first.
+const WEEKDAYS: [(u8, &str); 7] = [
+    (1, "Mon"),
+    (2, "Tue"),
+    (3, "Wed"),
+    (4, "Thu"),
+    (5, "Fri"),
+    (6, "Sat"),
+    (7, "Sun"),
+];
+
 /// Reads the settings form. Blank headers keep the saved ones unless
 /// `remove` is ticked.
 fn profile_settings(
@@ -995,6 +1006,8 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
     let mut memory_loaded = use_signal(|| false);
     let mut running = use_signal(|| false);
     let mut confirm_clear_memory = use_signal(|| false);
+    let mut schedule = use_signal(|| TraderSchedule::new(info.portfolio_id));
+    let mut schedule_saved = use_signal(|| false);
     let id = info.portfolio_id;
     // MCP connections that could drive this portfolio.
     let drivers: Vec<McpConnection> = connections
@@ -1022,6 +1035,9 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
             match api::get_trader_memory(id).await {
                 Ok(value) => memory.set(value),
                 Err(e) => error.set(Some(server_message(e))),
+            }
+            if let Ok(value) = api::get_trader_schedule(id).await {
+                schedule.set(value);
             }
             memory_loaded.set(true);
             trader_loaded.set(true);
@@ -1053,6 +1069,16 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
         match api::save_trader_config(trader()).await {
             Ok(saved) => {
                 trader.set(saved);
+                error.set(None);
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let save_schedule = move |_| async move {
+        match api::save_trader_schedule(schedule()).await {
+            Ok(saved) => {
+                schedule.set(saved);
+                schedule_saved.set(true);
                 error.set(None);
             }
             Err(e) => error.set(Some(server_message(e))),
@@ -1310,6 +1336,90 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                         GhostButton { label: tr("Save strategy"), onclick: save_trader }
                         if !mcp_driven {
                             ActionButton { label: if running() { tr("Run in progress…") } else { tr("Run AI trader") }, disabled: running() || trader().profile_id.is_none(), onclick: run_trader }
+                        }
+                    }
+                    if !mcp_driven {
+                        div { class: "grid gap-3 rounded-xl border border-ctp-surface0/70 p-3",
+                            label { class: "flex items-center gap-2 font-medium text-ctp-text",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: schedule().enabled,
+                                    onchange: move |e| {
+                                        schedule.write().enabled = e.checked();
+                                        schedule_saved.set(false);
+                                    },
+                                }
+                                {tr("Run on a schedule")}
+                            }
+                            div { class: "grid gap-3 md:grid-cols-2",
+                                Field { label: tr("Every (hours)"),
+                                    input {
+                                        class: INPUT,
+                                        r#type: "number",
+                                        min: "1",
+                                        max: "168",
+                                        value: "{schedule().every_hours}",
+                                        oninput: move |e| {
+                                            if let Ok(value) = e.value().parse() {
+                                                schedule.write().every_hours = value;
+                                                schedule_saved.set(false);
+                                            }
+                                        },
+                                    }
+                                }
+                                Field { label: tr("When"),
+                                    select {
+                                        class: INPUT,
+                                        onchange: move |e| {
+                                            schedule.write().market_hours = match e.value().as_str() {
+                                                "us" => MarketHours::Us,
+                                                "thai" => MarketHours::Thai,
+                                                _ => MarketHours::Any,
+                                            };
+                                            schedule_saved.set(false);
+                                        },
+                                        option { value: "any", selected: schedule().market_hours == MarketHours::Any, {tr("Any time")} }
+                                        option { value: "us", selected: schedule().market_hours == MarketHours::Us, {tr("While the US market is open")} }
+                                        option { value: "thai", selected: schedule().market_hours == MarketHours::Thai, {tr("While the Thai market is open")} }
+                                    }
+                                }
+                            }
+                            div { class: "flex flex-wrap gap-1",
+                                for (day, name) in WEEKDAYS {
+                                    button {
+                                        key: "{day}",
+                                        r#type: "button",
+                                        class: if schedule().weekdays.contains(&day) {
+                                            "rounded-full border border-ctp-mauve bg-ctp-mauve/10 px-3 py-1 text-xs text-ctp-text cursor-pointer"
+                                        } else {
+                                            "rounded-full border border-ctp-surface0 px-3 py-1 text-xs text-ctp-subtext0 cursor-pointer"
+                                        },
+                                        onclick: move |_| {
+                                            let mut s = schedule.write();
+                                            if let Some(i) = s.weekdays.iter().position(|d| *d == day) {
+                                                s.weekdays.remove(i);
+                                            } else {
+                                                s.weekdays.push(day);
+                                            }
+                                            schedule_saved.set(false);
+                                        },
+                                        {tr(name)}
+                                    }
+                                }
+                            }
+                            if let Some(next) = schedule().next_run_at.filter(|_| schedule().enabled) {
+                                p { class: "text-xs text-ctp-subtext0", {trf("Next run: {}", &[&next])} }
+                            }
+                            if let Some(last) = schedule().last_run_at {
+                                p { class: "text-xs text-ctp-overlay1", {trf("Last run: {}", &[&last])} }
+                            }
+                            if let Some(note) = schedule().last_note {
+                                p { class: "text-xs text-ctp-peach break-words", "{note}" }
+                            }
+                            div { class: "flex items-center justify-end gap-2",
+                                if schedule_saved() { span { class: "text-xs text-ctp-green", {tr("Schedule saved.")} } }
+                                GhostButton { label: tr("Save schedule"), onclick: save_schedule }
+                            }
                         }
                     }
                     for run in runs().into_iter().take(5) {

@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use dtos::{
     ai_models::{
         AiRace, AiRaceRun, AiRun, AiStopState, ModelProfile, ModelProfileSettings, NewAiRace,
-        NewAiTrader, TraderConfig, TraderMemory,
+        NewAiTrader, TraderConfig, TraderMemory, TraderSchedule,
     },
     ai_portfolio::AiPortfolioInfo,
 };
@@ -83,6 +83,16 @@ pub async fn create_ai_trader(input: NewAiTrader) -> Result<AiPortfolioInfo, Ser
 #[post("/api/models/trader/config/save", service: Extension<ModelService>)]
 pub async fn save_trader_config(config: TraderConfig) -> Result<TraderConfig, ServerFnError> {
     Ok(service.save_config(config)?)
+}
+
+#[post("/api/models/trader/schedule", service: Extension<ModelService>)]
+pub async fn get_trader_schedule(portfolio_id: Uuid) -> Result<TraderSchedule, ServerFnError> {
+    Ok(service.schedule(portfolio_id)?)
+}
+
+#[post("/api/models/trader/schedule/save", service: Extension<ModelService>)]
+pub async fn save_trader_schedule(schedule: TraderSchedule) -> Result<TraderSchedule, ServerFnError> {
+    Ok(service.save_schedule(schedule)?)
 }
 
 #[post("/api/models/trader/memory", service: Extension<ModelService>)]
