@@ -9,7 +9,7 @@ use crate::{
         charts::{GrowthChart, Series},
     },
     files::ExportButtons,
-    format::{display_currency, fmt_usd},
+    format::{display_currency, fmt_compact, fmt_usd},
     hooks::use_portfolio_memo,
     page::{GhostButton, Page},
 };
@@ -18,6 +18,7 @@ use dioxus::prelude::*;
 use dtos::{
     csv_export::backtest_csv,
     insights::{backtest, BacktestPlan, BacktestResult, Fees, Rebalance},
+    planning::{project_goal, Goal},
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
@@ -368,6 +369,7 @@ fn Results(outcome: Outcome) -> Element {
     let Outcome { mixes, benchmark, benchmark_name, note } = outcome;
     let mix = mixes.into_iter().next().map(|(_, r)| r).unwrap_or_default();
     let export = vec![(tr("Your mix").to_string(), mix.clone()), (benchmark_name.clone(), benchmark.clone())];
+    let rates = vec![(tr("Your mix").to_string(), mix.cagr), (benchmark_name.clone(), benchmark.cagr)];
     let risk_free = use_context::<AppSettings>().0.read().risk_free.to_f64().unwrap_or(0.0) / 100.0;
     let sharpe = mix.sharpe(risk_free);
     let bench_sharpe = benchmark.sharpe(risk_free);
@@ -462,6 +464,7 @@ fn Results(outcome: Outcome) -> Element {
                 GrowthChart { chart_dates: labels, series, height: Decimal::from(280) }
             }
         }
+        GoalsCheck { rates }
     }
 }
 
@@ -479,6 +482,7 @@ fn Comparison(outcome: Outcome) -> Element {
         mixes.into_iter().zip(MIX_COLORS).map(|((name, r), color)| (name, color, r)).collect();
     columns.push((benchmark_name, "var(--catppuccin-color-sky)", benchmark));
     let export: Vec<(String, BacktestResult)> = columns.iter().map(|(name, _, r)| (name.clone(), r.clone())).collect();
+    let rates: Vec<(String, Option<f64>)> = columns.iter().map(|(name, _, r)| (name.clone(), r.cagr)).collect();
     let rows: Vec<(&'static str, Vec<String>)> = vec![
         (tr("Would be worth"), columns.iter().map(|c| money(c.2.final_value)).collect()),
         (tr("Invested"), columns.iter().map(|c| money(c.2.invested)).collect()),
@@ -549,6 +553,68 @@ fn Comparison(outcome: Outcome) -> Element {
                 actions: rsx! { ExportButtons { filename: "akhsakov-backtest.csv", csv: move || backtest_csv(&export) } },
                 document::Script { src: asset!("/assets/js/growth_chart.js") }
                 GrowthChart { chart_dates: labels, series, height: Decimal::from(280) }
+            }
+        }
+        GoalsCheck { rates }
+    }
+}
+
+/// Your goals (Plan tab) projected at each result's past growth rate: would
+/// the savings for each, plus its monthly amount, get there in time?
+#[component]
+fn GoalsCheck(rates: Vec<(String, Option<f64>)>) -> Element {
+    let goals = use_resource(|| async { api::get_goals().await.unwrap_or_default() });
+    let today = use_resource(|| async { crate::notify::today().await });
+    let list = goals.read().clone().unwrap_or_default();
+    if list.is_empty() {
+        return rsx! {};
+    }
+    let today = today.read().clone().flatten();
+    rsx! {
+        div { class: "mt-5 motion-safe:animate-rise",
+            Card { title: tr("Your goals"), subtitle: tr("If each goal's savings grew the way these did, from now to its date"),
+                div { class: "grid gap-4",
+                    for goal in list {
+                        GoalCheck { key: "{goal.id}", goal, rates: rates.clone(), today: today.clone() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn GoalCheck(goal: Goal, rates: Vec<(String, Option<f64>)>, today: Option<String>) -> Element {
+    let state = use_portfolio_memo(goal.portfolio_id.map(|p| p.to_string()));
+    let current = {
+        let s = state.read();
+        (s.total_value + s.cash.unwrap_or_default()).to_f64().unwrap_or(0.0)
+    };
+    let (target, monthly) = (goal.target.to_f64().unwrap_or(0.0), goal.monthly.to_f64().unwrap_or(0.0));
+    rsx! {
+        div {
+            div { class: "flex flex-wrap items-baseline justify-between gap-2",
+                span { class: "font-semibold text-ctp-text", "{goal.name}" }
+                span { class: "text-xs text-ctp-subtext0",
+                    {crate::i18n::trf("{} by {} · {} now, {} a month", &[&fmt_compact(target), &crate::format::fmt_when(&goal.date), &fmt_compact(current), &fmt_compact(monthly)])}
+                }
+            }
+            div { class: "mt-2 flex flex-wrap gap-2 text-xs",
+                for (name, rate) in rates {
+                    match (rate, today.as_deref()) {
+                        (Some(rate), Some(day)) => {
+                            let p = project_goal(&goal, current, day, rate);
+                            rsx! {
+                                span {
+                                    key: "{name}",
+                                    class: if p.on_track { "rounded-full bg-ctp-green/15 px-2 py-0.5 text-ctp-green" } else { "rounded-full bg-ctp-peach/15 px-2 py-0.5 text-ctp-peach" },
+                                    {crate::i18n::trf("{}: {} at {}% a year", &[&name, &fmt_compact(p.projected), &format!("{:.1}", rate * 100.0)])}
+                                }
+                            }
+                        }
+                        _ => rsx! { span { key: "{name}", class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-ctp-subtext0", "{name}: —" } },
+                    }
+                }
             }
         }
     }
