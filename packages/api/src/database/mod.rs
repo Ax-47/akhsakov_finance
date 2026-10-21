@@ -568,6 +568,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE ai_model_profiles ADD COLUMN max_tokens INTEGER;
     ALTER TABLE ai_model_profiles ADD COLUMN key_header TEXT NOT NULL DEFAULT '';
     ALTER TABLE ai_model_secrets ADD COLUMN extra_headers TEXT NOT NULL DEFAULT '[]';",
+    // 19: a trader's mandate, given to it with its goals at each run
+    "ALTER TABLE ai_trader_configs ADD COLUMN horizon_years INTEGER;
+    ALTER TABLE ai_trader_configs ADD COLUMN max_drawdown_pct INTEGER;
+    ALTER TABLE ai_trader_configs ADD COLUMN benchmark TEXT NOT NULL DEFAULT '';",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

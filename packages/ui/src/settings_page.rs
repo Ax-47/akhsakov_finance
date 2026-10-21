@@ -1190,6 +1190,41 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                             }
                         }
                     }
+                    div { class: "grid gap-3 md:grid-cols-3",
+                        Field { label: tr("Horizon (years)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "1",
+                                max: "50",
+                                placeholder: tr("None"),
+                                value: trader().horizon_years.map(|v| v.to_string()).unwrap_or_default(),
+                                oninput: move |e| trader.write().horizon_years = e.value().trim().parse().ok(),
+                            }
+                        }
+                        Field { label: tr("Largest drawdown accepted (%)"),
+                            input {
+                                class: INPUT,
+                                r#type: "number",
+                                min: "1",
+                                max: "100",
+                                placeholder: tr("None"),
+                                value: trader().max_drawdown_pct.map(|v| v.to_string()).unwrap_or_default(),
+                                oninput: move |e| trader.write().max_drawdown_pct = e.value().trim().parse().ok(),
+                            }
+                        }
+                        Field { label: tr("Benchmark to beat"),
+                            input {
+                                class: INPUT,
+                                placeholder: "SPY",
+                                value: trader().benchmark,
+                                oninput: move |e| trader.write().benchmark = e.value(),
+                            }
+                        }
+                    }
+                    p { class: "text-xs text-ctp-overlay1",
+                        {tr("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.")}
+                    }
                     div { class: "grid gap-3 md:grid-cols-2",
                         Field { label: tr("Memory size (characters)"),
                             input {

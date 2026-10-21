@@ -73,6 +73,15 @@ pub struct TraderConfig {
     pub strategy: String,
     pub memory_char_limit: u32,
     pub context_token_limit: u32,
+    /// How many years the trader invests for; `None` sets no horizon.
+    #[serde(default)]
+    pub horizon_years: Option<u32>,
+    /// The largest fall from the portfolio's peak the user accepts, in percent.
+    #[serde(default)]
+    pub max_drawdown_pct: Option<u32>,
+    /// A ticker to measure the trader against; empty for none.
+    #[serde(default)]
+    pub benchmark: String,
 }
 
 impl TraderConfig {
@@ -84,6 +93,9 @@ impl TraderConfig {
             strategy: DEFAULT_TRADER_STRATEGY.into(),
             memory_char_limit: DEFAULT_MEMORY_CHAR_LIMIT,
             context_token_limit: DEFAULT_CONTEXT_TOKEN_LIMIT,
+            horizon_years: None,
+            max_drawdown_pct: None,
+            benchmark: String::new(),
         }
     }
 }
