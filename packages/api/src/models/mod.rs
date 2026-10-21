@@ -12,6 +12,8 @@ pub use service::ModelService;
 mod race;
 #[cfg(feature = "server")]
 mod stop;
+#[cfg(feature = "server")]
+mod schedule;
 #[cfg(all(test, feature = "server"))]
 mod mock_model;
 #[cfg(all(test, feature = "server"))]
@@ -22,5 +24,7 @@ pub fn model_services_setup(
     db: crate::database::Database,
     tools: crate::mcp::McpService,
 ) -> ModelService {
-    ModelService::new(db, tools)
+    let service = ModelService::new(db, tools);
+    service.clone().spawn_scheduler();
+    service
 }

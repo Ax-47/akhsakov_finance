@@ -40,6 +40,50 @@ pub struct ModelProfile {
     pub extra_header_names: Vec<String>,
 }
 
+/// When a scheduled trader may run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketHours {
+    /// Any hour of the chosen days, by the server's clock.
+    #[default]
+    Any,
+    /// While US stock markets are open: 9:30–16:00 New York time, Monday to Friday.
+    Us,
+    /// While the Stock Exchange of Thailand is open: 10:00–16:30 Bangkok time, Monday to Friday.
+    Thai,
+}
+
+/// An AI portfolio's schedule of trader runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraderSchedule {
+    pub portfolio_id: Uuid,
+    pub enabled: bool,
+    pub every_hours: u32,
+    /// ISO weekdays it may run on: 1 is Monday, 7 is Sunday.
+    pub weekdays: Vec<u8>,
+    pub market_hours: MarketHours,
+    /// UTC, RFC 3339. `None` while the schedule is off.
+    pub next_run_at: Option<String>,
+    pub last_run_at: Option<String>,
+    /// Why the last due run was skipped or failed to start.
+    pub last_note: Option<String>,
+}
+
+impl TraderSchedule {
+    pub fn new(portfolio_id: Uuid) -> Self {
+        Self {
+            portfolio_id,
+            enabled: false,
+            every_hours: 24,
+            weekdays: (1..=7).collect(),
+            market_hours: MarketHours::Any,
+            next_run_at: None,
+            last_run_at: None,
+            last_note: None,
+        }
+    }
+}
+
 /// The switch that stops all AI trading at once, and who last flipped it.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AiStopState {
