@@ -139,7 +139,16 @@ async fn a_full_run_trades_journals_remembers_and_counts_tokens() {
     assert_eq!(requests[0].body["model"], "full");
     assert_eq!(
         tool_names(&requests[0].body),
-        ["get_my_portfolio", "get_quote", "get_thesis", "list_theses", "place_order"]
+        [
+            "add_thesis_note",
+            "get_my_goals",
+            "get_my_portfolio",
+            "get_quote",
+            "get_thesis",
+            "list_theses",
+            "place_order",
+            "save_thesis"
+        ]
     );
     let schemas = requests[0].body["tools"].to_string();
     assert!(!schemas.contains("\"portfolio\""), "the model is never asked for a portfolio");
@@ -305,9 +314,9 @@ async fn misbehaving_models_are_stopped() {
     let portfolio = trader(&service, &mock, "unruly").await;
     let quote = || ("get_quote", json!({"ticker": "NVDA"}));
 
-    mock.script("unruly", [Reply::tools(&[("save_thesis", json!({"ticker": "NVDA"}))])]);
+    mock.script("unruly", [Reply::tools(&[("create_alert", json!({"ticker": "NVDA"}))])]);
     let run = run_once(&service, portfolio).await;
-    assert_eq!(error(&run), "The model requested unavailable tool save_thesis.");
+    assert_eq!(error(&run), "The model requested unavailable tool create_alert.");
     assert!(run.events.is_empty(), "nothing ran");
 
     mock.script(
@@ -510,4 +519,67 @@ async fn a_slow_answer_times_out_and_is_retried() {
         "{}",
         retried[0].detail
     );
+}
+
+#[tokio::test]
+async fn traders_keep_their_own_theses_and_read_their_goals() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "thinker").await;
+    let mine = portfolio.to_string();
+    service
+        .db
+        .with(|c| {
+            c.execute(
+                "INSERT INTO goals (id, name, target, date, monthly, portfolio_id) VALUES ('33333333-3333-3333-3333-333333333333', 'Double it', '10000', '2030-01-01', '0', ?1)",
+                [&mine],
+            )?;
+            c.execute(
+                "INSERT INTO goals (id, name, target, date, monthly, portfolio_id) VALUES ('44444444-4444-4444-4444-444444444444', 'House', '50000', '2030-01-01', '0', ?1)",
+                [MAIN],
+            )
+        })
+        .unwrap();
+    // Every call names the user's portfolio; all of them must land on the trader's.
+    mock.script(
+        "thinker",
+        [
+            Reply::tools(&[
+                ("save_thesis", json!({"portfolio": MAIN, "ticker": "NVDA", "thesis": "AI demand.", "conviction": 4, "note": "Started."})),
+                ("add_thesis_note", json!({"portfolio": MAIN, "ticker": "NVDA", "text": "Checked the data-centre numbers."})),
+                ("get_my_goals", json!({"portfolio": MAIN})),
+            ]),
+            Reply::text("Wrote the NVDA thesis."),
+            Reply::text("{}"),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert!(run.events.iter().all(|e| e.success), "{:?}", run.events);
+
+    let theses: Vec<(String, String)> = service
+        .db
+        .with(|c| {
+            c.prepare("SELECT portfolio_id, thesis FROM theses WHERE ticker='NVDA'")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+        })
+        .unwrap();
+    assert_eq!(theses, [(mine.clone(), "AI demand.".to_string())], "only the trader's portfolio");
+    let journal: Vec<(String, String, String)> = service
+        .db
+        .with(|c| {
+            c.prepare("SELECT portfolio_id, author, text FROM thesis_log WHERE ticker='NVDA' ORDER BY created_at")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect()
+        })
+        .unwrap();
+    assert!(journal.iter().all(|(p, author, _)| *p == mine && author.eq_ignore_ascii_case("ai")), "{journal:?}");
+    assert!(journal.iter().any(|(_, _, text)| text == "Checked the data-centre numbers."), "{journal:?}");
+
+    let requests = mock.received("thinker");
+    let system = requests[0].body["messages"][0]["content"].as_str().unwrap();
+    assert!(system.contains("save_thesis") && system.contains("get_my_goals"), "{system}");
+    let goals = requests[1].body["messages"].as_array().unwrap().last().unwrap()["content"].as_str().unwrap().to_string();
+    assert!(goals.contains("Double it") && !goals.contains("House"), "{goals}");
 }

@@ -16,15 +16,14 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
-| 2 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
-| 3 | Emergency stop (item 15a) | #44 |
-| 4 | Scheduled runs (item 15) | #52 |
-| 5 | Notifications when a run finishes or fails (item 17) | #54 |
-| 6 | Usage and estimated cost (item 16) | #53 |
-| 7 | Capability detection (item 9) | #49 |
-| 8 | Streaming (item 11) | #51 |
-| 9 | Responses-style APIs (item 10) | #50 |
+| 1 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
+| 2 | Emergency stop (item 15a) | #44 |
+| 3 | Scheduled runs (item 15) | #52 |
+| 4 | Notifications when a run finishes or fails (item 17) | #54 |
+| 5 | Usage and estimated cost (item 16) | #53 |
+| 6 | Capability detection (item 9) | #49 |
+| 7 | Streaming (item 11) | #51 |
+| 8 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -34,12 +33,10 @@ paper money, but model API calls cost real money, and a schedule can run up a
 bill unattended. Streaming and Responses-style APIs help fewer providers, so
 they come last.
 
-## Phase 0: land #22 (done, except as noted)
+## Phase 0: land #22 (done)
 
-1. **Get #22 green and merged.** Done, except that traders the app runs
-   itself still cannot edit theses: `save_thesis` and `add_thesis_note` are
-   missing from `ALLOWED_TOOLS` in `packages/api/src/models/service.rs`
-   (MCP clients with the Trader preset can already use them). Tracked in #56.
+1. **Get #22 green and merged.** Done. Traders the app runs itself got
+   `save_thesis` and `add_thesis_note` later, in #56.
 
 ## Phase 1: dropped
 
@@ -58,8 +55,8 @@ rather than adding a second notion of goal.
     benchmark ticker to `TraderConfig` (additive migration), editable next to
     the strategy in settings. (#57)
 5b. **`get_my_goals` tool**: read-only, `portfolio` forced to the trader's
-    own. Traders cannot create, change or delete goals. Done for MCP clients;
-    app-driven traders still need it in `ALLOWED_TOOLS` (#56).
+    own. Traders cannot create, change or delete goals. Done, for MCP
+    clients and for traders the app runs (#56).
 5c. **Goals in the prompt**: at the start of each run, include the
     portfolio's goals, their `GoalProjection` (on track, required return) and
     the mandate, so the trader knows whether it is ahead or behind. (#57)
