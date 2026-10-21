@@ -2,7 +2,10 @@
 
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRace, AiRaceRun, AiRun, ModelProfile, NewAiRace, NewAiTrader, TraderConfig, TraderMemory},
+    ai_models::{
+        AiRace, AiRaceRun, AiRun, ModelProfile, ModelProfileSettings, NewAiRace, NewAiTrader,
+        TraderConfig, TraderMemory,
+    },
     ai_portfolio::AiPortfolioInfo,
 };
 use uuid::Uuid;
@@ -24,8 +27,16 @@ pub async fn save_model_profile(
     base_url: String,
     model: String,
     api_key: Option<String>,
+    settings: ModelProfileSettings,
 ) -> Result<ModelProfile, ServerFnError> {
-    Ok(service.save_profile(id, &name, &base_url, &model, api_key.as_deref())?)
+    Ok(service.save_profile_with(
+        id,
+        &name,
+        &base_url,
+        &model,
+        api_key.as_deref(),
+        Some(&settings),
+    )?)
 }
 
 #[post("/api/models/profiles/delete", service: Extension<ModelService>)]

@@ -562,6 +562,12 @@ const MIGRATIONS: &[&str] = &[
     // 17: an AI portfolio can be driven by an MCP connection instead of a
     // model profile.
     "ALTER TABLE ai_trader_configs ADD COLUMN mcp_connection_id TEXT REFERENCES mcp_connections(id) ON DELETE SET NULL;",
+    // 18: per-profile request settings. Extra headers often hold secrets,
+    // so they live with the key and stay out of backups.
+    "ALTER TABLE ai_model_profiles ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 45;
+    ALTER TABLE ai_model_profiles ADD COLUMN max_tokens INTEGER;
+    ALTER TABLE ai_model_profiles ADD COLUMN key_header TEXT NOT NULL DEFAULT '';
+    ALTER TABLE ai_model_secrets ADD COLUMN extra_headers TEXT NOT NULL DEFAULT '[]';",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
