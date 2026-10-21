@@ -83,7 +83,8 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
     let mut loaded = use_signal(|| false);
     let mut new_cash = use_signal(String::new);
     let mut adding = use_signal(String::new);
-    let mut status = use_signal(|| None::<Result<(), String>>);
+    let mut error = use_signal(|| None::<String>);
+    let toasts = use_context::<crate::notify::Toasts>();
 
     let priced: Vec<&Position> = positions
         .iter()
@@ -158,11 +159,12 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
             .collect();
         match api::set_targets(portfolio_id, targets).await {
             Ok(()) => {
-                status.set(Some(Ok(())));
+                error.set(None);
+                toasts.show(tr("Targets saved."), "");
                 refresh.reload();
             }
-            Err(ServerFnError::ServerError { message, .. }) => status.set(Some(Err(message))),
-            Err(e) => status.set(Some(Err(e.to_string()))),
+            Err(ServerFnError::ServerError { message, .. }) => error.set(Some(message)),
+            Err(e) => error.set(Some(e.to_string())),
         }
     };
 
@@ -225,10 +227,8 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                             oninput: move |e| adding.set(e.value()),
                         }
                     }
-                    if let Some(result) = status() {
-                        p { class: if result.is_ok() { "mt-3 text-xs text-ctp-green" } else { "mt-3 text-xs text-ctp-red" },
-                            {result.as_ref().err().cloned().unwrap_or_else(|| "Targets saved.".into())}
-                        }
+                    if let Some(message) = error() {
+                        p { class: "mt-3 text-xs text-ctp-red", "{message}" }
                     }
                 }
                 div {

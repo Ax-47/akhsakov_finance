@@ -43,7 +43,8 @@ pub fn SettingsPage() -> Element {
     let mut risk_free = use_signal(move || saved.peek().risk_free.normalize().to_string());
     let mut assumed = use_signal(move || saved.peek().assumed_return.normalize().to_string());
     let mut custom_benchmark = use_signal(String::new);
-    let mut status = use_signal(|| None::<Result<(), String>>);
+    let mut error = use_signal(|| None::<String>);
+    let toasts = use_context::<crate::notify::Toasts>();
     let mut switching = use_signal(|| false);
     let mut currency_error = use_signal(|| None::<String>);
 
@@ -53,7 +54,7 @@ pub fn SettingsPage() -> Element {
             Decimal::from_str(risk_free().trim()),
             Decimal::from_str(assumed().trim()),
         ) else {
-            return status.set(Some(Err("Enter numbers for the rates".into())));
+            return error.set(Some(tr("Enter numbers for the rates").into()));
         };
         s.risk_free = rf;
         s.assumed_return = ar;
@@ -61,11 +62,12 @@ pub fn SettingsPage() -> Element {
         s.currency = saved.peek().currency.clone();
         match api::save_settings(s).await {
             Ok(()) => {
-                status.set(Some(Ok(())));
+                error.set(None);
+                toasts.show(tr("Settings saved"), "");
                 refresh.reload();
             }
-            Err(ServerFnError::ServerError { message, .. }) => status.set(Some(Err(message))),
-            Err(e) => status.set(Some(Err(e.to_string()))),
+            Err(ServerFnError::ServerError { message, .. }) => error.set(Some(message)),
+            Err(e) => error.set(Some(e.to_string())),
         }
     };
 
@@ -167,10 +169,8 @@ pub fn SettingsPage() -> Element {
                     }
                 }
                 div { class: "flex items-center justify-end gap-3",
-                    if let Some(result) = status() {
-                        span { class: if result.is_ok() { "text-sm text-ctp-green" } else { "text-sm text-ctp-red" },
-                            {result.as_ref().err().cloned().unwrap_or_else(|| "Saved.".into())}
-                        }
+                    if let Some(message) = error() {
+                        span { class: "text-sm text-ctp-red", "{message}" }
                     }
                     ActionButton { label: tr("Save settings"), onclick: save }
                 }
@@ -239,11 +239,15 @@ fn NotificationSettings() -> Element {
         ServerFnError::ServerError { message, .. } => message,
         e => e.to_string(),
     };
+    let toasts = use_context::<crate::notify::Toasts>();
     let save = move |_| async move {
-        status.set(Some(match api::save_channels(channels()).await {
-            Ok(()) => Ok("Saved.".into()),
-            Err(e) => Err(message(e)),
-        }));
+        match api::save_channels(channels()).await {
+            Ok(()) => {
+                status.set(None);
+                toasts.show(tr("Notification settings saved"), "");
+            }
+            Err(e) => status.set(Some(Err(message(e)))),
+        }
     };
     let test = move |_| async move {
         tests.set(vec![]);
@@ -334,7 +338,7 @@ fn BackupButtons() -> Element {
         match api::restore_backup(data).await {
             Ok(()) => {
                 pending.set(None);
-                note.set(Some(Ok("Restored. Reloading…".into())));
+                note.set(Some(Ok(tr("Restored. Reloading…").into())));
                 document::eval("setTimeout(() => location.reload(), 800)");
             }
             Err(ServerFnError::ServerError { message, .. }) => note.set(Some(Err(message))),
@@ -647,6 +651,7 @@ fn ModelProfilesCard() -> Element {
     let mut base_url = use_signal(String::new);
     let mut model = use_signal(String::new);
     let mut api_key = use_signal(String::new);
+    let toasts = use_context::<crate::notify::Toasts>();
     let mut timeout = use_signal(|| DEFAULT_MODEL_TIMEOUT_SECONDS.to_string());
     let mut max_tokens = use_signal(String::new);
     let mut key_header = use_signal(String::new);
@@ -693,7 +698,8 @@ fn ModelProfilesCard() -> Element {
         };
         match api::save_model_profile(editing(), name(), base_url(), model(), key, settings).await {
             Ok(saved) => {
-                status.set(Some(Ok(format!("Saved {}", saved.name))));
+                status.set(None);
+                toasts.show(crate::i18n::trf("Saved {}", &[&saved.name]), "");
                 clear();
                 reload();
             }
@@ -1090,7 +1096,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
     let mut running = use_signal(|| false);
     let mut confirm_clear_memory = use_signal(|| false);
     let mut schedule = use_signal(|| TraderSchedule::new(info.portfolio_id));
-    let mut schedule_saved = use_signal(|| false);
+    let toasts = use_context::<crate::notify::Toasts>();
     let id = info.portfolio_id;
     // MCP connections that could drive this portfolio.
     let drivers: Vec<McpConnection> = connections
@@ -1161,7 +1167,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
         match api::save_trader_schedule(schedule()).await {
             Ok(saved) => {
                 schedule.set(saved);
-                schedule_saved.set(true);
+                toasts.show(tr("Schedule saved."), "");
                 error.set(None);
             }
             Err(e) => error.set(Some(server_message(e))),
@@ -1453,7 +1459,6 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                     checked: schedule().enabled,
                                     onchange: move |e| {
                                         schedule.write().enabled = e.checked();
-                                        schedule_saved.set(false);
                                     },
                                 }
                                 {tr("Run on a schedule")}
@@ -1469,7 +1474,6 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                         oninput: move |e| {
                                             if let Ok(value) = e.value().parse() {
                                                 schedule.write().every_hours = value;
-                                                schedule_saved.set(false);
                                             }
                                         },
                                     }
@@ -1483,7 +1487,6 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                                 "thai" => MarketHours::Thai,
                                                 _ => MarketHours::Any,
                                             };
-                                            schedule_saved.set(false);
                                         },
                                         option { value: "any", selected: schedule().market_hours == MarketHours::Any, {tr("Any time")} }
                                         option { value: "us", selected: schedule().market_hours == MarketHours::Us, {tr("While the US market is open")} }
@@ -1508,7 +1511,6 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                             } else {
                                                 s.weekdays.push(day);
                                             }
-                                            schedule_saved.set(false);
                                         },
                                         {tr(name)}
                                     }
@@ -1524,7 +1526,6 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                 p { class: "text-xs text-ctp-peach break-words", "{note}" }
                             }
                             div { class: "flex items-center justify-end gap-2",
-                                if schedule_saved() { span { class: "text-xs text-ctp-green", {tr("Schedule saved.")} } }
                                 GhostButton { label: tr("Save schedule"), onclick: save_schedule }
                             }
                         }

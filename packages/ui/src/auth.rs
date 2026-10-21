@@ -184,10 +184,10 @@ pub fn SecurityCard() -> Element {
         let result = if auth.status().is_some_and(|s| s.needs_setup) {
             api::auth_setup(new_user(), new_password()).await.map(|token| {
                 store_token(Some(&token));
-                "Account created. Sign-in is now required on every device.".to_string()
+                tr("Account created. Sign-in is now required on every device.").to_string()
             })
         } else {
-            api::add_user(new_user(), new_password()).await.map(|()| format!("Added {}.", new_user()))
+            api::add_user(new_user(), new_password()).await.map(|()| crate::i18n::trf("Added {}.", &[&new_user()]))
         };
         note.set(Some(result.map_err(message)));
         new_user.set(String::new());
@@ -196,7 +196,7 @@ pub fn SecurityCard() -> Element {
     };
     let change = move |_| async move {
         let result = api::change_password(current(), changed()).await;
-        note.set(Some(result.map(|()| "Password changed; other devices were signed out.".to_string()).map_err(message)));
+        note.set(Some(result.map(|()| tr("Password changed; other devices were signed out.").to_string()).map_err(message)));
         current.set(String::new());
         changed.set(String::new());
     };
@@ -239,7 +239,7 @@ pub fn SecurityCard() -> Element {
                                             onconfirm: move |_| {
                                                 let name = name.clone();
                                                 async move {
-                                                    note.set(Some(api::remove_user(name.clone()).await.map(|()| format!("Removed {name}.")).map_err(message)));
+                                                    note.set(Some(api::remove_user(name.clone()).await.map(|()| crate::i18n::trf("Removed {}.", &[&name])).map_err(message)));
                                                     auth.recheck();
                                                 }
                                             },
