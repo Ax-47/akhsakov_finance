@@ -40,6 +40,25 @@ pub struct ModelProfile {
     pub extra_header_names: Vec<String>,
 }
 
+/// The switch that stops all AI trading at once, and who last flipped it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AiStopState {
+    pub active: bool,
+    /// Newest first, at most ten.
+    pub history: Vec<AiStopEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AiStopEvent {
+    pub active: bool,
+    pub actor: String,
+    pub at: String,
+}
+
+/// Why AI trading is refused while the emergency stop is on.
+pub const AI_STOPPED_MESSAGE: &str =
+    "AI trading is stopped: the emergency stop is on. Turn it off to trade again.";
+
 /// A model profile's request settings, as the settings form edits them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelProfileSettings {

@@ -16,13 +16,12 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Emergency stop (item 15a) | #44 |
-| 2 | Scheduled runs (item 15) | #52 |
-| 3 | Notifications when a run finishes or fails (item 17) | #54 |
-| 4 | Usage and estimated cost (item 16) | #53 |
-| 5 | Capability detection (item 9) | #49 |
-| 6 | Streaming (item 11) | #51 |
-| 7 | Responses-style APIs (item 10) | #50 |
+| 1 | Scheduled runs (item 15) | #52 |
+| 2 | Notifications when a run finishes or fails (item 17) | #54 |
+| 3 | Usage and estimated cost (item 16) | #53 |
+| 4 | Capability detection (item 9) | #49 |
+| 5 | Streaming (item 11) | #51 |
+| 6 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -91,7 +90,8 @@ rather than adding a second notion of goal.
 
 15. **Scheduled runs** per portfolio, together with or after item 15a. (#52)
 15a. **Emergency stop**: one switch that cancels active runs and blocks new
-     ones, scheduled ones included, across all AI portfolios. (#44)
+     ones, scheduled ones included, across all AI portfolios. Done (#44):
+     it also pauses running races and refuses every AI order, MCP included.
 16. **Usage and estimated cost** per run and per profile. Token counts are
     already stored per run; the cost estimate is not. (#53)
 17. **Notifications** when a run finishes or fails, using the existing

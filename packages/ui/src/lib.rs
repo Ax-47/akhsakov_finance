@@ -40,6 +40,7 @@ mod auth;
 pub mod server_address;
 pub use app::App;
 
+mod ai_stop;
 mod alerts;
 mod assets_card;
 mod components;

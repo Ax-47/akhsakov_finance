@@ -154,6 +154,11 @@ impl Trading {
     }
 
     /// Every AI-managed portfolio, oldest first.
+    /// Whether the emergency stop is on.
+    pub fn halted(&self) -> Result<bool, ServiceError> {
+        Ok(self.repo.trading_halted()?)
+    }
+
     pub fn books(&self) -> Result<Vec<Book>, ServiceError> {
         let ids = self.repo.ai_portfolios()?;
         let dash = self.portfolios.dashboard()?;
@@ -275,6 +280,9 @@ impl Trading {
         size: Size,
         q: LiveQuote,
     ) -> Result<Fill, ServiceError> {
+        if self.repo.trading_halted()? {
+            return Err(invalid(dtos::ai_models::AI_STOPPED_MESSAGE));
+        }
         let book = self.book(portfolio)?;
         if ticker.as_str() == CASH_TICKER || !is_convertible(ticker.as_str()) {
             return Err(invalid("Only stocks, funds and other assets can be traded, not cash, indices or currency pairs."));

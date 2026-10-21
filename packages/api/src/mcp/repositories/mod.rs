@@ -31,6 +31,8 @@ pub trait AiPortfolioRepository: Send + Sync {
     fn add_ai_portfolio(&self, id: uuid::Uuid) -> Result<(), RepositoryError>;
     /// Hands the portfolio back to you; it and its trades stay.
     fn remove_ai_portfolio(&self, id: uuid::Uuid) -> Result<(), RepositoryError>;
+    /// Whether the emergency stop is on, refusing every AI order.
+    fn trading_halted(&self) -> Result<bool, RepositoryError>;
 }
 
 /// A live price to trade at, in the instrument's own currency.

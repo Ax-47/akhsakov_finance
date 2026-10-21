@@ -2666,8 +2666,14 @@
     }
   }
 
-  .border-ctp-red {
+  .border-ctp-red, .border-ctp-red\/60 {
     border-color: var(--catppuccin-color-red);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-ctp-red\/60 {
+      border-color: color-mix(in oklab, var(--catppuccin-color-red) 60%, transparent);
+    }
   }
 
   .border-ctp-surface0, .border-ctp-surface0\/40 {

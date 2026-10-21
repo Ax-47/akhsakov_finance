@@ -572,6 +572,14 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE ai_trader_configs ADD COLUMN horizon_years INTEGER;
     ALTER TABLE ai_trader_configs ADD COLUMN max_drawdown_pct INTEGER;
     ALTER TABLE ai_trader_configs ADD COLUMN benchmark TEXT NOT NULL DEFAULT '';",
+    // 20: the emergency stop for all AI trading. Its latest row is the
+    // current state; the rows are its audit trail.
+    "CREATE TABLE ai_stop_log (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        active  INTEGER NOT NULL,
+        actor   TEXT NOT NULL,
+        at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

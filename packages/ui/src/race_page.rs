@@ -93,6 +93,7 @@ pub fn RacePage() -> Element {
             // minmax(0, 1fr): the wide leaderboard scrolls inside its box
             // instead of widening the page on a phone.
             div { class: "mt-10 grid grid-cols-[minmax(0,1fr)] gap-5 motion-safe:animate-rise",
+                crate::ai_stop::AiStopSwitch {}
                 if let Some(message) = error() {
                     p { class: "text-sm text-ctp-red break-words", "{message}" }
                 }
