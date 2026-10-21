@@ -15,4 +15,8 @@ pub trait AssetRepository: Send + Sync {
     /// Inserts, or replaces the price on the same date.
     fn save_price(&self, ticker: &TickerSymbol, price: &ManualPrice) -> Result<(), RepositoryError>;
     fn delete_price(&self, ticker: &TickerSymbol, date: &str) -> Result<(), RepositoryError>;
+    /// A key for an outside service, by name.
+    fn secret(&self, name: &str) -> Result<Option<String>, RepositoryError>;
+    /// Saves the key, or forgets it with `None`.
+    fn set_secret(&self, name: &str, value: Option<&str>) -> Result<(), RepositoryError>;
 }

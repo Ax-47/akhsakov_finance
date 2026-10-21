@@ -12,6 +12,8 @@ pub(crate) mod infrastructures;
 pub(crate) mod repositories;
 #[cfg(feature = "server")]
 pub(crate) mod services;
+#[cfg(feature = "server")]
+pub(crate) mod feeds;
 
 pub use controller::*;
 
@@ -20,5 +22,8 @@ pub use services::AssetService;
 
 #[cfg(feature = "server")]
 pub fn asset_services_setup(db: crate::database::Database) -> AssetService {
-    AssetService::new(std::sync::Arc::new(infrastructures::SqliteAssetRepository::new(db)))
+    let service = AssetService::new(std::sync::Arc::new(infrastructures::SqliteAssetRepository::new(db)))
+        .with_feeds(std::sync::Arc::new(feeds::WebPriceSource::new()));
+    service.clone().spawn_feed_updates();
+    service
 }
