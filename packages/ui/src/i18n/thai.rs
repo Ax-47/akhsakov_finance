@@ -1269,4 +1269,11 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.", "trader จะได้รับกรอบนี้และเป้าหมายของพอร์ตทุกครั้งที่เริ่มรัน ตั้งเป้าหมายได้ที่แท็บ Plan ของพอร์ต"),
     ("Back to its peak after {} months", "กลับไปถึงจุดสูงสุดเดิมใน {} เดือน"),
     ("Not back to its peak yet", "ยังไม่กลับไปถึงจุดสูงสุดเดิม"),
+    ("Fees are zero or more, and percentages at most 10%", "ค่าธรรมเนียมต้องไม่ติดลบ และเปอร์เซ็นต์ต้องไม่เกิน 10%"),
+    ("Trading fee (% of each trade)", "ค่าธรรมเนียมซื้อขาย (% ของแต่ละรายการ)"),
+    ("Fee per trade", "ค่าธรรมเนียมต่อรายการ"),
+    ("Yearly fee (% of value)", "ค่าธรรมเนียมรายปี (% ของมูลค่า)"),
+    ("Fund prices already include their own expense ratio; use this for anything on top, such as an advisory or platform fee.", "ราคากองทุนหักค่าใช้จ่ายของกองทุนไว้แล้ว ช่องนี้ใช้กับค่าธรรมเนียมที่จ่ายเพิ่ม เช่น ค่าที่ปรึกษาหรือค่าแพลตฟอร์ม"),
+    ("The benchmark pays the same fees.", "benchmark ก็เสียค่าธรรมเนียมเท่ากัน"),
+    ("Prices include dividends, reinvested. Fees paid: {}; taxes aren't counted.", "ราคารวมปันผลที่นำไปลงทุนต่อแล้ว เสียค่าธรรมเนียมไป {} ยังไม่หักภาษี"),
 ];
