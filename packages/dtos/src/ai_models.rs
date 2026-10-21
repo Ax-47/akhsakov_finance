@@ -6,6 +6,8 @@ use uuid::Uuid;
 pub const DEFAULT_TRADER_STRATEGY: &str = "Invest for the long run. Diversify, respect the investment thesis, keep enough cash for opportunities, and do not trade merely to be busy.";
 pub const DEFAULT_MEMORY_CHAR_LIMIT: u32 = 8_000;
 pub const DEFAULT_CONTEXT_TOKEN_LIMIT: u32 = 32_768;
+/// The `tool` of a run event that records a retried model request.
+pub const MODEL_RETRY_EVENT: &str = "model_retry";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelProfile {

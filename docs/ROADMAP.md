@@ -16,22 +16,21 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Retry and backoff (item 8) | #48 |
-| 2 | Per-profile settings (item 7) | #47 |
-| 3 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
-| 4 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
-| 5 | Emergency stop (item 15a) | #44 |
-| 6 | Scheduled runs (item 15) | #52 |
-| 7 | Notifications when a run finishes or fails (item 17) | #54 |
-| 8 | Usage and estimated cost (item 16) | #53 |
-| 9 | Capability detection (item 9) | #49 |
-| 10 | Streaming (item 11) | #51 |
-| 11 | Responses-style APIs (item 10) | #50 |
+| 1 | Per-profile settings (item 7) | #47 |
+| 2 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
+| 3 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
+| 4 | Emergency stop (item 15a) | #44 |
+| 5 | Scheduled runs (item 15) | #52 |
+| 6 | Notifications when a run finishes or fails (item 17) | #54 |
+| 7 | Usage and estimated cost (item 16) | #53 |
+| 8 | Capability detection (item 9) | #49 |
+| 9 | Streaming (item 11) | #51 |
+| 10 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
-model change after it adds test cases there. Retries come next because a
-single 429 fails a race round today. Goals and the mandate change what traders do, so they come before
-automation. The emergency stop and scheduled runs go together: portfolios use
+model change after it adds test cases there. Retries (item 8, done) came next,
+because a single 429 used to fail a race round. Goals and the mandate change
+what traders do, so they come before automation. The emergency stop and scheduled runs go together: portfolios use
 paper money, but model API calls cost real money, and a schedule can run up a
 bill unattended. Streaming and Responses-style APIs help fewer providers, so
 they come last.
@@ -76,7 +75,9 @@ rather than adding a second notion of goal.
    bearer authentication (headers stored with the secrets, not the profile).
    (#47)
 8. **Retry and backoff** for 429 and 5xx responses, bounded by the run timeout.
-   (#48)
+   Done (#48): up to four attempts, honouring `Retry-After`, logged as
+   `model_retry` run events. It uses the run or round deadline until item 7
+   adds a per-profile timeout.
 9. **Capability detection** (tool calling, JSON mode) when a profile is
    tested, with a clear error when a model cannot call tools. (#49)
 10. **Responses-style APIs** for providers without Chat Completions. (#50)

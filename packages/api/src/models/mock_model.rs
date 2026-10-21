@@ -28,6 +28,8 @@ pub(super) enum Reply {
     Raw(u16, String),
     /// Waits, then sends the inner reply.
     Delayed(Duration, Box<Reply>),
+    /// The inner reply with this header added.
+    Header(&'static str, String, Box<Reply>),
 }
 
 impl Reply {
@@ -75,6 +77,11 @@ impl Reply {
     /// The same reply, sent after `delay`.
     pub fn after(self, delay: Duration) -> Self {
         Self::Delayed(delay, Box::new(self))
+    }
+
+    /// The same reply with a `name: value` header.
+    pub fn header(self, name: &'static str, value: &str) -> Self {
+        Self::Header(name, value.into(), Box::new(self))
     }
 }
 
@@ -163,17 +170,28 @@ async fn chat(State(script): State<Script>, headers: HeaderMap, Json(body): Json
         .and_then(VecDeque::pop_front);
     let mut reply =
         next.unwrap_or_else(|| Reply::error(500, &format!("No reply scripted for {model}.")));
-    loop {
+    let mut headers = vec![];
+    let mut response = loop {
         match reply {
             Reply::Delayed(delay, inner) => {
                 tokio::time::sleep(delay).await;
                 reply = *inner;
             }
-            Reply::Ok(value) => return Json(value).into_response(),
+            Reply::Header(name, value, inner) => {
+                headers.push((name, value));
+                reply = *inner;
+            }
+            Reply::Ok(value) => break Json(value).into_response(),
             Reply::Raw(status, body) => {
                 let status = StatusCode::from_u16(status).expect("a valid status");
-                return (status, body).into_response();
+                break (status, body).into_response();
             }
         }
+    };
+    for (name, value) in headers {
+        response
+            .headers_mut()
+            .insert(name, value.parse().expect("a valid header value"));
     }
+    response
 }

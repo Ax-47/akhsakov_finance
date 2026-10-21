@@ -9,7 +9,9 @@ use crate::{
     database::Database,
     mcp::{repositories::LiveQuote, services::tools::FrozenMarket},
 };
-use dtos::ai_models::{AiRun, AiRunStatus, NewAiRace, NewAiTrader, NewModelConnection};
+use dtos::ai_models::{
+    AiRun, AiRunEvent, AiRunStatus, NewAiRace, NewAiTrader, NewModelConnection, MODEL_RETRY_EVENT,
+};
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -158,9 +160,9 @@ async fn provider_errors_fail_the_run_without_leaking_the_key() {
             Reply::error(401, &format!("Incorrect API key provided: {API_KEY}")),
             "Model endpoint returned 401: Incorrect API key provided: ***",
         ),
-        (Reply::error(429, "Rate limit reached."), "Model endpoint returned 429: Rate limit reached."),
-        (Reply::error(500, "The server had an error."), "Model endpoint returned 500: The server had an error."),
-        (Reply::Raw(502, "<html>Bad gateway</html>".into()), "Model endpoint returned 502."),
+        (Reply::error(400, "Unknown parameter."), "Model endpoint returned 400: Unknown parameter."),
+        (Reply::error(403, "Not allowed."), "Model endpoint returned 403: Not allowed."),
+        (Reply::Raw(404, "<html>Not found</html>".into()), "Model endpoint returned 404."),
         (Reply::Raw(200, "not json".into()), "The model endpoint returned invalid JSON."),
         (Reply::Ok(json!({"choices": []})), "The model returned no assistant message."),
         (Reply::text("  "), "The model finished without a response."),
@@ -172,9 +174,127 @@ async fn provider_errors_fail_the_run_without_leaking_the_key() {
         assert_eq!(run.status, AiRunStatus::Failed, "{expected}");
         assert_eq!(error(&run), expected);
         assert!(!error(&run).contains(API_KEY));
-        // Retries (#48) will change this for 429 and 5xx.
-        assert_eq!(mock.received("errors").len(), before + 1, "{expected}: one request");
+        assert_eq!(mock.received("errors").len(), before + 1, "{expected}: not retried");
+        assert!(retries(&run).is_empty());
     }
+}
+
+fn retries(run: &AiRun) -> Vec<&AiRunEvent> {
+    run.events.iter().filter(|e| e.tool == MODEL_RETRY_EVENT).collect()
+}
+
+#[tokio::test]
+async fn rate_limits_and_server_errors_are_retried() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "flaky").await;
+    mock.script(
+        "flaky",
+        [
+            Reply::error(429, "Rate limit reached.").header("retry-after-ms", "50"),
+            Reply::Raw(503, "Service unavailable".into()),
+            Reply::text("No trades today."),
+            Reply::text("{}"),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert_eq!(mock.received("flaky").len(), 4, "two retries, the answer and memory");
+    let (prompt, completion) = REPLY_TOKENS;
+    assert_eq!(run.total_tokens, Some(2 * (prompt + completion)), "failed tries report no usage");
+    let retried = retries(&run);
+    assert_eq!(retried.len(), 2);
+    assert!(retried.iter().all(|e| !e.success));
+    assert!(retried[0].detail.starts_with("Model endpoint returned 429: Rate limit reached. Trying again in"), "{}", retried[0].detail);
+    assert!(retried[0].detail.ends_with("(attempt 2 of 4)."), "{}", retried[0].detail);
+    let waited: Value = serde_json::from_str(&retried[0].arguments).unwrap();
+    assert_eq!(waited, json!({"attempt": 2, "wait_ms": 50}), "Retry-After is honoured");
+    assert!(retried[1].detail.starts_with("Model endpoint returned 503."), "{}", retried[1].detail);
+    assert!(retried[1].detail.ends_with("(attempt 3 of 4)."));
+
+    for status in [429, 500, 502, 503, 504] {
+        let model = format!("down-{status}");
+        let portfolio = trader(&service, &mock, &model).await;
+        mock.script(&model, (0..4).map(|_| Reply::error(status, "Try later.")));
+        let run = run_once(&service, portfolio).await;
+        assert_eq!(
+            error(&run),
+            format!("Model endpoint returned {status}: Try later. Gave up after 4 attempts.")
+        );
+        assert_eq!(mock.received(&model).len(), 4);
+        assert_eq!(retries(&run).len(), 3);
+    }
+}
+
+#[tokio::test]
+async fn retries_stop_before_the_deadline() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "slow-down").await;
+    // Asked to wait longer than the run may take: fail now.
+    mock.script("slow-down", [Reply::error(429, "Slow down.").header("retry-after", "300")]);
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(
+        error(&run),
+        "Model endpoint returned 429: Slow down. Not retried: the run's deadline comes first."
+    );
+    assert_eq!(mock.received("slow-down").len(), 1);
+    assert!(retries(&run).is_empty());
+
+    // A short deadline, as in a race round: one wait fits, the next doesn't.
+    mock.script(
+        "slow-down",
+        [
+            Reply::error(429, "Slow down.").header("retry-after", "1"),
+            Reply::error(429, "Slow down.").header("retry-after", "1.5"),
+        ],
+    );
+    let run = service.start_run_for(portfolio, None, Duration::from_secs(2)).await.unwrap();
+    let run = settle(&service, run).await;
+    assert_eq!(
+        error(&run),
+        "Model endpoint returned 429: Slow down. Gave up after 2 attempts: the run's deadline comes first."
+    );
+    assert_eq!(retries(&run).len(), 1);
+}
+
+#[tokio::test]
+async fn dropped_connections_are_retried_but_profile_tests_are_not() {
+    let service = service();
+    let closed = {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap()
+    };
+    let portfolio = service
+        .create_trader(NewAiTrader {
+            name: "Offline".into(),
+            starting_cash: dec!(5000),
+            profile_id: None,
+            connection: Some(NewModelConnection {
+                name: "Offline".into(),
+                base_url: format!("http://{closed}/v1"),
+                model: "offline".into(),
+                api_key: API_KEY.into(),
+            }),
+            strategy: "Buy quality growth.".into(),
+        })
+        .await
+        .unwrap()
+        .portfolio_id;
+    let run = run_once(&service, portfolio).await;
+    assert!(error(&run).starts_with("Model request failed: "), "{}", error(&run));
+    assert!(error(&run).ends_with(" Gave up after 4 attempts."), "{}", error(&run));
+    assert_eq!(retries(&run).len(), 3);
+
+    // Testing a profile answers at once, whatever went wrong.
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "busy").await;
+    mock.script("busy", [Reply::error(429, "Rate limit reached.")]);
+    let profile = service.config(portfolio).unwrap().profile_id.unwrap();
+    let error = service.test_profile(profile).await.unwrap_err().to_string();
+    assert!(error.contains("Model endpoint returned 429: Rate limit reached."), "{error}");
+    assert!(!error.contains("attempt"), "{error}");
+    assert_eq!(mock.received("busy").len(), 1);
 }
 
 #[tokio::test]
@@ -216,6 +336,7 @@ async fn misbehaving_models_are_stopped() {
         [
             Reply::tools(&[("get_quote", json!({"ticker": "NOPE"}))]),
             Reply::text("No such ticker; no trades."),
+            Reply::text("{}"),
         ],
     );
     let run = run_once(&service, portfolio).await;
