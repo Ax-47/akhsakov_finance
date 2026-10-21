@@ -420,6 +420,19 @@ pub fn BacktestIcon() -> Element {
     }
 }
 
+/// Sparkle "AI" icon.
+#[component]
+pub fn AiIcon() -> Element {
+    rsx! {
+        svg { class: "h-4.5 w-4.5 shrink-0 text-ctp-subtext0 transition-colors group-hover:text-ctp-text",
+            view_box: "0 0 20 20", fill: "none", stroke: "currentColor", stroke_width: "1.6",
+            stroke_linecap: "round", stroke_linejoin: "round",
+            path { d: "M9 3.5l1.4 3.6 3.6 1.4-3.6 1.4L9 13.5l-1.4-3.6L4 8.5l3.6-1.4z" }
+            path { d: "M14.5 12.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" }
+        }
+    }
+}
+
 /// Chequered-flag "race" icon.
 #[component]
 pub fn RaceIcon() -> Element {

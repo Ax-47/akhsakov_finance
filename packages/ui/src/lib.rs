@@ -4,6 +4,8 @@ mod backtest_page;
 pub use backtest_page::BacktestPage;
 mod race_page;
 pub use race_page::RacePage;
+mod ai_page;
+pub use ai_page::AiPage;
 mod calendar_page;
 pub use calendar_page::CalendarPage;
 mod economy_page;
@@ -23,7 +25,7 @@ mod stock_page;
 mod stock_research;
 mod watchlist_page;
 pub use sidebar::{
-    BacktestIcon, RaceIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,
+    AiIcon, BacktestIcon, RaceIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,
 };
 pub use stock_page::StockPage;
 pub use watchlist_page::WatchlistPage;
