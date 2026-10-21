@@ -324,6 +324,7 @@ pub fn WatchlistPage() -> Element {
                                 for row in rows {
                                     {
                                         let count = all_alerts.iter().filter(|a| a.ticker == row.item.ticker && a.is_active()).count();
+                                        let buy_at = dtos::watch::buy_target(&all_alerts, &row.item.ticker);
                                         let tags = tags_of(row.item.ticker.as_str());
                                         rsx! {
                                             WatchRow {
@@ -335,6 +336,7 @@ pub fn WatchlistPage() -> Element {
                                                 trend: row.trend,
                                                 added: row.item.added_at.get(..10).unwrap_or_default().to_string(),
                                                 alerts: count,
+                                                buy_at,
                                                 list: list_id,
                                                 tags,
                                             }
@@ -372,9 +374,13 @@ fn WatchRow(
     /// `YYYY-MM-DD`.
     added: String,
     alerts: usize,
+    /// From the highest active "Price falls below" alert.
+    buy_at: Option<Decimal>,
     list: Option<Uuid>,
     tags: Vec<String>,
 ) -> Element {
+    // How far the price has to fall (negative) to reach the buy price.
+    let to_buy = buy_at.zip(price).filter(|(_, p)| !p.is_zero()).map(|(b, p)| (b / p - Decimal::ONE) * Decimal::ONE_HUNDRED);
     let refresh = use_context::<DataRefresh>();
     let dialogs = use_context::<Dialogs>();
     let (open, alert, remove) = (ticker.clone(), ticker.clone(), ticker.clone());
@@ -389,6 +395,16 @@ fn WatchRow(
                 }
             }
             span { class: "hidden min-w-0 flex-1 gap-1 truncate sm:flex",
+                if let Some(target) = buy_at {
+                    span {
+                        class: "rounded-full bg-ctp-green/15 px-2 py-0.5 text-xs text-ctp-green",
+                        title: tr("Your buy price, from a \"Price falls below\" alert"),
+                        match to_buy {
+                            Some(gap) => crate::i18n::trf("Buy ≤ {} · {}", &[&fmt_usd(target, 2), &format!("{gap:+.1}%")]),
+                            None => crate::i18n::trf("Buy ≤ {}", &[&fmt_usd(target, 2)]),
+                        }
+                    }
+                }
                 for tag in tags {
                     span { key: "{tag}", class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-xs text-ctp-subtext0", "#{tag}" }
                 }

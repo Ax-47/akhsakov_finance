@@ -1387,4 +1387,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Target weight for {}", "สัดส่วนเป้าหมายของ {}"),
     ("Today's price for {}", "ราคาวันนี้ของ {}"),
     ("Edit {}", "แก้ {}"),
+    ("Your buy price, from a \"Price falls below\" alert", "ราคาที่อยากซื้อ จาก alert แบบ \"ราคาลงถึง\""),
+    ("Buy ≤ {} · {}", "ซื้อที่ ≤ {} · {}"),
+    ("Buy ≤ {}", "ซื้อที่ ≤ {}"),
 ];

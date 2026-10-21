@@ -226,6 +226,16 @@ pub struct Alert {
     pub peak: Option<Decimal>,
 }
 
+/// The price you'd buy `ticker` at: the highest active "Price falls
+/// below" alert on it, if any.
+pub fn buy_target(alerts: &[Alert], ticker: &TickerSymbol) -> Option<Decimal> {
+    alerts
+        .iter()
+        .filter(|a| a.ticker == *ticker && a.kind == AlertKind::PriceBelow && a.is_active())
+        .map(|a| a.value)
+        .max()
+}
+
 impl Alert {
     pub fn is_active(&self) -> bool {
         self.triggered_at.is_none()
@@ -349,6 +359,24 @@ mod tests {
             triggered_at: None,
             peak: None,
         }
+    }
+
+    #[test]
+    fn buy_target_is_the_highest_active_price_floor() {
+        let mut fired = alert(AlertKind::PriceBelow, dec!(120));
+        fired.triggered_at = Some("2026-02-01".into());
+        let mut other = alert(AlertKind::PriceBelow, dec!(150));
+        other.ticker = TickerSymbol::new("AAPL").unwrap();
+        let alerts = [
+            alert(AlertKind::PriceBelow, dec!(90)),
+            alert(AlertKind::PriceBelow, dec!(100)),
+            alert(AlertKind::PriceAbove, dec!(200)),
+            fired,
+            other,
+        ];
+        let nvda = TickerSymbol::new("NVDA").unwrap();
+        assert_eq!(buy_target(&alerts, &nvda), Some(dec!(100)));
+        assert_eq!(buy_target(&alerts[2..4], &nvda), None);
     }
 
     #[test]
