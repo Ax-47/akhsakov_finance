@@ -275,7 +275,11 @@ fn RaceCard(
                         ActionButton { label: tr("Resume"), disabled: busy(), onclick: move |_| control("resume") }
                     }
                     if active {
-                        GhostButton { label: tr("Stop"), onclick: move |_| control("stop") }
+                        crate::page::ConfirmButton {
+                            label: tr("Stop"),
+                            warning: tr("The race ends for good and can't be resumed. Continue?"),
+                            onconfirm: move |_| control("stop"),
+                        }
                     }
                     GhostButton { label: tr("⇩ Results"), onclick: move |_| async move {
                         match api::download_ai_race_results(id).await {

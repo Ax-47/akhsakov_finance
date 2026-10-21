@@ -541,9 +541,20 @@ fn ConnectorCard() -> Element {
                                 div { class: "flex flex-wrap gap-2",
                                     GhostButton { label: tr("Edit"), onclick: { let c=connection.clone(); move |_| { editing.set(Some(c.id));editing_enabled.set(c.enabled);name.set(c.name.clone());preset.set(c.preset);selected.set(c.portfolio_ids.clone()); } } }
                                     GhostButton { label: if connection.enabled { tr("Disable") } else { tr("Enable") }, onclick: { let c=connection.clone(); move |_| { let c=c.clone(); async move { let _=api::update_mcp_connection(c.id,c.name,c.preset,!c.enabled,c.portfolio_ids).await; if let Ok(v)=api::get_mcp_connections().await{connections.set(v);} } } } }
-                                    GhostButton { label: tr("Rotate secret"), onclick: { let id=connection.id; move |_| async move { match api::rotate_mcp_connection(id).await { Ok(v)=>secret.set(Some(v.token)),Err(e)=>error.set(Some(message(e))) } } } }
+                                    crate::page::ConfirmButton {
+                                        label: tr("Rotate secret"),
+                                        warning: tr("The old secret stops working at once; apps using it need the new one. Continue?"),
+                                        onconfirm: { let id=connection.id; move |_| async move { match api::rotate_mcp_connection(id).await { Ok(v)=>secret.set(Some(v.token)),Err(e)=>error.set(Some(message(e))) } } },
+                                    }
                                     GhostButton { label: tr("Audit"), onclick: { let id=connection.id; move |_| async move { if let Ok(v)=api::get_mcp_audit_events(id).await {audit.set(v);audit_for.set(Some(id));} } } }
-                                    GhostButton { label: tr("Delete"), onclick: { let id=connection.id; move |_| async move { let _=api::delete_mcp_connection(id).await;if let Ok(v)=api::get_mcp_connections().await{connections.set(v);} } } }
+                                    crate::page::ConfirmButton {
+                                        label: tr("Delete"),
+                                        warning: tr("Apps using this connection lose access at once. Continue?"),
+                                        onconfirm: { let id=connection.id; move |_| async move {
+                                            if let Err(e)=api::delete_mcp_connection(id).await { error.set(Some(message(e))); }
+                                            if let Ok(v)=api::get_mcp_connections().await { connections.set(v); }
+                                        } },
+                                    }
                                 }
                             }
                         }

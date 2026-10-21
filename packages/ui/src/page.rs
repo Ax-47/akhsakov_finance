@@ -174,3 +174,28 @@ pub fn GhostButton(
         }
     }
 }
+
+/// A secondary action that can't be undone. The first press shows `warning`
+/// (a sentence ending in "Continue?") with the same button again and Cancel;
+/// only the second press acts.
+#[component]
+pub fn ConfirmButton(label: String, warning: String, onconfirm: EventHandler<()>) -> Element {
+    let mut asking = use_signal(|| false);
+    rsx! {
+        if asking() {
+            span { class: "inline-flex flex-wrap items-center gap-2",
+                span { class: "text-xs text-ctp-peach", "{warning}" }
+                GhostButton {
+                    label: label.clone(),
+                    onclick: move |_| {
+                        asking.set(false);
+                        onconfirm.call(());
+                    },
+                }
+                GhostButton { label: crate::i18n::tr("Cancel"), onclick: move |_| asking.set(false) }
+            }
+        } else {
+            GhostButton { label, onclick: move |_| asking.set(true) }
+        }
+    }
+}
