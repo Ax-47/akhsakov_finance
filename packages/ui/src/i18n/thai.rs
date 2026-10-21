@@ -1261,6 +1261,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Several calls at once", "เรียกหลายครั้งพร้อมกัน"),
     ("Forced tool choice", "บังคับเลือกเครื่องมือ"),
     ("API style", "รูปแบบ API"),
+    ("Stream replies, to watch the answer as it's written. Turn off if the provider doesn't support it.", "รับคำตอบแบบ stream เพื่อดูคำตอบระหว่างที่โมเดลกำลังเขียน ปิดไว้ถ้าผู้ให้บริการไม่รองรับ"),
+    ("Streams replies", "รับคำตอบแบบ stream"),
     ("Chat Completions (most providers)", "Chat Completions (ผู้ให้บริการส่วนใหญ่)"),
     ("Responses", "Responses"),
     ("Responses API", "Responses API"),

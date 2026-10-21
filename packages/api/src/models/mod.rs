@@ -20,6 +20,8 @@ mod announce;
 mod usage;
 #[cfg(feature = "server")]
 mod responses;
+#[cfg(feature = "server")]
+mod stream;
 #[cfg(all(test, feature = "server"))]
 mod mock_model;
 #[cfg(all(test, feature = "server"))]

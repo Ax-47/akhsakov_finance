@@ -63,6 +63,8 @@ pub struct ModelService {
     pub(super) notifications: Option<crate::notifications::NotificationService>,
     /// Races this start-up paused because the app had stopped mid-race.
     pub(super) paused_on_start: Arc<Vec<Uuid>>,
+    /// What each streaming run's model has said so far.
+    live: Arc<Mutex<std::collections::HashMap<Uuid, String>>>,
 }
 
 #[derive(Clone)]
@@ -76,7 +78,7 @@ struct Connection {
 /// LEFT JOIN ai_model_secrets s`.
 const PROFILE_COLUMNS: &str = "p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL,
      p.timeout_seconds, p.max_tokens, p.key_header, COALESCE(s.extra_headers, '[]'),
-     p.input_price, p.output_price, p.capabilities, p.api_style";
+     p.input_price, p.output_price, p.capabilities, p.api_style, p.stream";
 
 #[derive(Clone)]
 pub(super) struct RaceRunContext {
@@ -126,6 +128,7 @@ impl ModelService {
             stop: Arc::new(tokio::sync::watch::channel(halted).0),
             notifications: None,
             paused_on_start: Arc::default(),
+            live: Arc::default(),
             http: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(45))
@@ -257,7 +260,7 @@ impl ModelService {
                 if let Some(settings) = &settings {
                     tx.execute(
                         "UPDATE ai_model_profiles SET timeout_seconds=?2, max_tokens=?3, key_header=?4,
-                         input_price=?5, output_price=?6, api_style=?7,
+                         input_price=?5, output_price=?6, api_style=?7, stream=?8,
                          capabilities = CASE WHEN api_style = ?7 THEN capabilities END
                          WHERE id=?1",
                         params![
@@ -270,7 +273,8 @@ impl ModelService {
                             match settings.api_style {
                                 ApiStyle::ChatCompletions => "chat_completions",
                                 ApiStyle::Responses => "responses",
-                            }
+                            },
+                            settings.stream
                         ],
                     )?;
                 }
@@ -797,6 +801,9 @@ impl ModelService {
             .map_err(storage)?
             .ok_or_else(|| ServiceError::NotFound("AI run".into()))?;
         run.events = self.events(id)?;
+        if run.status == AiRunStatus::Running {
+            run.live_text = self.live.lock().ok().and_then(|live| live.get(&id).cloned());
+        }
         Ok(run)
     }
 
@@ -1089,7 +1096,7 @@ impl ModelService {
     ) -> Result<Value, ServiceError> {
         let mut attempt = 1;
         loop {
-            let failure = match self.send(connection, body).await {
+            let failure = match self.send(connection, body, retry.map(|r| r.run_id)).await {
                 Ok(value) => return Ok(value),
                 Err(failure) => failure,
             };
@@ -1130,18 +1137,30 @@ impl ModelService {
         }
     }
 
-    async fn send(&self, connection: &Connection, body: &Value) -> Result<Value, Failure> {
+    /// One request. With `run_id`, a streaming profile's text so far is
+    /// kept for the run view.
+    async fn send(&self, connection: &Connection, body: &Value, run_id: Option<Uuid>) -> Result<Value, Failure> {
         let profile = &connection.profile;
         let timeout = Duration::from_secs(u64::from(profile.timeout_seconds));
         let mut body = body.clone();
         if let Some(max_tokens) = profile.max_tokens {
             body["max_tokens"] = json!(max_tokens);
         }
+        if profile.stream {
+            body["stream"] = json!(true);
+            if profile.api_style == ApiStyle::ChatCompletions {
+                body["stream_options"] = json!({"include_usage": true});
+            }
+        }
         let (endpoint, body) = match profile.api_style {
             ApiStyle::ChatCompletions => (format!("{}/chat/completions", profile.base_url), body),
             ApiStyle::Responses => (format!("{}/responses", profile.base_url), super::responses::request(&body)),
         };
-        let mut request = self.http.post(endpoint).timeout(timeout).json(&body);
+        let mut request = self.http.post(endpoint).json(&body);
+        // A stream may run long: its timeout is for silence, below.
+        if !profile.stream {
+            request = request.timeout(timeout);
+        }
         request = if profile.key_header.is_empty() {
             request.bearer_auth(&connection.api_key)
         } else {
@@ -1150,16 +1169,29 @@ impl ModelService {
         for (name, value) in &connection.extra_headers {
             request = request.header(name.as_str(), value);
         }
-        let response = request.send().await.map_err(|e| {
-            Failure::transient(if e.is_timeout() {
-                format!("The model didn't answer within {} s.", profile.timeout_seconds)
-            } else {
-                format!("Model request failed: {e}")
-            })
-        })?;
+        let silent = || Failure::transient(format!("The model didn't answer within {} s.", profile.timeout_seconds));
+        let response = tokio::time::timeout(timeout, request.send())
+            .await
+            .map_err(|_| silent())?
+            .map_err(|e| {
+                Failure::transient(if e.is_timeout() {
+                    format!("The model didn't answer within {} s.", profile.timeout_seconds)
+                } else {
+                    format!("Model request failed: {e}")
+                })
+            })?;
         let status = response.status();
         let retry_after = retry_after(response.headers());
-        let text = response.text().await.map_err(|e| {
+        let streamed = status.is_success()
+            && response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.starts_with("text/event-stream"));
+        if streamed {
+            return self.read_stream(response, connection, timeout, run_id).await;
+        }
+        let text = tokio::time::timeout(timeout, response.text()).await.map_err(|_| silent())?.map_err(|e| {
             Failure::transient(if e.is_timeout() {
                 format!("The model didn't answer within {} s.", profile.timeout_seconds)
             } else {
@@ -1185,6 +1217,71 @@ impl ModelService {
         })
     }
 
+    /// Reads a streamed reply to the end, failing if the model goes quiet
+    /// for the profile's timeout.
+    async fn read_stream(
+        &self,
+        mut response: reqwest::Response,
+        connection: &Connection,
+        idle: Duration,
+        run_id: Option<Uuid>,
+    ) -> Result<Value, Failure> {
+        let profile = &connection.profile;
+        use super::stream::{stream_error, ChatStream, ResponsesStream, SseParser};
+        let mut parser = SseParser::default();
+        let mut chat = ChatStream::default();
+        let mut responses = ResponsesStream::default();
+        let mut pending = Vec::new();
+        'read: loop {
+            let chunk = tokio::time::timeout(idle, response.chunk())
+                .await
+                .map_err(|_| Failure::transient(format!("The model went quiet for {} s mid-answer.", profile.timeout_seconds)))?
+                .map_err(|e| Failure::transient(format!("Couldn't read the model response: {e}")))?;
+            let Some(chunk) = chunk else { break };
+            // A multi-byte character may be split between chunks.
+            pending.extend_from_slice(&chunk);
+            let valid = match std::str::from_utf8(&pending) {
+                Ok(_) => pending.len(),
+                Err(e) => e.valid_up_to(),
+            };
+            let text = String::from_utf8_lossy(&pending[..valid]).into_owned();
+            pending.drain(..valid);
+            for (_, data) in parser.push(&text) {
+                if data.trim() == "[DONE]" {
+                    break 'read;
+                }
+                let Ok(event) = serde_json::from_str::<Value>(&data) else { continue };
+                if let Some(message) = stream_error(&event) {
+                    let mut message = redact_api_key(&message, &connection.api_key);
+                    for (_, value) in &connection.extra_headers {
+                        message = redact_api_key(&message, value);
+                    }
+                    return Err(Failure::fatal(format!("The model endpoint reported: {message}")));
+                }
+                let live = match profile.api_style {
+                    ApiStyle::ChatCompletions => {
+                        chat.apply(&event);
+                        chat.live()
+                    }
+                    ApiStyle::Responses => {
+                        responses.apply(&event);
+                        responses.live()
+                    }
+                };
+                if let (Some(id), Ok(mut store)) = (run_id, self.live.lock()) {
+                    store.insert(id, live);
+                }
+            }
+        }
+        match profile.api_style {
+            ApiStyle::ChatCompletions => Ok(chat.finish()),
+            ApiStyle::Responses => responses
+                .finish()
+                .map(|r| super::responses::reply(&r))
+                .ok_or_else(|| Failure::transient("The model's stream ended before the response was complete.")),
+        }
+    }
+
     pub(super) fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
         let status = if response.is_some() {
             "completed"
@@ -1204,6 +1301,9 @@ impl ModelService {
                 ],
             )
         });
+        if let Ok(mut live) = self.live.lock() {
+            live.remove(&id);
+        }
         self.announce_run(id);
     }
 
@@ -1525,6 +1625,7 @@ fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ModelProfile> {
         } else {
             ApiStyle::ChatCompletions
         },
+        stream: r.get(13)?,
     })
 }
 
@@ -1609,6 +1710,7 @@ fn checked_settings(settings: &ModelProfileSettings) -> Result<ModelProfileSetti
         input_price_per_million: settings.input_price_per_million,
         output_price_per_million: settings.output_price_per_million,
         api_style: settings.api_style,
+        stream: settings.stream,
     })
 }
 
@@ -1645,6 +1747,7 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AiRun> {
         total_tokens: r.get::<_, Option<i64>>(11)?.map(|v| v as u64),
         cost_usd: r.get(12)?,
         events: vec![],
+        live_text: None,
     })
 }
 

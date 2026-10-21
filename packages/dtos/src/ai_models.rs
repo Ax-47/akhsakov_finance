@@ -51,6 +51,9 @@ pub struct ModelProfile {
     pub capabilities: Option<ModelCapabilities>,
     #[serde(default)]
     pub api_style: ApiStyle,
+    /// Ask for replies as a stream, shown live while the model answers.
+    #[serde(default)]
+    pub stream: bool,
 }
 
 /// How a profile talks to its endpoint.
@@ -169,6 +172,8 @@ pub struct ModelProfileSettings {
     pub output_price_per_million: Option<f64>,
     #[serde(default)]
     pub api_style: ApiStyle,
+    #[serde(default)]
+    pub stream: bool,
 }
 
 impl Default for ModelProfileSettings {
@@ -181,6 +186,7 @@ impl Default for ModelProfileSettings {
             input_price_per_million: None,
             output_price_per_million: None,
             api_style: ApiStyle::ChatCompletions,
+            stream: false,
         }
     }
 }
@@ -325,6 +331,10 @@ pub struct AiRun {
     #[serde(default)]
     pub cost_usd: Option<f64>,
     pub events: Vec<AiRunEvent>,
+    /// While a streamed run is answering: the text so far and the tools
+    /// it is calling.
+    #[serde(default)]
+    pub live_text: Option<String>,
 }
 
 /// Tokens and estimated cost over the last 7 and 30 days and all time,
