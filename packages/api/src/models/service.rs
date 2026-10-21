@@ -2,7 +2,7 @@ use crate::mcp::services::tools::FrozenMarket;
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
 use dtos::{
     ai_models::{
-        AiRun, AiRunEvent, AiRunStatus, ModelProfile, ModelProfileSettings, NewAiTrader,
+        AiRun, AiRunEvent, AiRunStatus, ModelCapabilities, ModelProfile, ModelProfileSettings, NewAiTrader,
         TraderConfig, TraderMemory, MAX_EXTRA_HEADERS, MAX_MODEL_TIMEOUT_SECONDS,
         MIN_MODEL_TIMEOUT_SECONDS, MODEL_RETRY_EVENT,
     },
@@ -76,7 +76,7 @@ struct Connection {
 /// LEFT JOIN ai_model_secrets s`.
 const PROFILE_COLUMNS: &str = "p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL,
      p.timeout_seconds, p.max_tokens, p.key_header, COALESCE(s.extra_headers, '[]'),
-     p.input_price, p.output_price";
+     p.input_price, p.output_price, p.capabilities";
 
 #[derive(Clone)]
 pub(super) struct RaceRunContext {
@@ -249,7 +249,9 @@ impl ModelService {
                 tx.execute(
                     "INSERT INTO ai_model_profiles (id, name, base_url, model) VALUES (?1, ?2, ?3, ?4)
                      ON CONFLICT(id) DO UPDATE SET name=excluded.name, base_url=excluded.base_url,
-                     model=excluded.model, updated_at=datetime('now')",
+                     model=excluded.model, updated_at=datetime('now'),
+                     capabilities = CASE WHEN base_url = excluded.base_url AND model = excluded.model
+                                    THEN capabilities END",
                     params![id.to_string(), name, base_url, model],
                 )?;
                 if let Some(settings) = &settings {
@@ -306,29 +308,77 @@ impl ModelService {
         Ok(())
     }
 
-    pub async fn test_profile(&self, id: Uuid) -> Result<(), ServiceError> {
+    /// Asks the model to call a tool twice at once, then to call it when
+    /// told to, and keeps what it did with the profile.
+    pub async fn test_profile(&self, id: Uuid) -> Result<ModelCapabilities, ServiceError> {
         let connection = self.connection(id)?;
-        let body = json!({
-            "model": connection.profile.model,
-            "messages": [{"role":"user","content":"Call the connection_test tool once."}],
-            "tools": [{"type":"function","function":{
-                "name":"connection_test",
-                "description":"Confirms tool calling works.",
-                "parameters":{"type":"object","properties":{}}
-            }}],
-            "tool_choice": {"type":"function","function":{"name":"connection_test"}}
-        });
-        let response = self.request(&connection, &body, None).await?;
-        let called = response["choices"][0]["message"]["tool_calls"]
-            .as_array()
-            .is_some_and(|calls| {
-                calls
-                    .iter()
-                    .any(|c| c["function"]["name"] == "connection_test")
-            });
-        if !called {
+        let tool = json!({"type":"function","function":{
+            "name":"get_price",
+            "description":"Looks up one stock's latest price.",
+            "parameters":{"type":"object","properties":{"ticker":{"type":"string"}},"required":["ticker"]}
+        }});
+        let ask = |content: &str, choice: Value| {
+            json!({
+                "model": connection.profile.model,
+                "messages": [{"role":"user","content":content}],
+                "tools": [tool.clone()],
+                "tool_choice": choice
+            })
+        };
+        let calls = |response: &Value| {
+            let mut message = response["choices"][0]["message"].clone();
+            normalize_message(&mut message);
+            message["tool_calls"].as_array().cloned().unwrap_or_default()
+        };
+        let auto = self
+            .request(
+                &connection,
+                &ask("Look up the prices of NVDA and MSFT with get_price: one call for each, both at once.", json!("auto")),
+                None,
+            )
+            .await?;
+        let chosen = calls(&auto);
+        let forced = match self
+            .request(
+                &connection,
+                &ask("What is NVDA trading at?", json!({"type":"function","function":{"name":"get_price"}})),
+                None,
+            )
+            .await
+        {
+            Ok(response) => calls(&response),
+            Err(_) => vec![],
+        };
+        let all: Vec<&Value> = chosen.iter().chain(forced.iter()).collect();
+        let capabilities = ModelCapabilities {
+            tool_calls: !all.is_empty(),
+            json_arguments: !all.is_empty()
+                && all.iter().all(|c| {
+                    c["function"]["arguments"]
+                        .as_str()
+                        .and_then(|a| serde_json::from_str::<Value>(a).ok())
+                        .is_some_and(|v| v.is_object())
+                }),
+            parallel_tool_calls: chosen.len() >= 2,
+            tool_choice: forced.iter().any(|c| c["function"]["name"] == "get_price"),
+            tested_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        };
+        self.db
+            .with(|c| {
+                c.execute(
+                    "UPDATE ai_model_profiles SET capabilities = ?2 WHERE id = ?1",
+                    params![id.to_string(), serde_json::to_string(&capabilities).unwrap_or_default()],
+                )
+            })
+            .map_err(storage)?;
+        Ok(capabilities)
+    }
+
+    /// A model that was tested and called no tool can't trade.
+    fn ensure_can_trade(&self, profile_id: Uuid) -> Result<(), ServiceError> {
+        if self.profile(profile_id)?.capabilities.is_some_and(|c| !c.tool_calls) {
             return Err(invalid(
-                "The endpoint answered, but the configured model did not return a tool call.",
+                "This model didn't call tools when its connection was tested, so it can't run an AI trader. Choose another model, or test this one again.",
             ));
         }
         Ok(())
@@ -412,7 +462,7 @@ impl ModelService {
             ));
         }
         if let Some(id) = config.profile_id {
-            self.profile(id)?;
+            self.ensure_can_trade(id)?;
         }
         if let Some(id) = config.mcp_connection_id {
             self.check_mcp_driver(id, config.portfolio_id)?;
@@ -633,6 +683,7 @@ impl ModelService {
                 )));
             }
         }
+        self.ensure_can_trade(profile_id)?;
         let memory = self.memory(portfolio_id)?;
         let connection = self.connection(profile_id)?;
         let run_id = Uuid::new_v4();
@@ -813,6 +864,10 @@ impl ModelService {
                 )
                 .await?;
             usage_add(&usage, &response["usage"]);
+            let mut response = response;
+            if let Some(message) = response.pointer_mut("/choices/0/message") {
+                normalize_message(message);
+            }
             if let Some(limit) = config.max_cost_per_run {
                 if let Some(spent) = usage_snapshot(&usage).cost(&connection.profile) {
                     if spent > limit {
@@ -1449,6 +1504,9 @@ fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ModelProfile> {
         extra_header_names: parse_headers(&headers).into_iter().map(|(name, _)| name).collect(),
         input_price_per_million: r.get(9)?,
         output_price_per_million: r.get(10)?,
+        capabilities: r
+            .get::<_, Option<String>>(11)?
+            .and_then(|json| serde_json::from_str(&json).ok()),
     })
 }
 
@@ -1569,6 +1627,37 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AiRun> {
         cost_usd: r.get(12)?,
         events: vec![],
     })
+}
+
+/// Puts an assistant message in the one shape the rest of the code reads,
+/// whatever the provider sent: every tool call has an id, the type
+/// `function`, and arguments as a JSON string (some providers send an
+/// object, an empty string or nothing).
+fn normalize_message(message: &mut Value) {
+    let Some(calls) = message.get_mut("tool_calls").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (index, call) in calls.iter_mut().enumerate() {
+        if !call.is_object() {
+            *call = json!({});
+        }
+        if !call["id"].as_str().is_some_and(|id| !id.is_empty()) {
+            call["id"] = json!(format!("call_{index}"));
+        }
+        call["type"] = json!("function");
+        if !call["function"].is_object() {
+            call["function"] = json!({});
+        }
+        let arguments = match &call["function"]["arguments"] {
+            Value::String(text) if !text.trim().is_empty() => text.clone(),
+            Value::Object(_) | Value::Array(_) => call["function"]["arguments"].to_string(),
+            _ => "{}".to_string(),
+        };
+        call["function"]["arguments"] = json!(arguments);
+        if !call["function"]["name"].is_string() {
+            call["function"]["name"] = json!("");
+        }
+    }
 }
 
 fn tool_accepts_portfolio(name: &str) -> bool {

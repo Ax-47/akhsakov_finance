@@ -3,7 +3,8 @@
 use dioxus::prelude::*;
 use dtos::{
     ai_models::{
-        AiNotifyLevel, AiRace, AiRaceRun, AiRun, AiStopState, AiUsageRow, ModelProfile, ModelProfileSettings, NewAiRace,
+        AiNotifyLevel, AiRace, AiRaceRun, AiRun, AiStopState, AiUsageRow, ModelCapabilities, ModelProfile,
+        ModelProfileSettings, NewAiRace,
         NewAiTrader, TraderConfig, TraderMemory, TraderSchedule,
     },
     ai_portfolio::AiPortfolioInfo,
@@ -82,7 +83,7 @@ pub async fn delete_model_profile(id: Uuid) -> Result<(), ServerFnError> {
 }
 
 #[post("/api/models/profiles/test", service: Extension<ModelService>)]
-pub async fn test_model_profile(id: Uuid) -> Result<(), ServerFnError> {
+pub async fn test_model_profile(id: Uuid) -> Result<ModelCapabilities, ServerFnError> {
     Ok(service.test_profile(id).await?)
 }
 
