@@ -14,7 +14,7 @@ use crate::{
 };
 use api::quote::quote::get_charts;
 use dioxus::prelude::*;
-use dtos::insights::{backtest, BacktestPlan, BacktestResult, Fees};
+use dtos::insights::{backtest, BacktestPlan, BacktestResult, Fees, Rebalance};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
@@ -51,6 +51,40 @@ impl FeeInputs {
             (Some(r), Some(flat), Some(yearly)) => Ok(Fees { rate: r, per_trade: flat / rate, yearly }),
             _ => Err(tr("Fees are zero or more, and percentages at most 10%").into()),
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum RebalanceChoice {
+    Never,
+    Yearly,
+    Quarterly,
+    Drift,
+}
+
+impl RebalanceChoice {
+    const ALL: [Self; 4] = [Self::Never, Self::Yearly, Self::Quarterly, Self::Drift];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Never => tr("Off"),
+            Self::Yearly => tr("Yearly"),
+            Self::Quarterly => tr("Quarterly"),
+            Self::Drift => tr("When off target"),
+        }
+    }
+
+    /// `band` is the drift allowed, in percentage points, as typed.
+    fn plan(self, band: &str) -> Result<Rebalance, String> {
+        Ok(match self {
+            Self::Never => Rebalance::Never,
+            Self::Yearly => Rebalance::Every(12),
+            Self::Quarterly => Rebalance::Every(3),
+            Self::Drift => {
+                let band = band.trim().parse::<f64>().ok().filter(|b| *b > 0.0 && *b < 100.0);
+                Rebalance::Drift(band.ok_or_else(|| tr("Enter how far off target to allow, between 0 and 100 points").to_string())? / 100.0)
+            }
+        })
     }
 }
 
@@ -116,7 +150,8 @@ pub fn BacktestPage() -> Element {
     let mut initial = use_signal(move || format!("{:.0}", 10_000.0 * rate));
     let mut monthly = use_signal(move || format!("{:.0}", 500.0 * rate));
     let mut years = use_signal(|| Years::Five);
-    let mut rebalance = use_signal(|| true);
+    let mut rebalance = use_signal(|| RebalanceChoice::Yearly);
+    let mut drift = use_signal(|| "5".to_string());
     let mut fees = use_signal(|| FeeInputs { rate: "0".into(), per_trade: "0".into(), yearly: "0".into() });
     let mut outcome = use_signal(|| None::<Result<Outcome, String>>);
     let mut running = use_signal(|| false);
@@ -125,16 +160,19 @@ pub fn BacktestPage() -> Element {
 
     let run = move |_| async move {
         running.set(true);
-        let result = simulate(
-            assets(),
-            &initial(),
-            &monthly(),
-            years(),
-            rebalance(),
-            fees(),
-            settings.benchmark(),
-        )
-        .await;
+        let result = match rebalance().plan(&drift()) {
+            Ok(rebalance) => simulate(
+                assets(),
+                &initial(),
+                &monthly(),
+                years(),
+                rebalance,
+                fees(),
+                settings.benchmark(),
+            )
+            .await,
+            Err(message) => Err(message),
+        };
         outcome.set(Some(result));
         running.set(false);
     };
@@ -221,9 +259,17 @@ pub fn BacktestPage() -> Element {
                                 }
                             }
                         }
-                        label { class: "flex items-center gap-2 text-sm text-ctp-subtext1 cursor-pointer",
-                            input { r#type: "checkbox", checked: rebalance(), onchange: move |e| rebalance.set(e.checked()) }
-                            {tr("Rebalance to the weights once a year")}
+                        Field { label: tr("Rebalance to the weights"),
+                            Segmented {
+                                for choice in RebalanceChoice::ALL {
+                                    ToggleButton { key: "{choice.label()}", label: choice.label(), active: rebalance() == choice, onclick: move |_| rebalance.set(choice) }
+                                }
+                            }
+                        }
+                        if rebalance() == RebalanceChoice::Drift {
+                            Field { label: tr("When a weight is off by (percentage points)"),
+                                input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{drift}", oninput: move |e| drift.set(e.value()) }
+                            }
                         }
                         details {
                             summary { class: "cursor-pointer text-sm text-ctp-subtext1", {tr("Fees")} }
@@ -341,6 +387,10 @@ fn Results(outcome: Outcome) -> Element {
             } else {
                 {tr("Prices include dividends, reinvested; fees and taxes aren't counted.")}
             }
+            if mix.rebalances > 0 {
+                " "
+                {crate::i18n::trf("Rebalanced {} times.", &[&mix.rebalances])}
+            }
         }
         div { class: "mt-5 motion-safe:animate-rise",
             Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| tr("Value ÷ amount invested so far").into()),
@@ -358,7 +408,7 @@ async fn simulate(
     initial: &str,
     monthly: &str,
     years: Years,
-    rebalance: bool,
+    rebalance: Rebalance,
     fees: FeeInputs,
     benchmark: TickerSymbol,
 ) -> Result<Outcome, String> {
@@ -432,7 +482,7 @@ async fn simulate(
         weights: picked.iter().map(|(_, w)| *w).collect(),
         initial,
         contribution: monthly,
-        rebalance_yearly: rebalance,
+        rebalance,
         fees,
     };
     let mix = backtest(&dates, &prices, &plan);
@@ -459,6 +509,14 @@ mod tests {
 
     fn inputs(rate: &str, per_trade: &str, yearly: &str) -> FeeInputs {
         FeeInputs { rate: rate.into(), per_trade: per_trade.into(), yearly: yearly.into() }
+    }
+
+    #[test]
+    fn reads_rebalance_choices() {
+        assert_eq!(RebalanceChoice::Quarterly.plan("x"), Ok(Rebalance::Every(3)));
+        assert_eq!(RebalanceChoice::Drift.plan(" 5 "), Ok(Rebalance::Drift(0.05)));
+        assert!(RebalanceChoice::Drift.plan("0").is_err());
+        assert!(RebalanceChoice::Drift.plan("").is_err());
     }
 
     #[test]

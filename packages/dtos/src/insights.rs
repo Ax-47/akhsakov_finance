@@ -174,10 +174,21 @@ pub struct BacktestPlan {
     pub initial: f64,
     /// Added at every step after the first.
     pub contribution: f64,
-    /// Reset to the target weights every 12 steps (once a year for monthly
-    /// prices).
-    pub rebalance_yearly: bool,
+    pub rebalance: Rebalance,
     pub fees: Fees,
+}
+
+/// When holdings are reset to the target weights.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Rebalance {
+    #[default]
+    Never,
+    /// Every this many steps: 12 is yearly and 3 quarterly for monthly
+    /// prices.
+    Every(usize),
+    /// Whenever an asset's share is further than this from its target, in
+    /// fractions (0.05 = 5 percentage points).
+    Drift(f64),
 }
 
 /// What investing costs, in the same money as the plan's amounts.
@@ -216,6 +227,8 @@ pub struct BacktestResult {
     pub worst_year: Option<(String, f64)>,
     /// Everything [`Fees`] took, in the same money as the plan's amounts.
     pub fees_paid: f64,
+    /// How many times holdings were reset to the target weights.
+    pub rebalances: usize,
 }
 
 impl BacktestResult {
@@ -341,6 +354,17 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
 
     let mut invested = 0.0;
     let mut fees_paid = 0.0;
+    let mut rebalances = 0;
+    // Whether any asset's share is more than `band` from its target.
+    let drifted = |units: &[f64], t: usize, band: f64| -> bool {
+        let (live, total_w) = live(t);
+        let total = value_at(units, t);
+        total > 0.0
+            && live.iter().any(|&a| {
+                let share = units[a] * prices[a][t].unwrap() / total;
+                (share - plan.weights[a] / total_w).abs() > band
+            })
+    };
     let mut flows: Vec<(String, f64)> = Vec::new();
     let mut points = Vec::with_capacity(n);
     let (mut index, mut peak, mut max_dd) = (1.0_f64, 1.0_f64, 0.0_f64);
@@ -375,8 +399,16 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
             continue;
         }
         index_points.push((dates[t].clone(), index));
-        if plan.rebalance_yearly && t > started.unwrap() && (t - started.unwrap()) % 12 == 0 {
+        let since = t - started.unwrap();
+        let due = since > 0
+            && match plan.rebalance {
+                Rebalance::Never => false,
+                Rebalance::Every(steps) => steps > 0 && since % steps == 0,
+                Rebalance::Drift(band) => drifted(&units, t, band),
+            };
+        if due {
             fees_paid += rebalance(&mut units, t);
+            rebalances += 1;
         }
         points.push((dates[t].clone(), value_at(&units, t), invested));
     }
@@ -393,6 +425,7 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
     BacktestResult {
         recovery_months: recovery_steps(&index_points),
         fees_paid,
+        rebalances,
         volatility,
         best_year,
         worst_year,
@@ -428,7 +461,7 @@ mod backtest_stats_tests {
                 prices.push(Some(p));
             }
         }
-        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, ..Default::default() };
         let r = backtest(&dates, &[prices], &plan);
         let (best, worst) = (r.best_year.clone().unwrap(), r.worst_year.clone().unwrap());
         assert_eq!(best.0, "2025");
@@ -444,7 +477,7 @@ mod backtest_stats_tests {
     #[test]
     fn time_to_recover_from_the_worst_fall() {
         let dates: Vec<String> = (1..=6).map(|m| format!("2026-{m:02}-01")).collect();
-        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, ..Default::default() };
         let run = |p: &[f64]| backtest(&dates[..p.len()], &[p.iter().copied().map(Some).collect()], &plan);
         // Halves, then is back at the old high three months after it.
         let r = run(&[10.0, 5.0, 8.0, 10.0, 12.0, 12.0]);
@@ -465,7 +498,7 @@ mod backtest_stats_tests {
     #[test]
     fn too_short_for_stats() {
         let dates: Vec<String> = (1..=2).map(|m| format!("2026-{m:02}-01")).collect();
-        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, ..Default::default() };
         let r = backtest(&dates, &[vec![Some(1.0), Some(1.1)]], &plan);
         assert_eq!((r.volatility, r.best_year, r.worst_year), (None, None, None));
     }
@@ -528,7 +561,7 @@ mod fee_tests {
         let plan = BacktestPlan {
             weights: vec![0.5, 0.5],
             initial: 100.0,
-            rebalance_yearly: true,
+            rebalance: Rebalance::Every(12),
             fees: Fees { rate: 0.01, ..Default::default() },
             ..Default::default()
         };
@@ -635,7 +668,7 @@ mod tests {
         // +1% a month for two years.
         let dates = months(25);
         let prices = vec![(0..25).map(|i| Some(100.0 * 1.01f64.powi(i))).collect()];
-        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, ..Default::default() };
         let r = backtest(&dates, &prices, &plan);
         assert!((r.final_value - 1000.0 * 1.01f64.powi(24)).abs() < 1e-6);
         assert_eq!(r.invested, 1000.0);
@@ -652,7 +685,7 @@ mod tests {
             vec![Some(10.0), Some(5.0), Some(10.0), Some(10.0)],
             vec![None, None, Some(20.0), Some(20.0)],
         ];
-        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 100.0, rebalance_yearly: false, ..Default::default() };
+        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 100.0, ..Default::default() };
         let r = backtest(&dates, &prices, &plan);
         assert_eq!(r.invested, 400.0);
         assert!((r.max_drawdown + 0.5).abs() < 1e-9, "{}", r.max_drawdown);
@@ -662,13 +695,36 @@ mod tests {
     }
 
     #[test]
+    fn quarterly_and_drift_rebalancing() {
+        // A rises 10% a month; B is flat.
+        let dates = months(13);
+        let prices = vec![(0..13).map(|i| Some(10.0 * 1.1f64.powi(i))).collect(), vec![Some(10.0); 13]];
+        let plan = |rebalance| BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, rebalance, ..Default::default() };
+        let quarterly = backtest(&dates, &prices, &plan(Rebalance::Every(3)));
+        assert_eq!(quarterly.rebalances, 4);
+        let yearly = backtest(&dates, &prices, &plan(Rebalance::Every(12)));
+        assert_eq!(yearly.rebalances, 1);
+        // Selling the riser to top up the flat one costs growth here.
+        assert!(quarterly.final_value < yearly.final_value);
+        // A's share passes 55% in month 3 (57.1%), so a 5-point band trades
+        // then, and again each time it drifts that far: months 6, 9 and 12.
+        let drift = backtest(&dates, &prices, &plan(Rebalance::Drift(0.05)));
+        assert_eq!(drift.rebalances, 4);
+        let never = backtest(&dates, &prices, &plan(Rebalance::Never));
+        assert_eq!(never.rebalances, 0);
+        let wide = backtest(&dates, &prices, &plan(Rebalance::Drift(0.5)));
+        assert_eq!(wide.rebalances, 0);
+        assert_eq!(wide.final_value, never.final_value);
+    }
+
+    #[test]
     fn yearly_rebalance_restores_weights() {
         let dates = months(13);
         let prices = vec![
             (0..13).map(|i| Some(if i == 12 { 30.0 } else { 10.0 })).collect(),
             vec![Some(10.0); 13],
         ];
-        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 0.0, rebalance_yearly: true, ..Default::default() };
+        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 0.0, rebalance: Rebalance::Every(12), ..Default::default() };
         let r = backtest(&dates, &prices, &plan);
         // Before: 5 A × 30 + 5 B × 10 = 200, rebalanced 100 / 100.
         assert!((r.final_value - 200.0).abs() < 1e-9);
