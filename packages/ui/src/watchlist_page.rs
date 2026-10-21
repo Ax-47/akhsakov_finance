@@ -534,7 +534,7 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
                     }
                     span { class: "flex-1 text-sm text-ctp-text", "{a.describe()}" }
                     if let Some(when) = &a.triggered_at {
-                        span { class: "text-xs text-ctp-overlay1", "{when}" }
+                        span { class: "text-xs text-ctp-overlay1", {crate::format::fmt_when(when)} }
                     }
                     crate::components::card::DeleteButton {
                         title: tr("Delete alert"),

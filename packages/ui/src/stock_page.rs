@@ -381,7 +381,7 @@ fn NotesCard(ticker: TickerSymbol) -> Element {
     rsx! {
         Card {
             title: tr("Your notes"),
-            subtitle: updated.map_or(tr("Why you own it, what to watch for").to_string(), |u| crate::i18n::trf("Last saved {}", &[&u])),
+            subtitle: updated.map_or(tr("Why you own it, what to watch for").to_string(), |u| crate::i18n::trf("Last saved {}", &[&crate::format::fmt_when(&u)])),
             div { class: "grid gap-3",
                 textarea {
                     class: "{INPUT} min-h-28 resize-y",

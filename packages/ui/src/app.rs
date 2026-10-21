@@ -195,6 +195,7 @@ pub fn App(children: Element) -> Element {
     crate::theme::use_theme_init();
     crate::perf::use_effects_init();
     crate::i18n::use_language_init();
+    crate::format::use_time_zone_init();
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         crate::MotionStyles {}

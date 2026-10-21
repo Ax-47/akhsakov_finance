@@ -304,7 +304,7 @@ fn RaceCard(
                     summary { class: "cursor-pointer text-xs text-ctp-subtext0", {tr("Race history")} }
                     div { class: "mt-2 grid gap-1 text-xs text-ctp-overlay1",
                         for event in race.audit.clone() {
-                            div { key: "{event.sequence}", class: "break-words", "{event.at} · {event.detail}" }
+                            div { key: "{event.sequence}", class: "break-words", {format!("{} · {}", crate::format::fmt_when(&event.at), event.detail)} }
                         }
                     }
                 }

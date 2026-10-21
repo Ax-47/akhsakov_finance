@@ -72,7 +72,7 @@ pub fn NotificationsCard() -> Element {
                             div { class: "text-xs text-ctp-subtext0", "{n.body}" }
                         }
                     }
-                    span { class: "shrink-0 text-xs tabular-nums text-ctp-overlay1", "{n.created_at} UTC" }
+                    span { class: "shrink-0 text-xs tabular-nums text-ctp-overlay1", {crate::format::fmt_when(&n.created_at)} }
                 }
             }
         }
