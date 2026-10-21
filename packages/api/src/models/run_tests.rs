@@ -1089,3 +1089,121 @@ async fn a_responses_style_profile_runs_a_whole_trade() {
     mock.script("responder", [call("p1", "get_price", json!({"ticker": "NVDA"})), call("p2", "get_price", json!({"ticker": "NVDA"}))]);
     assert!(service.test_profile(id).await.unwrap().tool_calls);
 }
+
+/// Chat Completions stream chunks.
+fn delta(content: Value) -> Value {
+    json!({"choices": [{"index": 0, "delta": content}]})
+}
+
+#[tokio::test]
+async fn streamed_replies_are_put_together_and_shown_live() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "streamer").await;
+    configure(&service, &mock, portfolio, ModelProfileSettings { stream: true, ..Default::default() });
+    let usage = json!({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}});
+    mock.script(
+        "streamer",
+        [
+            // An order whose call arrives in three pieces.
+            Reply::stream([
+                delta(json!({"role": "assistant", "tool_calls": [{"index": 0, "id": "c1", "type": "function", "function": {"name": "place_order", "arguments": ""}}]})),
+                delta(json!({"tool_calls": [{"index": 0, "function": {"arguments": "{\"ticker\":\"NVDA\",\"side\":\"buy\","}}]})),
+                delta(json!({"tool_calls": [{"index": 0, "function": {"arguments": "\"shares\":1,\"reason\":\"Streamed.\"}"}}]})),
+                usage.clone(),
+            ]),
+            // A slow answer, so the run can be watched mid-way.
+            Reply::paced(
+                Duration::from_millis(300),
+                [delta(json!({"content": "Bought "})), delta(json!({"content": "one NVDA."})), usage.clone()],
+            ),
+            Reply::stream([delta(json!({"content": "{}"})), usage]),
+        ],
+    );
+    let started = service.start_run(portfolio).await.unwrap();
+    let mut seen_live = None;
+    for _ in 0..200 {
+        let now = service.run(started.id).unwrap();
+        if now.status != AiRunStatus::Running {
+            break;
+        }
+        if let Some(text) = now.live_text.filter(|t| t.starts_with("Bought")) {
+            seen_live = Some(text);
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let run = settle(&service, started).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert_eq!(run.final_response.as_deref(), Some("Bought one NVDA."));
+    assert!(seen_live.is_some(), "the answer was visible while it streamed");
+    assert_eq!(run.live_text, None, "nothing live once it's done");
+    assert!(run.events.iter().any(|e| e.tool == "place_order" && e.success), "{:?}", run.events);
+    assert_eq!(run.total_tokens, Some(45));
+    let sent = &mock.received("streamer")[0].body;
+    assert_eq!(sent["stream"], true);
+    assert_eq!(sent["stream_options"]["include_usage"], true);
+}
+
+#[tokio::test]
+async fn a_stream_that_goes_quiet_is_retried_and_a_stream_error_fails() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "quiet").await;
+    configure(&service, &mock, portfolio, ModelProfileSettings { stream: true, timeout_seconds: 1, ..Default::default() });
+    // The first stream stops talking for longer than the timeout; the retry
+    // is slow overall but never silent for a whole second.
+    mock.script(
+        "quiet",
+        [
+            Reply::Stream(vec![
+                (Duration::ZERO, delta(json!({"content": "Thinking"})).to_string()),
+                (Duration::from_secs(3), delta(json!({"content": " more."})).to_string()),
+            ]),
+            Reply::paced(
+                Duration::from_millis(400),
+                [delta(json!({"content": "Slow "})), delta(json!({"content": "but "})), delta(json!({"content": "steady."}))],
+            ),
+            Reply::stream([delta(json!({"content": "{}"}))]),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert_eq!(run.final_response.as_deref(), Some("Slow but steady."));
+    let retried = retries(&run);
+    assert_eq!(retried.len(), 1);
+    assert!(retried[0].detail.starts_with("The model went quiet for 1 s mid-answer."), "{}", retried[0].detail);
+
+    mock.script("quiet", [Reply::stream([json!({"error": {"message": "Model overloaded."}})])]);
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(error(&run), "The model endpoint reported: Model overloaded.");
+}
+
+#[tokio::test]
+async fn a_responses_style_stream_reads_the_completed_response() {
+    use dtos::ai_models::ApiStyle;
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "rstream").await;
+    configure(&service, &mock, portfolio, ModelProfileSettings { stream: true, api_style: ApiStyle::Responses, ..Default::default() });
+    let completed = |output: Value| {
+        json!({"type": "response.completed", "response": {"output": output, "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}}})
+    };
+    mock.script(
+        "rstream",
+        [
+            Reply::stream([
+                json!({"type": "response.output_text.delta", "delta": "All "}),
+                json!({"type": "response.output_text.delta", "delta": "quiet."}),
+                completed(json!([{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "All quiet."}]}])),
+            ]),
+            Reply::stream([completed(json!([{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "{}"}]}]))]),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert_eq!(run.final_response.as_deref(), Some("All quiet."));
+    assert_eq!(run.total_tokens, Some(30));
+    let sent = &mock.received("rstream")[0].body;
+    assert_eq!(sent["stream"], true);
+    assert!(sent.get("stream_options").is_none());
+}

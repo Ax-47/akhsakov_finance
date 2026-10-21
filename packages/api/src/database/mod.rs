@@ -610,6 +610,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE ai_model_profiles ADD COLUMN capabilities TEXT;",
     // 25: whether a profile speaks Chat Completions or a Responses-style API
     "ALTER TABLE ai_model_profiles ADD COLUMN api_style TEXT NOT NULL DEFAULT 'chat_completions';",
+    // 26: whether a profile asks for streamed replies
+    "ALTER TABLE ai_model_profiles ADD COLUMN stream INTEGER NOT NULL DEFAULT 0;",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

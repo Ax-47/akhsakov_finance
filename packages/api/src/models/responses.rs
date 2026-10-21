@@ -69,6 +69,10 @@ pub(super) fn request(chat: &Value) -> Value {
     if let Some(max) = chat.get("max_tokens") {
         body.insert("max_output_tokens".into(), max.clone());
     }
+    // Usage arrives with the completed response; stream_options is chat's.
+    if let Some(stream) = chat.get("stream") {
+        body.insert("stream".into(), stream.clone());
+    }
     Value::Object(body)
 }
 

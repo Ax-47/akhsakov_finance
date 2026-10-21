@@ -31,6 +31,8 @@ pub(super) enum Reply {
     Delayed(Duration, Box<Reply>),
     /// The inner reply with this header added.
     Header(&'static str, String, Box<Reply>),
+    /// A server-sent event stream: each event's data, sent after its wait.
+    Stream(Vec<(Duration, String)>),
 }
 
 impl Reply {
@@ -78,6 +80,18 @@ impl Reply {
     /// The same reply, sent after `delay`.
     pub fn after(self, delay: Duration) -> Self {
         Self::Delayed(delay, Box::new(self))
+    }
+
+    /// Chat Completions chunks as a stream, then `[DONE]`.
+    pub fn stream(chunks: impl IntoIterator<Item = Value>) -> Self {
+        Self::paced(Duration::ZERO, chunks)
+    }
+
+    /// Like [`Self::stream`], waiting `gap` before each chunk.
+    pub fn paced(gap: Duration, chunks: impl IntoIterator<Item = Value>) -> Self {
+        let mut events: Vec<(Duration, String)> = chunks.into_iter().map(|c| (gap, c.to_string())).collect();
+        events.push((Duration::ZERO, "[DONE]".into()));
+        Self::Stream(events)
     }
 
     /// The same reply with a `name: value` header.
@@ -191,6 +205,18 @@ async fn chat(State(script): State<Script>, headers: HeaderMap, Json(body): Json
                 reply = *inner;
             }
             Reply::Ok(value) => break Json(value).into_response(),
+            Reply::Stream(events) => {
+                use futures::StreamExt;
+                let body = futures::stream::iter(events).then(|(wait, data)| async move {
+                    tokio::time::sleep(wait).await;
+                    Ok::<_, std::convert::Infallible>(format!("data: {data}\n\n"))
+                });
+                break (
+                    [("content-type", "text/event-stream")],
+                    dioxus::server::axum::body::Body::from_stream(body),
+                )
+                    .into_response();
+            }
             Reply::Raw(status, body) => {
                 let status = StatusCode::from_u16(status).expect("a valid status");
                 break (status, body).into_response();

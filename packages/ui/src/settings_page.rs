@@ -645,6 +645,7 @@ fn ModelProfilesCard() -> Element {
     let mut input_price = use_signal(String::new);
     let mut output_price = use_signal(String::new);
     let mut api_style = use_signal(ApiStyle::default);
+    let mut stream = use_signal(|| false);
     let mut status = use_signal(|| None::<Result<String, String>>);
     let reload = move || {
         spawn(async move {
@@ -671,11 +672,12 @@ fn ModelProfilesCard() -> Element {
         input_price.set(String::new());
         output_price.set(String::new());
         api_style.set(ApiStyle::default());
+        stream.set(false);
     };
     let save = move |_| async move {
         let key = (!api_key().trim().is_empty()).then(|| api_key());
         let settings = match profile_settings(&timeout(), &max_tokens(), &key_header(), &headers(), remove_headers(), &input_price(), &output_price()) {
-            Ok(settings) => ModelProfileSettings { api_style: api_style(), ..settings },
+            Ok(settings) => ModelProfileSettings { api_style: api_style(), stream: stream(), ..settings },
             Err(message) => return status.set(Some(Err(message))),
         };
         match api::save_model_profile(editing(), name(), base_url(), model(), key, settings).await {
@@ -736,6 +738,7 @@ fn ModelProfilesCard() -> Element {
                                         input_price.set(profile.input_price_per_million.map(|v| v.to_string()).unwrap_or_default());
                                         output_price.set(profile.output_price_per_million.map(|v| v.to_string()).unwrap_or_default());
                                         api_style.set(profile.api_style);
+                                        stream.set(profile.stream);
                                     },
                                 }
                                 crate::components::card::DeleteButton {
@@ -770,6 +773,10 @@ fn ModelProfilesCard() -> Element {
                         Field { label: tr("API key header"), input { class: INPUT, placeholder: "Authorization: Bearer", value: "{key_header}", oninput: move |e| key_header.set(e.value()) } }
                         Field { label: tr("Price per million input tokens (USD)"), input { class: INPUT, r#type: "number", min: "0", step: "any", placeholder: tr("Unknown"), value: "{input_price}", oninput: move |e| input_price.set(e.value()) } }
                         Field { label: tr("Price per million output tokens (USD)"), input { class: INPUT, r#type: "number", min: "0", step: "any", placeholder: tr("Unknown"), value: "{output_price}", oninput: move |e| output_price.set(e.value()) } }
+                        label { class: "flex items-center gap-2 text-sm text-ctp-text md:col-span-2",
+                            input { r#type: "checkbox", checked: stream(), onchange: move |e| stream.set(e.checked()) }
+                            {tr("Stream replies, to watch the answer as it's written. Turn off if the provider doesn't support it.")}
+                        }
                         Field { label: tr("Extra headers (one per line, Name: value)"),
                             textarea {
                                 class: "{INPUT} min-h-24 font-mono",
@@ -868,6 +875,7 @@ fn profile_settings(
         input_price_per_million,
         output_price_per_million,
         api_style: ApiStyle::default(),
+        stream: false,
     })
 }
 
@@ -891,6 +899,9 @@ fn profile_summary(profile: &ModelProfile) -> String {
     let mut parts = vec![trf("Timeout {} s", &[&profile.timeout_seconds])];
     if profile.api_style == ApiStyle::Responses {
         parts.push(tr("Responses API").to_string());
+    }
+    if profile.stream {
+        parts.push(tr("Streams replies").to_string());
     }
     if let Some(max) = profile.max_tokens {
         parts.push(trf("Max {} tokens", &[&max]));
@@ -1519,6 +1530,7 @@ fn AiPortfolioRow(info: AiPortfolioInfo, profiles: Vec<ModelProfile>, connection
                                     if let Some(cost) = run.cost_usd { " · ≈ {crate::ai_usage::cost_label(cost)}" }
                                 }
                             }
+                            if let Some(live) = run.live_text.clone() { p { class: "mt-2 break-words whitespace-pre-wrap text-ctp-sky", "{live}" } }
                             if let Some(text) = run.final_response { p { class: "mt-2 break-words whitespace-pre-wrap text-ctp-subtext0", "{text}" } }
                             if let Some(message) = run.error { p { class: "mt-2 break-words text-ctp-red", "{message}" } }
                         }

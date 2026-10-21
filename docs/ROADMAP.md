@@ -12,11 +12,8 @@ item 2–5 since Phase 1 was dropped.
 
 ## Priority order
 
-Work top to bottom. Done items are listed under their phase below.
-
-| # | Item | Issue |
-|---|---|---|
-| 1 | Streaming (item 11), now that both API styles exist | #51 |
+Every item below is done. New work gets an issue and a numbered row in a
+table here, worked top to bottom.
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -55,7 +52,7 @@ rather than adding a second notion of goal.
     the mandate, so the trader knows whether it is ahead or behind. Done
     (#57).
 
-## Phase 2: model compatibility
+## Phase 2: model compatibility (done)
 
 6. **Mock OpenAI-compatible server for integration tests**, covering a full run
    with tool calls. Every later item in this phase adds cases to it. Done
@@ -75,7 +72,8 @@ rather than adding a second notion of goal.
 10. **Responses-style APIs** for providers without Chat Completions. Done
     (#50): chosen per profile; an adapter translates requests and replies so
     the trader loop only knows the chat shape.
-11. **Streaming** responses, shown live in the run view. (#51)
+11. **Streaming** responses, shown live in the run view. Done (#51): a
+    per-profile switch, for both API styles; the timeout counts silence.
 
 ## Phase 3: memory across runs (done)
 
@@ -85,7 +83,7 @@ rather than adding a second notion of goal.
     oldest-first truncation.
 14. **Memory UI**: view, edit and clear a trader's memory.
 
-## Phase 4: automation
+## Phase 4: automation (done)
 
 15. **Scheduled runs** per portfolio, together with or after item 15a. Done
     (#52): every N hours on chosen weekdays, optionally only while the US or

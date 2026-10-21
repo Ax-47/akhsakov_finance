@@ -519,6 +519,9 @@ fn RoundRun(item: AiRaceRun) -> Element {
                 }
             }
             div { class: "mt-2 grid gap-2",
+                if let Some(live) = &run.live_text {
+                    p { class: "whitespace-pre-wrap break-words text-ctp-sky", "{live}" }
+                }
                 if let Some(summary) = &run.final_response {
                     p { class: "whitespace-pre-wrap break-words text-ctp-subtext1", "{summary}" }
                 }
