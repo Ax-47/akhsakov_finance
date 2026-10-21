@@ -192,6 +192,10 @@ pub struct BacktestResult {
     /// Largest peak-to-trough fall of the time-weighted index, as a
     /// negative fraction.
     pub max_drawdown: f64,
+    /// Steps (months, for monthly prices) from the peak before that fall
+    /// until the index was back at the peak; `None` if it never fell or
+    /// hasn't got back yet.
+    pub recovery_months: Option<usize>,
     /// Annualised standard deviation of the monthly time-weighted returns;
     /// `None` with fewer than three months.
     pub volatility: Option<f64>,
@@ -233,6 +237,31 @@ fn index_stats(index: &[(String, f64)]) -> (Option<f64>, Option<(String, f64)>, 
     let best = years.iter().cloned().max_by(|a, b| a.1.total_cmp(&b.1));
     let worst = years.iter().cloned().min_by(|a, b| a.1.total_cmp(&b.1));
     (volatility, best, worst)
+}
+
+/// Steps from the peak before the deepest fall of `index` until it first
+/// reached that peak again.
+fn recovery_steps(index: &[(String, f64)]) -> Option<usize> {
+    let mut peak = 0;
+    // (fall, peak position, trough position) of the deepest fall so far.
+    let mut worst = (0.0, 0, 0);
+    for (t, (_, v)) in index.iter().enumerate() {
+        if *v >= index[peak].1 {
+            peak = t;
+        }
+        let fall = v / index[peak].1 - 1.0;
+        if fall < worst.0 {
+            worst = (fall, peak, t);
+        }
+    }
+    let (fall, peak, trough) = worst;
+    if fall >= 0.0 {
+        return None;
+    }
+    index[trough..]
+        .iter()
+        .position(|(_, v)| *v >= index[peak].1)
+        .map(|i| trough + i - peak)
 }
 
 /// Simulates investing `plan` at each date. `prices[a][t]` is asset `a`'s
@@ -313,6 +342,7 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
     }
     let (volatility, best_year, worst_year) = index_stats(&index_points);
     BacktestResult {
+        recovery_months: recovery_steps(&index_points),
         volatility,
         best_year,
         worst_year,
@@ -359,6 +389,27 @@ mod backtest_stats_tests {
         assert!(vol > 0.0 && vol < 1.0, "{vol}");
         // Growth below the risk-free rate gives a negative Sharpe.
         assert!(r.sharpe(0.05).unwrap() < 0.0);
+    }
+
+    #[test]
+    fn time_to_recover_from_the_worst_fall() {
+        let dates: Vec<String> = (1..=6).map(|m| format!("2026-{m:02}-01")).collect();
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false };
+        let run = |p: &[f64]| backtest(&dates[..p.len()], &[p.iter().copied().map(Some).collect()], &plan);
+        // Halves, then is back at the old high three months after it.
+        let r = run(&[10.0, 5.0, 8.0, 10.0, 12.0, 12.0]);
+        assert!((r.max_drawdown + 0.5).abs() < 1e-9);
+        assert_eq!(r.recovery_months, Some(3));
+        // A smaller, later dip doesn't count: only the deepest fall does.
+        let r = run(&[10.0, 6.0, 11.0, 10.0, 11.0, 12.0]);
+        assert_eq!(r.recovery_months, Some(2));
+        // Still below the old high at the end.
+        let r = run(&[10.0, 5.0, 8.0]);
+        assert_eq!(r.recovery_months, None);
+        assert!(r.max_drawdown < 0.0);
+        // Never fell.
+        let r = run(&[10.0, 11.0, 12.0]);
+        assert_eq!((r.max_drawdown, r.recovery_months), (0.0, None));
     }
 
     #[test]

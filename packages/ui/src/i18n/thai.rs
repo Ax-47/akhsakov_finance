@@ -1267,4 +1267,6 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Responses", "Responses"),
     ("Responses API", "Responses API"),
     ("The trader gets this mandate and the portfolio's goals at the start of every run. Set goals on the portfolio's Plan tab.", "trader จะได้รับกรอบนี้และเป้าหมายของพอร์ตทุกครั้งที่เริ่มรัน ตั้งเป้าหมายได้ที่แท็บ Plan ของพอร์ต"),
+    ("Back to its peak after {} months", "กลับไปถึงจุดสูงสุดเดิมใน {} เดือน"),
+    ("Not back to its peak yet", "ยังไม่กลับไปถึงจุดสูงสุดเดิม"),
 ];
