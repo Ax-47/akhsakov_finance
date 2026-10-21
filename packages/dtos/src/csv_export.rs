@@ -1,7 +1,8 @@
-//! CSV export of transactions and holdings. The transactions format is the
-//! one `csv_import` reads, so an export can be imported again.
+//! CSV export of transactions, holdings and backtests. The transactions
+//! format is the one `csv_import` reads, so an export can be imported again.
 
-use crate::{position::Position, transaction::Transaction};
+use crate::{insights::BacktestResult, position::Position, transaction::Transaction};
+use std::collections::BTreeSet;
 
 /// `date,symbol,type,quantity,price,fee,currency,fx_to_usd,portfolio`,
 /// oldest first. Price and fee are in the trade's currency.
@@ -49,6 +50,29 @@ pub fn holdings_csv(positions: &[Position]) -> String {
     out
 }
 
+/// One row per month: `month`, then `<name> invested (USD)` and
+/// `<name> value (USD)` for each named result. A result with no point that
+/// month (it started later) leaves its cells empty.
+pub fn backtest_csv(results: &[(String, BacktestResult)]) -> String {
+    let mut out = String::from("month");
+    for (name, _) in results {
+        out.push_str(&format!(",{},{}", quote(&format!("{name} invested (USD)")), quote(&format!("{name} value (USD)"))));
+    }
+    out.push('\n');
+    let months: BTreeSet<&str> = results.iter().flat_map(|(_, r)| r.points.iter().map(|p| p.0.as_str())).collect();
+    for month in months {
+        out.push_str(month.get(..7).unwrap_or(month));
+        for (_, r) in results {
+            match r.points.iter().find(|p| p.0 == month) {
+                Some((_, value, invested)) => out.push_str(&format!(",{invested:.2},{value:.2}")),
+                None => out.push_str(",,"),
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Quotes a field if it contains a comma, quote or newline.
 fn quote(s: &str) -> String {
     if s.contains([',', '"', '\n']) {
@@ -61,6 +85,24 @@ fn quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backtest_rows_by_month() {
+        let result = |points: &[(&str, f64, f64)]| BacktestResult {
+            points: points.iter().map(|(d, v, i)| (d.to_string(), *v, *i)).collect(),
+            ..Default::default()
+        };
+        let csv = backtest_csv(&[
+            ("Mix 1".into(), result(&[("2026-01-01", 100.0, 100.0), ("2026-02-01", 212.346, 200.0)])),
+            ("Nasdaq, 100".into(), result(&[("2026-02-01", 101.0, 100.0)])),
+        ]);
+        assert_eq!(
+            csv,
+            "month,Mix 1 invested (USD),Mix 1 value (USD),\"Nasdaq, 100 invested (USD)\",\"Nasdaq, 100 value (USD)\"\n\
+             2026-01,100.00,100.00,,\n\
+             2026-02,200.00,212.35,100.00,101.00\n"
+        );
+    }
     use crate::csv_import::parse_transactions_csv;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
