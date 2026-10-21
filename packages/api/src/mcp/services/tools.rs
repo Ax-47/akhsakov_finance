@@ -566,6 +566,7 @@ impl Tools {
             "get_quote" => self.frozen_quote(args, market).await,
             "place_order" => self.frozen_order(args, market).await,
             "get_my_portfolio" => self.my_portfolio_at(args, Some(market), None, false).await,
+            "get_my_goals" => self.my_goals_at(args, None, Some(market)).await,
             _ => return self.call(name, args).await,
         })
     }
@@ -776,6 +777,11 @@ impl Tools {
     }
 
     async fn my_goals(&self, args: &Value, scope: Option<&[Uuid]>) -> ToolResult {
+        self.my_goals_at(args, scope, None).await
+    }
+
+    /// Goals valued at `market`'s frozen prices when given, as in a race round.
+    async fn my_goals_at(&self, args: &Value, scope: Option<&[Uuid]>, market: Option<&FrozenMarket>) -> ToolResult {
         let wanted = args.get("portfolio").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
         let mut allowed=self.trading.books().map_err(|e|e.to_string())?;
         if let Some(ids)=scope { allowed.retain(|b|ids.contains(&b.id)); }
@@ -790,7 +796,7 @@ impl Tools {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let mut portfolios = Vec::with_capacity(books.len());
         for book in &books {
-            let value = self.book_json(book, None).await["total_value"].as_f64().unwrap_or(0.0);
+            let value = self.book_json(book, market).await["total_value"].as_f64().unwrap_or(0.0);
             let mine: Vec<Value> = goals
                 .iter()
                 .filter(|g| g.portfolio_id == Some(book.id))
