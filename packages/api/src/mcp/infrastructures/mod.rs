@@ -125,6 +125,7 @@ pub struct QuotePrices(pub QuoteService);
 impl LivePrices for QuotePrices {
     async fn quote(&self, ticker: &TickerSymbol) -> Result<LiveQuote, String> {
         let q = self.0.native_quote(ticker.clone()).await.map_err(|e| e.to_string())?;
+        let hand_priced = self.0.hand_priced(ticker);
         let usd_per_unit = if q.currency == "USD" {
             rust_decimal::Decimal::ONE
         } else {
@@ -137,6 +138,7 @@ impl LivePrices for QuotePrices {
             usd_per_unit,
             timestamp: q.timestamp,
             stale: q.stale,
+            hand_priced,
         })
     }
 }

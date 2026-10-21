@@ -165,7 +165,7 @@ pub fn definitions() -> Value {
         {
             "name": "place_order",
             "title": "Buy or sell in your portfolio",
-            "description": "Buys or sells in one of your own portfolios (see get_my_portfolio) at the live price, with no fee, using that portfolio's cash. It can't trade in the user's portfolios. Give either `shares` (fractions allowed) or `amount_usd`; to sell everything, pass shares \"all\". The reason goes in the holding's thesis journal.",
+            "description": "Buys or sells in one of your own portfolios (see get_my_portfolio) at the live price, with no fee, using that portfolio's cash. It can't trade in the user's portfolios. Only assets with a market price can be traded: not cash, indices, currency pairs, or assets the user prices by hand (get_quote says `hand_priced`). Give either `shares` (fractions allowed) or `amount_usd`; to sell everything, pass shares \"all\". The reason goes in the holding's thesis journal.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -918,6 +918,7 @@ impl Tools {
             "change_pct": change,
             "as_of": chrono::DateTime::from_timestamp(q.timestamp, 0).map(|t| t.to_rfc3339()),
             "stale": q.stale,
+            "hand_priced": q.hand_priced,
         }))
     }
 
@@ -1334,6 +1335,9 @@ mod tests {
         assert!(broke.contains("Not enough cash"), "{broke}");
         assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"sell","shares":5,"reason":"x"})).await.unwrap_err().contains("only 2"));
         assert!(call(&s, "place_order", json!({"ticker":"OLD","side":"buy","shares":1,"reason":"x"})).await.is_err(), "stale price");
+        let fund = call(&s, "place_order", json!({"ticker":"KFSSF","side":"buy","shares":1,"reason":"x"})).await.unwrap_err();
+        assert!(fund.contains("priced by hand"), "{fund}");
+        assert_eq!(call(&s, "get_quote", json!({"ticker":"KFSSF"})).await.unwrap()["hand_priced"], true);
         assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1})).await.is_err(), "needs a reason");
         assert!(call(&s, "place_order", json!({"ticker":"NVDA","side":"buy","shares":1,"amount_usd":5,"reason":"x"})).await.is_err());
         assert!(call(&s, "place_order", json!({"ticker":"^GSPC","side":"buy","shares":1,"reason":"x"})).await.is_err());

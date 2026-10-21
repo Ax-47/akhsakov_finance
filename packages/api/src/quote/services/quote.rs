@@ -165,6 +165,12 @@ impl QuoteService {
         self.manual.as_ref()?.manual(ticker)
     }
 
+    /// Whether the user enters this asset's prices by hand, so it has no
+    /// market price.
+    pub fn hand_priced(&self, ticker: &TickerSymbol) -> bool {
+        self.manual(ticker).is_some()
+    }
+
     /// Candles from the provider, saved for offline use; the saved copy if
     /// the provider fails.
     async fn fetch_chart(

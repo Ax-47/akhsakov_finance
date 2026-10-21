@@ -361,15 +361,15 @@ pub(crate) mod tests {
         }
     }
 
-    /// NVDA at $200, PTT.BK at ฿35 (3¢ a baht), and OLD with only a saved
-    /// price.
+    /// NVDA at $200, PTT.BK at ฿35 (3¢ a baht), OLD with only a saved
+    /// price, and KFSSF, a fund priced by hand.
     struct FakePrices;
 
     #[async_trait::async_trait]
     impl LivePrices for FakePrices {
         async fn quote(&self, ticker: &types::ticker_symbol::TickerSymbol) -> Result<LiveQuote, String> {
             let (price, currency, usd_per_unit, stale) = match ticker.as_str() {
-                "NVDA" => (dec!(200), "USD", dec!(1), false),
+                "NVDA" | "KFSSF" => (dec!(200), "USD", dec!(1), false),
                 "PTT.BK" => (dec!(35), "THB", dec!(0.03), false),
                 "OLD" => (dec!(10), "USD", dec!(1), true),
                 other => return Err(format!("no such ticker {other}")),
@@ -381,6 +381,7 @@ pub(crate) mod tests {
                 usd_per_unit,
                 timestamp: 1_767_600_000,
                 stale,
+                hand_priced: ticker.as_str() == "KFSSF",
             })
         }
     }
