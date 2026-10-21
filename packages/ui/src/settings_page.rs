@@ -13,7 +13,7 @@ use crate::{
 use dioxus::prelude::*;
 use dtos::{
     ai_models::{
-        AiRun, AiRunStatus, MarketHours, ModelProfile, ModelProfileSettings, TraderConfig,
+        AiRun, AiRunStatus, ApiStyle, MarketHours, ModelProfile, ModelProfileSettings, TraderConfig,
         TraderMemory, TraderSchedule, DEFAULT_MODEL_TIMEOUT_SECONDS,
     },
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
@@ -644,6 +644,7 @@ fn ModelProfilesCard() -> Element {
     let mut remove_headers = use_signal(|| false);
     let mut input_price = use_signal(String::new);
     let mut output_price = use_signal(String::new);
+    let mut api_style = use_signal(ApiStyle::default);
     let mut status = use_signal(|| None::<Result<String, String>>);
     let reload = move || {
         spawn(async move {
@@ -669,11 +670,12 @@ fn ModelProfilesCard() -> Element {
         remove_headers.set(false);
         input_price.set(String::new());
         output_price.set(String::new());
+        api_style.set(ApiStyle::default());
     };
     let save = move |_| async move {
         let key = (!api_key().trim().is_empty()).then(|| api_key());
         let settings = match profile_settings(&timeout(), &max_tokens(), &key_header(), &headers(), remove_headers(), &input_price(), &output_price()) {
-            Ok(settings) => settings,
+            Ok(settings) => ModelProfileSettings { api_style: api_style(), ..settings },
             Err(message) => return status.set(Some(Err(message))),
         };
         match api::save_model_profile(editing(), name(), base_url(), model(), key, settings).await {
@@ -733,6 +735,7 @@ fn ModelProfilesCard() -> Element {
                                         remove_headers.set(false);
                                         input_price.set(profile.input_price_per_million.map(|v| v.to_string()).unwrap_or_default());
                                         output_price.set(profile.output_price_per_million.map(|v| v.to_string()).unwrap_or_default());
+                                        api_style.set(profile.api_style);
                                     },
                                 }
                                 crate::components::card::DeleteButton {
@@ -756,6 +759,14 @@ fn ModelProfilesCard() -> Element {
                         Field { label: if editing().is_some() { tr("New API key (leave blank to keep current)") } else { tr("API key") }, input { class: INPUT, r#type: "password", value: "{api_key}", oninput: move |e| api_key.set(e.value()) } }
                         Field { label: tr("Timeout per answer (seconds)"), input { class: INPUT, r#type: "number", min: "1", max: "600", value: "{timeout}", oninput: move |e| timeout.set(e.value()) } }
                         Field { label: tr("Max tokens per answer"), input { class: INPUT, r#type: "number", min: "1", placeholder: tr("Provider default"), value: "{max_tokens}", oninput: move |e| max_tokens.set(e.value()) } }
+                        Field { label: tr("API style"),
+                            select {
+                                class: INPUT,
+                                onchange: move |e| api_style.set(if e.value() == "responses" { ApiStyle::Responses } else { ApiStyle::ChatCompletions }),
+                                option { value: "chat_completions", selected: api_style() == ApiStyle::ChatCompletions, {tr("Chat Completions (most providers)")} }
+                                option { value: "responses", selected: api_style() == ApiStyle::Responses, {tr("Responses")} }
+                            }
+                        }
                         Field { label: tr("API key header"), input { class: INPUT, placeholder: "Authorization: Bearer", value: "{key_header}", oninput: move |e| key_header.set(e.value()) } }
                         Field { label: tr("Price per million input tokens (USD)"), input { class: INPUT, r#type: "number", min: "0", step: "any", placeholder: tr("Unknown"), value: "{input_price}", oninput: move |e| input_price.set(e.value()) } }
                         Field { label: tr("Price per million output tokens (USD)"), input { class: INPUT, r#type: "number", min: "0", step: "any", placeholder: tr("Unknown"), value: "{output_price}", oninput: move |e| output_price.set(e.value()) } }
@@ -856,6 +867,7 @@ fn profile_settings(
         extra_headers,
         input_price_per_million,
         output_price_per_million,
+        api_style: ApiStyle::default(),
     })
 }
 
@@ -877,6 +889,9 @@ fn capability_summary(caps: &dtos::ai_models::ModelCapabilities) -> String {
 /// One line on a saved profile's request settings.
 fn profile_summary(profile: &ModelProfile) -> String {
     let mut parts = vec![trf("Timeout {} s", &[&profile.timeout_seconds])];
+    if profile.api_style == ApiStyle::Responses {
+        parts.push(tr("Responses API").to_string());
+    }
     if let Some(max) = profile.max_tokens {
         parts.push(trf("Max {} tokens", &[&max]));
     }

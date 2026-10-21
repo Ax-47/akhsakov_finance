@@ -1,5 +1,6 @@
 //! A scripted OpenAI-compatible model endpoint for tests. Each model name has
-//! a queue of replies to `POST /v1/chat/completions`, served on a random
+//! a queue of replies to `POST /v1/chat/completions` (or `/v1/responses`,
+//! which shares the queue and takes Responses-shaped replies), served on a random
 //! local port, so whole trader runs are tested without the network.
 
 use dioxus::server::axum::{
@@ -120,6 +121,7 @@ impl MockModel {
         let address = listener.local_addr().expect("mock model address");
         let app = Router::new()
             .route("/v1/chat/completions", post(chat))
+            .route("/v1/responses", post(chat))
             .with_state(script.clone());
         tokio::spawn(async move { dioxus::server::axum::serve(listener, app).await });
         Self {

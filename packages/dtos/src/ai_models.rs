@@ -49,6 +49,19 @@ pub struct ModelProfile {
     /// when the endpoint or model changes.
     #[serde(default)]
     pub capabilities: Option<ModelCapabilities>,
+    #[serde(default)]
+    pub api_style: ApiStyle,
+}
+
+/// How a profile talks to its endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiStyle {
+    /// `POST {base_url}/chat/completions`, which most providers offer.
+    #[default]
+    ChatCompletions,
+    /// `POST {base_url}/responses`.
+    Responses,
 }
 
 /// What a model did when its connection was tested.
@@ -154,6 +167,8 @@ pub struct ModelProfileSettings {
     pub input_price_per_million: Option<f64>,
     #[serde(default)]
     pub output_price_per_million: Option<f64>,
+    #[serde(default)]
+    pub api_style: ApiStyle,
 }
 
 impl Default for ModelProfileSettings {
@@ -165,6 +180,7 @@ impl Default for ModelProfileSettings {
             extra_headers: None,
             input_price_per_million: None,
             output_price_per_million: None,
+            api_style: ApiStyle::ChatCompletions,
         }
     }
 }

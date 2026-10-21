@@ -18,6 +18,8 @@ mod schedule;
 mod announce;
 #[cfg(feature = "server")]
 mod usage;
+#[cfg(feature = "server")]
+mod responses;
 #[cfg(all(test, feature = "server"))]
 mod mock_model;
 #[cfg(all(test, feature = "server"))]
