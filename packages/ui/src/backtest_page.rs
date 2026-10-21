@@ -8,13 +8,17 @@ use crate::{
         card::{ActionButton, Card, Field, MetricTile, Segmented, ToggleButton, INPUT},
         charts::{GrowthChart, Series},
     },
+    files::ExportButtons,
     format::{display_currency, fmt_usd},
     hooks::use_portfolio_memo,
     page::{GhostButton, Page},
 };
 use api::quote::quote::get_charts;
 use dioxus::prelude::*;
-use dtos::insights::{backtest, BacktestPlan, BacktestResult, Fees, Rebalance};
+use dtos::{
+    csv_export::backtest_csv,
+    insights::{backtest, BacktestPlan, BacktestResult, Fees, Rebalance},
+};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
@@ -361,6 +365,7 @@ pub fn BacktestPage() -> Element {
 fn Results(outcome: Outcome) -> Element {
     let Outcome { mixes, benchmark, benchmark_name, note } = outcome;
     let mix = mixes.into_iter().next().map(|(_, r)| r).unwrap_or_default();
+    let export = vec![(tr("Your mix").to_string(), mix.clone()), (benchmark_name.clone(), benchmark.clone())];
     let risk_free = use_context::<AppSettings>().0.read().risk_free.to_f64().unwrap_or(0.0) / 100.0;
     let sharpe = mix.sharpe(risk_free);
     let bench_sharpe = benchmark.sharpe(risk_free);
@@ -450,6 +455,7 @@ fn Results(outcome: Outcome) -> Element {
         }
         div { class: "mt-5 motion-safe:animate-rise",
             Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| tr("Value ÷ amount invested so far").into()),
+                actions: rsx! { ExportButtons { filename: "akhsakov-backtest.csv", csv: move || backtest_csv(&export) } },
                 document::Script { src: asset!("/assets/js/growth_chart.js") }
                 GrowthChart { chart_dates: labels, series, height: Decimal::from(280) }
             }
@@ -470,6 +476,7 @@ fn Comparison(outcome: Outcome) -> Element {
     let mut columns: Vec<(String, &'static str, BacktestResult)> =
         mixes.into_iter().zip(MIX_COLORS).map(|((name, r), color)| (name, color, r)).collect();
     columns.push((benchmark_name, "var(--catppuccin-color-sky)", benchmark));
+    let export: Vec<(String, BacktestResult)> = columns.iter().map(|(name, _, r)| (name.clone(), r.clone())).collect();
     let rows: Vec<(&'static str, Vec<String>)> = vec![
         (tr("Would be worth"), columns.iter().map(|c| money(c.2.final_value)).collect()),
         (tr("Invested"), columns.iter().map(|c| money(c.2.invested)).collect()),
@@ -537,6 +544,7 @@ fn Comparison(outcome: Outcome) -> Element {
         p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Prices include dividends, reinvested; taxes aren't counted.")} }
         div { class: "mt-5 motion-safe:animate-rise",
             Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| tr("Value ÷ amount invested so far").into()),
+                actions: rsx! { ExportButtons { filename: "akhsakov-backtest.csv", csv: move || backtest_csv(&export) } },
                 document::Script { src: asset!("/assets/js/growth_chart.js") }
                 GrowthChart { chart_dates: labels, series, height: Decimal::from(280) }
             }
