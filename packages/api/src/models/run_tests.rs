@@ -10,7 +10,8 @@ use crate::{
     mcp::{repositories::LiveQuote, services::tools::FrozenMarket},
 };
 use dtos::ai_models::{
-    AiRun, AiRunEvent, AiRunStatus, NewAiRace, NewAiTrader, NewModelConnection, MODEL_RETRY_EVENT,
+    AiRun, AiRunEvent, AiRunStatus, ModelProfileSettings, NewAiRace, NewAiTrader,
+    NewModelConnection, MODEL_RETRY_EVENT,
 };
 use rust_decimal_macros::dec;
 use serde_json::{json, Value};
@@ -134,7 +135,7 @@ async fn a_full_run_trades_journals_remembers_and_counts_tokens() {
     let requests = mock.received("full");
     assert_eq!(requests.len(), 4);
     let expected = format!("Bearer {API_KEY}");
-    assert!(requests.iter().all(|r| r.authorization.as_deref() == Some(expected.as_str())));
+    assert!(requests.iter().all(|r| r.header("authorization") == Some(expected.as_str())));
     assert_eq!(requests[0].body["model"], "full");
     assert_eq!(
         tool_names(&requests[0].body),
@@ -407,4 +408,106 @@ async fn race_contestants_share_one_frozen_market_and_late_ones_fail() {
         let bought = book.transactions.iter().find(|t| t.ticker.as_str() == "NVDA").expect("an NVDA buy");
         assert_eq!(bought.price, dec!(150), "filled at the frozen price, not the live one");
     }
+}
+
+/// Saves `settings` on the profile of `portfolio`'s trader.
+fn configure(service: &ModelService, mock: &MockModel, portfolio: Uuid, settings: ModelProfileSettings) -> Uuid {
+    let id = service.config(portfolio).unwrap().profile_id.unwrap();
+    let profile = service.profiles().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    service
+        .save_profile_with(Some(id), &profile.name, mock.base_url(), &profile.model, None, Some(&settings))
+        .unwrap();
+    id
+}
+
+#[tokio::test]
+async fn profile_settings_shape_every_request_and_stay_secret() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "custom").await;
+    let secret = "org-secret-0123456789";
+    let id = configure(
+        &service,
+        &mock,
+        portfolio,
+        ModelProfileSettings {
+            timeout_seconds: 30,
+            max_tokens: Some(512),
+            key_header: "API-Key".into(),
+            extra_headers: Some(vec![
+                ("OpenAI-Organization".into(), secret.into()),
+                ("X-Project".into(), "proj-7".into()),
+            ]),
+        },
+    );
+    let profile = service.profiles().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(profile.timeout_seconds, 30);
+    assert_eq!(profile.max_tokens, Some(512));
+    assert_eq!(profile.key_header, "api-key");
+    assert_eq!(profile.extra_header_names, ["openai-organization", "x-project"]);
+
+    mock.script("custom", [Reply::text("Nothing to do."), Reply::text("{}")]);
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    mock.script("custom", [Reply::tools(&[("connection_test", json!({}))])]);
+    service.test_profile(id).await.unwrap();
+    let requests = mock.received("custom");
+    assert_eq!(requests.len(), 3, "the run, its memory and the profile test");
+    for request in &requests {
+        assert_eq!(request.header("api-key"), Some(API_KEY));
+        assert_eq!(request.header("authorization"), None, "the key goes only where asked");
+        assert_eq!(request.header("openai-organization"), Some(secret));
+        assert_eq!(request.header("x-project"), Some("proj-7"));
+        assert_eq!(request.body["max_tokens"], 512);
+    }
+
+    // Header values never leave the server: not in the profile list, not
+    // in a backup, not in an error the provider echoes them in.
+    let listed = serde_json::to_string(&service.profiles().unwrap()).unwrap();
+    assert!(!listed.contains(secret) && !listed.contains(API_KEY), "{listed}");
+    let backup = service.db.export().unwrap();
+    assert!(!backup.windows(secret.len()).any(|w| w == secret.as_bytes()));
+    mock.script("custom", [Reply::error(403, &format!("Organization {secret} is not allowed."))]);
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(error(&run), "Model endpoint returned 403: Organization *** is not allowed.");
+
+    // Saving the connection alone keeps the settings; `None` keeps the
+    // headers, and an empty list removes them.
+    service.save_profile(Some(id), "Renamed", mock.base_url(), "custom", None).unwrap();
+    let kept = |service: &ModelService| service.profiles().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(kept(&service).timeout_seconds, 30);
+    assert_eq!(kept(&service).extra_header_names.len(), 2);
+    let mut settings = ModelProfileSettings { timeout_seconds: 30, ..Default::default() };
+    configure(&service, &mock, portfolio, settings.clone());
+    assert_eq!(kept(&service).extra_header_names.len(), 2);
+    assert_eq!(kept(&service).key_header, "", "back to Authorization: Bearer");
+    settings.extra_headers = Some(vec![]);
+    configure(&service, &mock, portfolio, settings);
+    assert!(kept(&service).extra_header_names.is_empty());
+}
+
+#[tokio::test]
+async fn a_slow_answer_times_out_and_is_retried() {
+    let service = service();
+    let mock = MockModel::start().await;
+    let portfolio = trader(&service, &mock, "sleepy").await;
+    configure(&service, &mock, portfolio, ModelProfileSettings { timeout_seconds: 1, ..Default::default() });
+    mock.script(
+        "sleepy",
+        [
+            Reply::text("Too late.").after(Duration::from_secs(3)),
+            Reply::text("On time."),
+            Reply::text("{}"),
+        ],
+    );
+    let run = run_once(&service, portfolio).await;
+    assert_eq!(run.status, AiRunStatus::Completed, "{run:?}");
+    assert_eq!(run.final_response.as_deref(), Some("On time."));
+    let retried = retries(&run);
+    assert_eq!(retried.len(), 1);
+    assert!(
+        retried[0].detail.starts_with("The model didn't answer within 1 s. Trying again in"),
+        "{}",
+        retried[0].detail
+    );
 }

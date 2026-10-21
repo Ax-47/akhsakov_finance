@@ -2,8 +2,9 @@ use crate::mcp::services::tools::FrozenMarket;
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
 use dtos::{
     ai_models::{
-        AiRun, AiRunEvent, AiRunStatus, ModelProfile, NewAiTrader, TraderConfig, TraderMemory,
-        MODEL_RETRY_EVENT,
+        AiRun, AiRunEvent, AiRunStatus, ModelProfile, ModelProfileSettings, NewAiTrader,
+        TraderConfig, TraderMemory, MAX_EXTRA_HEADERS, MAX_MODEL_TIMEOUT_SECONDS,
+        MIN_MODEL_TIMEOUT_SECONDS, MODEL_RETRY_EVENT,
     },
     ai_portfolio::AiPortfolioInfo,
     mcp::{McpAccessPreset, McpConnection},
@@ -52,7 +53,13 @@ pub struct ModelService {
 struct Connection {
     profile: ModelProfile,
     api_key: String,
+    extra_headers: Vec<(String, String)>,
 }
+
+/// The profile columns `profile_row` reads, after `FROM ai_model_profiles p
+/// LEFT JOIN ai_model_secrets s`.
+const PROFILE_COLUMNS: &str = "p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL,
+     p.timeout_seconds, p.max_tokens, p.key_header, COALESCE(s.extra_headers, '[]')";
 
 #[derive(Clone)]
 pub(super) struct RaceRunContext {
@@ -153,17 +160,18 @@ impl ModelService {
     pub fn profiles(&self) -> Result<Vec<ModelProfile>, ServiceError> {
         self.db
             .with(|c| {
-                c.prepare(
-                    "SELECT p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL
+                c.prepare(&format!(
+                    "SELECT {PROFILE_COLUMNS}
                      FROM ai_model_profiles p LEFT JOIN ai_model_secrets s ON s.profile_id = p.id
-                     ORDER BY lower(p.name)",
-                )?
+                     ORDER BY lower(p.name)"
+                ))?
                 .query_map([], profile_row)?
                 .collect()
             })
             .map_err(storage)
     }
 
+    /// Saves a profile's connection; a saved profile keeps its settings.
     pub fn save_profile(
         &self,
         id: Option<Uuid>,
@@ -171,6 +179,19 @@ impl ModelService {
         base_url: &str,
         model: &str,
         api_key: Option<&str>,
+    ) -> Result<ModelProfile, ServiceError> {
+        self.save_profile_with(id, name, base_url, model, api_key, None)
+    }
+
+    /// Saves a profile's connection and, when given, its request settings.
+    pub fn save_profile_with(
+        &self,
+        id: Option<Uuid>,
+        name: &str,
+        base_url: &str,
+        model: &str,
+        api_key: Option<&str>,
+        settings: Option<&ModelProfileSettings>,
     ) -> Result<ModelProfile, ServiceError> {
         if let Some(id) = id {
             if self.profile_active_in_race(id)? {
@@ -185,8 +206,16 @@ impl ModelService {
             return Err(invalid("Profile name and model are required."));
         }
         let base_url = normalize_base_url(base_url)?;
+        let settings = settings.map(checked_settings).transpose()?;
         let id = id.unwrap_or_else(Uuid::new_v4);
         let key = api_key.map(str::trim).filter(|k| !k.is_empty());
+        let adds_headers = settings
+            .as_ref()
+            .and_then(|s| s.extra_headers.as_ref())
+            .is_some_and(|h| !h.is_empty());
+        if adds_headers && key.is_none() && !self.profile(id).is_ok_and(|p| p.has_key) {
+            return Err(invalid("Enter an API key before adding headers."));
+        }
         self.db
             .transaction(|tx| {
                 tx.execute(
@@ -195,11 +224,28 @@ impl ModelService {
                      model=excluded.model, updated_at=datetime('now')",
                     params![id.to_string(), name, base_url, model],
                 )?;
+                if let Some(settings) = &settings {
+                    tx.execute(
+                        "UPDATE ai_model_profiles SET timeout_seconds=?2, max_tokens=?3, key_header=?4 WHERE id=?1",
+                        params![
+                            id.to_string(),
+                            settings.timeout_seconds,
+                            settings.max_tokens,
+                            settings.key_header
+                        ],
+                    )?;
+                }
                 if let Some(key) = key {
                     tx.execute(
                         "INSERT INTO ai_model_secrets (profile_id, api_key) VALUES (?1, ?2)
                          ON CONFLICT(profile_id) DO UPDATE SET api_key=excluded.api_key",
                         params![id.to_string(), key],
+                    )?;
+                }
+                if let Some(headers) = settings.as_ref().and_then(|s| s.extra_headers.as_ref()) {
+                    tx.execute(
+                        "UPDATE ai_model_secrets SET extra_headers=?2 WHERE profile_id=?1",
+                        params![id.to_string(), serde_json::to_string(headers).unwrap_or_default()],
                     )?;
                 }
                 Ok(())
@@ -441,7 +487,12 @@ impl ModelService {
                 "Manual trader runs are disabled while this portfolio is in an active race.",
             ));
         }
-        self.start_run_for(portfolio_id, None, RUN_TIMEOUT).await
+        let timeout = self
+            .config(portfolio_id)?
+            .profile_id
+            .and_then(|id| self.profile(id).ok())
+            .map_or(RUN_TIMEOUT, |p| run_limit(p.timeout_seconds));
+        self.start_run_for(portfolio_id, None, timeout).await
     }
 
     /// An MCP connection may drive `portfolio` only if it is enabled, can
@@ -890,24 +941,45 @@ impl ModelService {
     }
 
     async fn send(&self, connection: &Connection, body: &Value) -> Result<Value, Failure> {
-        let endpoint = format!("{}/chat/completions", connection.profile.base_url);
-        let response = self
-            .http
-            .post(endpoint)
-            .bearer_auth(&connection.api_key)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| Failure::transient(format!("Model request failed: {e}")))?;
+        let profile = &connection.profile;
+        let endpoint = format!("{}/chat/completions", profile.base_url);
+        let timeout = Duration::from_secs(u64::from(profile.timeout_seconds));
+        let mut body = body.clone();
+        if let Some(max_tokens) = profile.max_tokens {
+            body["max_tokens"] = json!(max_tokens);
+        }
+        let mut request = self.http.post(endpoint).timeout(timeout).json(&body);
+        request = if profile.key_header.is_empty() {
+            request.bearer_auth(&connection.api_key)
+        } else {
+            request.header(profile.key_header.as_str(), &connection.api_key)
+        };
+        for (name, value) in &connection.extra_headers {
+            request = request.header(name.as_str(), value);
+        }
+        let response = request.send().await.map_err(|e| {
+            Failure::transient(if e.is_timeout() {
+                format!("The model didn't answer within {} s.", profile.timeout_seconds)
+            } else {
+                format!("Model request failed: {e}")
+            })
+        })?;
         let status = response.status();
         let retry_after = retry_after(response.headers());
-        let text = response
-            .text()
-            .await
-            .map_err(|e| Failure::transient(format!("Couldn't read the model response: {e}")))?;
+        let text = response.text().await.map_err(|e| {
+            Failure::transient(if e.is_timeout() {
+                format!("The model didn't answer within {} s.", profile.timeout_seconds)
+            } else {
+                format!("Couldn't read the model response: {e}")
+            })
+        })?;
         if !status.is_success() {
+            let mut message = upstream_error(status.as_u16(), &text, &connection.api_key);
+            for (_, value) in &connection.extra_headers {
+                message = redact_api_key(&message, value);
+            }
             return Err(Failure {
-                message: upstream_error(status.as_u16(), &text, &connection.api_key),
+                message,
                 retryable: matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504),
                 retry_after,
             });
@@ -996,8 +1068,10 @@ impl ModelService {
         self.db
             .with(|c| {
                 c.query_row(
-                    "SELECT p.id, p.name, p.base_url, p.model, s.profile_id IS NOT NULL
-                     FROM ai_model_profiles p LEFT JOIN ai_model_secrets s ON s.profile_id=p.id WHERE p.id=?1",
+                    &format!(
+                        "SELECT {PROFILE_COLUMNS}
+                         FROM ai_model_profiles p LEFT JOIN ai_model_secrets s ON s.profile_id=p.id WHERE p.id=?1"
+                    ),
                     [id.to_string()],
                     profile_row,
                 )
@@ -1009,20 +1083,23 @@ impl ModelService {
 
     fn connection(&self, id: Uuid) -> Result<Connection, ServiceError> {
         let profile = self.profile(id)?;
-        let api_key: Option<String> = self
+        let secrets: Option<(String, String)> = self
             .db
             .with(|c| {
                 c.query_row(
-                    "SELECT api_key FROM ai_model_secrets WHERE profile_id=?1",
+                    "SELECT api_key, extra_headers FROM ai_model_secrets WHERE profile_id=?1",
                     [id.to_string()],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .optional()
             })
             .map_err(storage)?;
+        let (api_key, headers) =
+            secrets.ok_or_else(|| invalid("Enter an API key for this profile."))?;
         Ok(Connection {
             profile,
-            api_key: api_key.ok_or_else(|| invalid("Enter an API key for this profile."))?,
+            api_key,
+            extra_headers: parse_headers(&headers),
         })
     }
 }
@@ -1193,13 +1270,100 @@ fn normalize_base_url(value: &str) -> Result<String, ServiceError> {
 
 fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ModelProfile> {
     let id: String = r.get(0)?;
+    let headers: String = r.get(8)?;
     Ok(ModelProfile {
         id: Uuid::parse_str(&id).unwrap_or_default(),
         name: r.get(1)?,
         base_url: r.get(2)?,
         model: r.get(3)?,
         has_key: r.get(4)?,
+        timeout_seconds: r.get(5)?,
+        max_tokens: r.get(6)?,
+        key_header: r.get(7)?,
+        // Names only: the values are secrets.
+        extra_header_names: parse_headers(&headers).into_iter().map(|(name, _)| name).collect(),
     })
+}
+
+fn parse_headers(json: &str) -> Vec<(String, String)> {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+/// Headers the app sets itself, which a profile may not replace.
+const RESERVED_HEADERS: [&str; 6] = [
+    "content-type",
+    "content-length",
+    "host",
+    "connection",
+    "transfer-encoding",
+    "accept-encoding",
+];
+
+/// Validates and tidies a profile's settings.
+fn checked_settings(settings: &ModelProfileSettings) -> Result<ModelProfileSettings, ServiceError> {
+    use reqwest::header::{HeaderName, HeaderValue};
+    if !(MIN_MODEL_TIMEOUT_SECONDS..=MAX_MODEL_TIMEOUT_SECONDS).contains(&settings.timeout_seconds) {
+        return Err(invalid(format!(
+            "The timeout must be between {MIN_MODEL_TIMEOUT_SECONDS} and {MAX_MODEL_TIMEOUT_SECONDS} seconds."
+        )));
+    }
+    if settings.max_tokens == Some(0) {
+        return Err(invalid("Max tokens must be more than zero, or blank for the provider's default."));
+    }
+    let header_name = |name: &str| -> Result<String, ServiceError> {
+        let name = name.trim().to_ascii_lowercase();
+        if HeaderName::from_bytes(name.as_bytes()).is_err() {
+            return Err(invalid(format!("\"{name}\" is not a valid header name.")));
+        }
+        if RESERVED_HEADERS.contains(&name.as_str()) {
+            return Err(invalid(format!("The app sets the {name} header itself.")));
+        }
+        Ok(name)
+    };
+    let key_header = match settings.key_header.trim() {
+        "" => String::new(),
+        name => match header_name(name)? {
+            name if name == "authorization" => String::new(),
+            name => name,
+        },
+    };
+    let key_name = if key_header.is_empty() { "authorization" } else { key_header.as_str() };
+    let extra_headers = match &settings.extra_headers {
+        None => None,
+        Some(headers) => {
+            if headers.len() > MAX_EXTRA_HEADERS {
+                return Err(invalid(format!("Add at most {MAX_EXTRA_HEADERS} headers.")));
+            }
+            let mut checked: Vec<(String, String)> = Vec::with_capacity(headers.len());
+            for (name, value) in headers {
+                let name = header_name(name)?;
+                let value = value.trim().to_string();
+                if name == key_name {
+                    return Err(invalid(format!("The {name} header already carries the API key.")));
+                }
+                if checked.iter().any(|(n, _)| *n == name) {
+                    return Err(invalid(format!("The {name} header is listed twice.")));
+                }
+                if value.is_empty() || value.len() > 2_000 || HeaderValue::from_str(&value).is_err() {
+                    return Err(invalid(format!("Enter a valid value for the {name} header.")));
+                }
+                checked.push((name, value));
+            }
+            Some(checked)
+        }
+    };
+    Ok(ModelProfileSettings {
+        timeout_seconds: settings.timeout_seconds,
+        max_tokens: settings.max_tokens,
+        key_header,
+        extra_headers,
+    })
+}
+
+/// How long a manual run may take: two of its profile's slowest answers,
+/// and never less than `RUN_TIMEOUT`.
+fn run_limit(timeout_seconds: u32) -> Duration {
+    RUN_TIMEOUT.max(Duration::from_secs(u64::from(timeout_seconds) * 2))
 }
 
 fn parse_status(value: &str) -> AiRunStatus {
@@ -1477,6 +1641,58 @@ mod tests {
             service.connection(profile.id).unwrap().api_key,
             "secret-two"
         );
+    }
+
+    #[test]
+    fn profile_settings_are_checked() {
+        let ok = |settings: ModelProfileSettings| checked_settings(&settings);
+        let base = ModelProfileSettings::default();
+        let headers = |list: &[(&str, &str)]| ModelProfileSettings {
+            extra_headers: Some(list.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect()),
+            ..ModelProfileSettings::default()
+        };
+        assert!(ok(base.clone()).is_ok());
+        assert!(ok(ModelProfileSettings { timeout_seconds: 0, ..base.clone() }).is_err());
+        assert!(ok(ModelProfileSettings { timeout_seconds: 601, ..base.clone() }).is_err());
+        assert!(ok(ModelProfileSettings { max_tokens: Some(0), ..base.clone() }).is_err());
+        assert!(ok(ModelProfileSettings { key_header: "two words".into(), ..base.clone() }).is_err());
+        assert!(ok(ModelProfileSettings { key_header: "Content-Type".into(), ..base.clone() }).is_err());
+        let bearer = ok(ModelProfileSettings { key_header: " Authorization ".into(), ..base.clone() }).unwrap();
+        assert_eq!(bearer.key_header, "", "Authorization means the bearer default");
+
+        assert!(ok(headers(&[("Host", "x")])).is_err(), "the app sets Host");
+        assert!(ok(headers(&[("Authorization", "Bearer other")])).is_err(), "the key's header");
+        assert!(ok(headers(&[("X-A", "1"), ("x-a", "2")])).is_err(), "listed twice");
+        assert!(ok(headers(&[("X-A", " ")])).is_err(), "empty value");
+        assert!(ok(headers(&[("X-A", "line\nbreak")])).is_err(), "invalid value");
+        let many: Vec<(String, &str)> = (0..=MAX_EXTRA_HEADERS).map(|i| (format!("x-{i}"), "v")).collect();
+        let many: Vec<(&str, &str)> = many.iter().map(|(n, v)| (n.as_str(), *v)).collect();
+        assert!(ok(headers(&many)).is_err());
+        let mut keyed = headers(&[("Authorization", "Bearer team")]);
+        keyed.key_header = "x-api-key".into();
+        let keyed = ok(keyed).unwrap();
+        assert_eq!(keyed.extra_headers.unwrap(), [("authorization".to_string(), "Bearer team".to_string())]);
+    }
+
+    #[test]
+    fn manual_runs_get_time_for_slow_models() {
+        assert_eq!(run_limit(45), RUN_TIMEOUT);
+        assert_eq!(run_limit(300), Duration::from_secs(600));
+    }
+
+    #[test]
+    fn headers_need_a_key() {
+        let (_db, service) = service();
+        let settings = ModelProfileSettings {
+            extra_headers: Some(vec![("X-Project".into(), "p".into())]),
+            ..ModelProfileSettings::default()
+        };
+        let no_key = service.save_profile_with(None, "Example", "https://api.example.com/v1", "m", None, Some(&settings));
+        assert_eq!(no_key.unwrap_err().to_string(), ServiceError::Validation("Enter an API key before adding headers.".into()).to_string());
+        let profile = service
+            .save_profile_with(None, "Example", "https://api.example.com/v1", "m", Some("key"), Some(&settings))
+            .unwrap();
+        assert_eq!(profile.extra_header_names, ["x-project"]);
     }
 
     #[test]

@@ -9,6 +9,16 @@ pub const DEFAULT_CONTEXT_TOKEN_LIMIT: u32 = 32_768;
 /// The `tool` of a run event that records a retried model request.
 pub const MODEL_RETRY_EVENT: &str = "model_retry";
 
+/// Seconds a profile waits for one model response unless it says otherwise.
+pub const DEFAULT_MODEL_TIMEOUT_SECONDS: u32 = 45;
+pub const MIN_MODEL_TIMEOUT_SECONDS: u32 = 1;
+pub const MAX_MODEL_TIMEOUT_SECONDS: u32 = 600;
+pub const MAX_EXTRA_HEADERS: usize = 10;
+
+fn default_model_timeout() -> u32 {
+    DEFAULT_MODEL_TIMEOUT_SECONDS
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelProfile {
     pub id: Uuid,
@@ -16,6 +26,40 @@ pub struct ModelProfile {
     pub base_url: String,
     pub model: String,
     pub has_key: bool,
+    #[serde(default = "default_model_timeout")]
+    pub timeout_seconds: u32,
+    /// Longest answer to ask for; `None` leaves it to the provider.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// The header that carries the key; empty means `Authorization: Bearer`.
+    #[serde(default)]
+    pub key_header: String,
+    /// Names of the extra headers saved with the key. Their values are
+    /// secret and never leave the server.
+    #[serde(default)]
+    pub extra_header_names: Vec<String>,
+}
+
+/// A model profile's request settings, as the settings form edits them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelProfileSettings {
+    pub timeout_seconds: u32,
+    pub max_tokens: Option<u32>,
+    pub key_header: String,
+    /// `(name, value)` pairs to send with every request. `None` keeps the
+    /// saved ones; an empty list removes them.
+    pub extra_headers: Option<Vec<(String, String)>>,
+}
+
+impl Default for ModelProfileSettings {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: DEFAULT_MODEL_TIMEOUT_SECONDS,
+            max_tokens: None,
+            key_header: String::new(),
+            extra_headers: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

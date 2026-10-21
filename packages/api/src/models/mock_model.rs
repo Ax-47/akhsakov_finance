@@ -88,8 +88,15 @@ impl Reply {
 /// A request the endpoint received.
 #[derive(Clone)]
 pub(super) struct Received {
-    pub authorization: Option<String>,
+    /// Header names in lower case.
+    pub headers: HashMap<String, String>,
     pub body: Value,
+}
+
+impl Received {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(String::as_str)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -151,17 +158,17 @@ impl MockModel {
 
 async fn chat(State(script): State<Script>, headers: HeaderMap, Json(body): Json<Value>) -> Response {
     let model = body["model"].as_str().unwrap_or_default().to_string();
-    let authorization = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
+    let headers = headers
+        .iter()
+        .map(|(name, value)| (name.as_str().to_string(), value.to_str().unwrap_or_default().to_string()))
+        .collect();
     script
         .received
         .lock()
         .unwrap()
         .entry(model.clone())
         .or_default()
-        .push(Received { authorization, body });
+        .push(Received { headers, body });
     let next = script
         .replies
         .lock()

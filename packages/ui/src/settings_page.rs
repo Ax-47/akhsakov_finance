@@ -12,7 +12,10 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRun, AiRunStatus, ModelProfile, TraderConfig, TraderMemory},
+    ai_models::{
+        AiRun, AiRunStatus, ModelProfile, ModelProfileSettings, TraderConfig, TraderMemory,
+        DEFAULT_MODEL_TIMEOUT_SECONDS,
+    },
     ai_portfolio::{AiPortfolioInfo, DEFAULT_STARTING_CASH},
     csv_export::{holdings_csv, transactions_csv},
     portfolio::GetDashBoardResponse,
@@ -633,6 +636,12 @@ fn ModelProfilesCard() -> Element {
     let mut base_url = use_signal(String::new);
     let mut model = use_signal(String::new);
     let mut api_key = use_signal(String::new);
+    let mut timeout = use_signal(|| DEFAULT_MODEL_TIMEOUT_SECONDS.to_string());
+    let mut max_tokens = use_signal(String::new);
+    let mut key_header = use_signal(String::new);
+    let mut headers = use_signal(String::new);
+    let mut saved_headers = use_signal(Vec::<String>::new);
+    let mut remove_headers = use_signal(|| false);
     let mut status = use_signal(|| None::<Result<String, String>>);
     let reload = move || {
         spawn(async move {
@@ -650,10 +659,20 @@ fn ModelProfilesCard() -> Element {
         base_url.set(String::new());
         model.set(String::new());
         api_key.set(String::new());
+        timeout.set(DEFAULT_MODEL_TIMEOUT_SECONDS.to_string());
+        max_tokens.set(String::new());
+        key_header.set(String::new());
+        headers.set(String::new());
+        saved_headers.set(Vec::new());
+        remove_headers.set(false);
     };
     let save = move |_| async move {
         let key = (!api_key().trim().is_empty()).then(|| api_key());
-        match api::save_model_profile(editing(), name(), base_url(), model(), key).await {
+        let settings = match profile_settings(&timeout(), &max_tokens(), &key_header(), &headers(), remove_headers()) {
+            Ok(settings) => settings,
+            Err(message) => return status.set(Some(Err(message))),
+        };
+        match api::save_model_profile(editing(), name(), base_url(), model(), key, settings).await {
             Ok(saved) => {
                 status.set(Some(Ok(format!("Saved {}", saved.name))));
                 clear();
@@ -676,6 +695,7 @@ fn ModelProfilesCard() -> Element {
                                 div { class: "font-medium text-ctp-text", "{profile.name}" }
                                 div { class: "text-xs text-ctp-subtext0", "{profile.model} · {profile.base_url}" }
                                 div { class: "text-xs text-ctp-overlay1", if profile.has_key { "API key saved" } else { "API key required" } }
+                                div { class: "text-xs text-ctp-overlay1", "{profile_summary(&profile)}" }
                             }
                             div { class: "flex flex-wrap gap-2",
                                 GhostButton {
@@ -696,6 +716,12 @@ fn ModelProfilesCard() -> Element {
                                         base_url.set(profile.base_url.clone());
                                         model.set(profile.model.clone());
                                         api_key.set(String::new());
+                                        timeout.set(profile.timeout_seconds.to_string());
+                                        max_tokens.set(profile.max_tokens.map(|n| n.to_string()).unwrap_or_default());
+                                        key_header.set(profile.key_header.clone());
+                                        headers.set(String::new());
+                                        saved_headers.set(profile.extra_header_names.clone());
+                                        remove_headers.set(false);
                                     },
                                 }
                                 crate::components::card::DeleteButton {
@@ -717,6 +743,24 @@ fn ModelProfilesCard() -> Element {
                         Field { label: tr("Model identifier"), input { class: INPUT, placeholder: "provider/model-name", value: "{model}", oninput: move |e| model.set(e.value()) } }
                         Field { label: tr("API base URL"), input { class: INPUT, placeholder: "https://api.example.com/v1", value: "{base_url}", oninput: move |e| base_url.set(e.value()) } }
                         Field { label: if editing().is_some() { tr("New API key (leave blank to keep current)") } else { tr("API key") }, input { class: INPUT, r#type: "password", value: "{api_key}", oninput: move |e| api_key.set(e.value()) } }
+                        Field { label: tr("Timeout per answer (seconds)"), input { class: INPUT, r#type: "number", min: "1", max: "600", value: "{timeout}", oninput: move |e| timeout.set(e.value()) } }
+                        Field { label: tr("Max tokens per answer"), input { class: INPUT, r#type: "number", min: "1", placeholder: tr("Provider default"), value: "{max_tokens}", oninput: move |e| max_tokens.set(e.value()) } }
+                        Field { label: tr("API key header"), input { class: INPUT, placeholder: "Authorization: Bearer", value: "{key_header}", oninput: move |e| key_header.set(e.value()) } }
+                        Field { label: tr("Extra headers (one per line, Name: value)"),
+                            textarea {
+                                class: "{INPUT} min-h-24 font-mono",
+                                placeholder: "OpenAI-Organization: org-…",
+                                value: "{headers}",
+                                oninput: move |e| headers.set(e.value()),
+                            }
+                            if !saved_headers().is_empty() {
+                                p { class: "text-xs text-ctp-subtext0", {trf("Saved headers: {}. Leave blank to keep them.", &[&saved_headers().join(", ")])} }
+                                label { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
+                                    input { r#type: "checkbox", checked: remove_headers(), onchange: move |e| remove_headers.set(e.checked()) }
+                                    {tr("Remove saved headers")}
+                                }
+                            }
+                        }
                     }
                     div { class: "flex justify-end gap-2",
                         if editing().is_some() { GhostButton { label: tr("Cancel"), onclick: move |_| clear() } }
@@ -731,6 +775,66 @@ fn ModelProfilesCard() -> Element {
             }
         }
     }
+}
+
+/// Reads the settings form. Blank headers keep the saved ones unless
+/// `remove` is ticked.
+fn profile_settings(
+    timeout: &str,
+    max_tokens: &str,
+    key_header: &str,
+    headers: &str,
+    remove: bool,
+) -> Result<ModelProfileSettings, String> {
+    let timeout_seconds = timeout
+        .trim()
+        .parse()
+        .map_err(|_| tr("Enter the timeout in whole seconds.").to_string())?;
+    let max_tokens = match max_tokens.trim() {
+        "" => None,
+        value => Some(
+            value
+                .parse()
+                .map_err(|_| tr("Enter max tokens as a whole number, or leave it blank.").to_string())?,
+        ),
+    };
+    let lines: Vec<&str> = headers.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let extra_headers = if !lines.is_empty() {
+        let parsed = lines
+            .iter()
+            .map(|line| {
+                let (name, value) = line.split_once(':')?;
+                Some((name.trim().to_string(), value.trim().to_string()))
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| tr("Write each header as Name: value.").to_string())?;
+        Some(parsed)
+    } else if remove {
+        Some(Vec::new())
+    } else {
+        None
+    };
+    Ok(ModelProfileSettings {
+        timeout_seconds,
+        max_tokens,
+        key_header: key_header.trim().to_string(),
+        extra_headers,
+    })
+}
+
+/// One line on a saved profile's request settings.
+fn profile_summary(profile: &ModelProfile) -> String {
+    let mut parts = vec![trf("Timeout {} s", &[&profile.timeout_seconds])];
+    if let Some(max) = profile.max_tokens {
+        parts.push(trf("Max {} tokens", &[&max]));
+    }
+    if !profile.key_header.is_empty() {
+        parts.push(trf("Key in {}", &[&profile.key_header]));
+    }
+    if !profile.extra_header_names.is_empty() {
+        parts.push(trf("Headers: {}", &[&profile.extra_header_names.join(", ")]));
+    }
+    parts.join(" · ")
 }
 
 /// Portfolios an AI assistant manages through MCP or a configured model,

@@ -16,16 +16,15 @@ Work top to bottom. Done items are listed under their phase below.
 
 | # | Item | Issue |
 |---|---|---|
-| 1 | Per-profile settings (item 7) | #47 |
-| 2 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
-| 3 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
-| 4 | Emergency stop (item 15a) | #44 |
-| 5 | Scheduled runs (item 15) | #52 |
-| 6 | Notifications when a run finishes or fails (item 17) | #54 |
-| 7 | Usage and estimated cost (item 16) | #53 |
-| 8 | Capability detection (item 9) | #49 |
-| 9 | Streaming (item 11) | #51 |
-| 10 | Responses-style APIs (item 10) | #50 |
+| 1 | App-driven traders edit their theses and read their goals (items 1, 5b) | #56 |
+| 2 | Trader mandate and goals in the prompt (items 5a, 5c) | #57 |
+| 3 | Emergency stop (item 15a) | #44 |
+| 4 | Scheduled runs (item 15) | #52 |
+| 5 | Notifications when a run finishes or fails (item 17) | #54 |
+| 6 | Usage and estimated cost (item 16) | #53 |
+| 7 | Capability detection (item 9) | #49 |
+| 8 | Streaming (item 11) | #51 |
+| 9 | Responses-style APIs (item 10) | #50 |
 
 Why this order: the mock model server (item 6, done) came first because every
 model change after it adds test cases there. Retries (item 8, done) came next,
@@ -73,11 +72,11 @@ rather than adding a second notion of goal.
    `run_tests.rs` next to it.
 7. **Per-profile settings**: timeout, max tokens, and custom headers beyond
    bearer authentication (headers stored with the secrets, not the profile).
-   (#47)
+   Done (#47): the key can go in any header, and a manual run gets at least
+   twice the profile's timeout.
 8. **Retry and backoff** for 429 and 5xx responses, bounded by the run timeout.
    Done (#48): up to four attempts, honouring `Retry-After`, logged as
-   `model_retry` run events. It uses the run or round deadline until item 7
-   adds a per-profile timeout.
+   `model_retry` run events, within the run or round deadline.
 9. **Capability detection** (tool calling, JSON mode) when a profile is
    tested, with a clear error when a model cannot call tools. (#49)
 10. **Responses-style APIs** for providers without Chat Completions. (#50)
