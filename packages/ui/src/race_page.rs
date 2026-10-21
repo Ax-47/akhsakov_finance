@@ -17,7 +17,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::{
-    ai_models::{AiRace, AiRaceRun, AiRaceStatus, AiRunStatus, NewAiRace},
+    ai_models::{AiRace, AiRaceRun, AiRaceStatus, AiRunStatus, NewAiRace, MODEL_RETRY_EVENT},
     ai_portfolio::AiPortfolioInfo,
 };
 use rust_decimal::Decimal;
@@ -503,6 +503,7 @@ fn RoundRun(item: AiRaceRun) -> Element {
         AiRunStatus::Failed => (tr("Failed"), "text-ctp-red"),
     };
     let trades = run.events.iter().filter(|e| e.tool == "place_order" && e.success).count();
+    let calls = run.events.iter().filter(|e| e.tool != MODEL_RETRY_EVENT).count();
     rsx! {
         details { class: "rounded-lg border border-ctp-surface0/70 px-3 py-2 text-xs",
             summary { class: "flex min-h-8 cursor-pointer flex-wrap items-center gap-x-3 gap-y-1",
@@ -511,7 +512,7 @@ fn RoundRun(item: AiRaceRun) -> Element {
                 span { class: "text-ctp-subtext0",
                     if trades == 1 { {tr("1 trade")} } else { {trf("{} trades", &[&trades])} }
                     " · "
-                    if run.events.len() == 1 { {tr("1 tool call")} } else { {trf("{} tool calls", &[&run.events.len()])} }
+                    if calls == 1 { {tr("1 tool call")} } else { {trf("{} tool calls", &[&calls])} }
                 }
             }
             div { class: "mt-2 grid gap-2",
@@ -522,13 +523,20 @@ fn RoundRun(item: AiRaceRun) -> Element {
                     p { class: "break-words text-ctp-red", "{error}" }
                 }
                 for event in run.events.clone() {
-                    div { key: "{event.sequence}", class: "rounded bg-ctp-surface0/40 px-2 py-1",
-                        div { class: if event.success { "font-mono text-ctp-text" } else { "font-mono text-ctp-red" }, "{event.tool}" }
-                        if let Some(reason) = serde_json::from_str::<serde_json::Value>(&event.arguments).ok().and_then(|v| v["reason"].as_str().map(str::to_string)) {
-                            div { class: "text-ctp-subtext0 break-words", "“{reason}”" }
+                    if event.tool == MODEL_RETRY_EVENT {
+                        div { key: "{event.sequence}", class: "rounded bg-ctp-surface0/40 px-2 py-1",
+                            div { class: "text-ctp-text", {tr("Model request retried")} }
+                            div { class: "text-ctp-subtext0 break-words", "{event.detail}" }
                         }
-                        if !event.success {
-                            div { class: "text-ctp-red break-words", "{event.detail}" }
+                    } else {
+                        div { key: "{event.sequence}", class: "rounded bg-ctp-surface0/40 px-2 py-1",
+                            div { class: if event.success { "font-mono text-ctp-text" } else { "font-mono text-ctp-red" }, "{event.tool}" }
+                            if let Some(reason) = serde_json::from_str::<serde_json::Value>(&event.arguments).ok().and_then(|v| v["reason"].as_str().map(str::to_string)) {
+                                div { class: "text-ctp-subtext0 break-words", "“{reason}”" }
+                            }
+                            if !event.success {
+                                div { class: "text-ctp-red break-words", "{event.detail}" }
+                            }
                         }
                     }
                 }

@@ -753,10 +753,9 @@ impl ModelService {
     /// the client made in it.
     pub(super) fn close_mcp_window(&self, portfolio: Uuid, run_id: Uuid) -> Result<(), ServiceError> {
         let calls = self.mcp.race_gate().close(portfolio).unwrap_or_default();
-        for (index, call) in calls.iter().enumerate() {
+        for call in &calls {
             self.record_event(
                 run_id,
-                index as i64 + 1,
                 &call.tool,
                 &call.args,
                 call.success,

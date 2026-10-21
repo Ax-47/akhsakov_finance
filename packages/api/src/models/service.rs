@@ -1,7 +1,10 @@
 use crate::mcp::services::tools::FrozenMarket;
 use crate::{database::Database, mcp::McpService, shared::ServiceError};
 use dtos::{
-    ai_models::{AiRun, AiRunEvent, AiRunStatus, ModelProfile, NewAiTrader, TraderConfig, TraderMemory},
+    ai_models::{
+        AiRun, AiRunEvent, AiRunStatus, ModelProfile, NewAiTrader, TraderConfig, TraderMemory,
+        MODEL_RETRY_EVENT,
+    },
     ai_portfolio::AiPortfolioInfo,
     mcp::{McpAccessPreset, McpConnection},
 };
@@ -23,6 +26,13 @@ const MIN_CONTEXT_TOKENS: u32 = 8_192;
 const MAX_CONTEXT_TOKENS: u32 = 1_000_000;
 const CONTEXT_SAFETY_TOKENS: usize = 512;
 const RUN_HISTORY_LIMIT: usize = 5;
+/// Tries per model request, the first included.
+const MAX_ATTEMPTS: u32 = 4;
+/// The first retry waits up to this long; each later one up to twice as long.
+#[cfg(not(test))]
+const RETRY_BASE: Duration = Duration::from_secs(1);
+#[cfg(test)]
+const RETRY_BASE: Duration = Duration::from_millis(20);
 const ALLOWED_TOOLS: [&str; 5] = [
     "list_theses",
     "get_thesis",
@@ -49,6 +59,30 @@ pub(super) struct RaceRunContext {
     pub race_id: Uuid,
     pub round: u32,
     pub market: FrozenMarket,
+}
+
+/// Lets a run's model requests be retried until its deadline, each retry
+/// logged as a run event.
+struct Retry {
+    run_id: Uuid,
+    deadline: tokio::time::Instant,
+}
+
+/// A model request that failed, and whether trying again may help.
+struct Failure {
+    message: String,
+    retryable: bool,
+    retry_after: Option<Duration>,
+}
+
+impl Failure {
+    fn fatal(message: impl Into<String>) -> Self {
+        Self { message: message.into(), retryable: false, retry_after: None }
+    }
+
+    fn transient(message: impl Into<String>) -> Self {
+        Self { message: message.into(), retryable: true, retry_after: None }
+    }
 }
 
 fn storage(e: impl std::fmt::Display) -> ServiceError {
@@ -207,7 +241,7 @@ impl ModelService {
             }}],
             "tool_choice": {"type":"function","function":{"name":"connection_test"}}
         });
-        let response = self.request(&connection, &body).await?;
+        let response = self.request(&connection, &body, None).await?;
         let called = response["choices"][0]["message"]["tool_calls"]
             .as_array()
             .is_some_and(|calls| {
@@ -501,12 +535,16 @@ impl ModelService {
                 }
             })?;
         let runner = self.clone();
+        let retry = Retry {
+            run_id,
+            deadline: tokio::time::Instant::now() + timeout,
+        };
         tokio::spawn(async move {
             let usage = Arc::new(Mutex::new(Usage::default()));
             let result = tokio::time::timeout(
                 timeout,
                 runner.run_loop(
-                    run_id,
+                    &retry,
                     portfolio_id,
                     &config,
                     &memory,
@@ -573,7 +611,7 @@ impl ModelService {
 
     async fn run_loop(
         &self,
-        run_id: Uuid,
+        retry: &Retry,
         portfolio_id: Uuid,
         config: &TraderConfig,
         memory: &TraderMemory,
@@ -581,6 +619,7 @@ impl ModelService {
         usage: Arc<Mutex<Usage>>,
         race: Option<RaceRunContext>,
     ) -> Result<String, ServiceError> {
+        let run_id = retry.run_id;
         let portfolio = portfolio_id.to_string();
         let memory_budget = memory_prompt_budget(config);
         let memory_context = format_memory(memory, memory_budget);
@@ -624,6 +663,7 @@ impl ModelService {
                         "tools": tools,
                         "tool_choice": "auto"
                     }),
+                    Some(retry),
                 )
                 .await?;
             usage_add(&usage, &response["usage"]);
@@ -650,7 +690,7 @@ impl ModelService {
                     ));
                 }
                 self.refresh_memory(
-                    run_id,
+                    retry,
                     portfolio_id,
                     config,
                     memory,
@@ -699,7 +739,7 @@ impl ModelService {
                     Ok(value) => (serde_json::to_string(&value).unwrap_or_default(), true),
                     Err(error) => (error, false),
                 };
-                self.record_event(run_id, tool_count as i64, name, &args, success, &content)?;
+                self.record_event(run_id, name, &args, success, &content)?;
                 messages.push(json!({
                     "role":"tool",
                     "tool_call_id":call_id,
@@ -712,7 +752,7 @@ impl ModelService {
 
     async fn refresh_memory(
         &self,
-        run_id: Uuid,
+        retry: &Retry,
         portfolio_id: Uuid,
         config: &TraderConfig,
         previous: &TraderMemory,
@@ -734,7 +774,7 @@ impl ModelService {
                 )}
             ]
         });
-        let generated = match self.request(connection, &body).await {
+        let generated = match self.request(connection, &body, Some(retry)).await {
             Ok(response) => {
                 usage_add(usage, &response["usage"]);
                 response["choices"][0]["message"]["content"]
@@ -756,7 +796,7 @@ impl ModelService {
         });
         self.store_memory(
             portfolio_id,
-            Some(run_id),
+            Some(retry.run_id),
             &summary,
             &questions,
             config.memory_char_limit as usize,
@@ -797,7 +837,59 @@ impl ModelService {
         Ok(())
     }
 
-    async fn request(&self, connection: &Connection, body: &Value) -> Result<Value, ServiceError> {
+    /// Sends one chat completion. With `retry`, rate limits, server errors
+    /// and dropped connections are tried again with backoff, up to
+    /// `MAX_ATTEMPTS` and only while the wait ends before the deadline.
+    async fn request(
+        &self,
+        connection: &Connection,
+        body: &Value,
+        retry: Option<&Retry>,
+    ) -> Result<Value, ServiceError> {
+        let mut attempt = 1;
+        loop {
+            let failure = match self.send(connection, body).await {
+                Ok(value) => return Ok(value),
+                Err(failure) => failure,
+            };
+            let Some(retry) = retry.filter(|_| failure.retryable) else {
+                return Err(ServiceError::Upstream(failure.message));
+            };
+            if attempt >= MAX_ATTEMPTS {
+                return Err(ServiceError::Upstream(format!(
+                    "{} Gave up after {attempt} attempts.",
+                    failure.message
+                )));
+            }
+            let wait = failure.retry_after.unwrap_or_else(|| backoff(attempt));
+            if tokio::time::Instant::now() + wait >= retry.deadline {
+                let tried = if attempt == 1 {
+                    "Not retried".to_string()
+                } else {
+                    format!("Gave up after {attempt} attempts")
+                };
+                return Err(ServiceError::Upstream(format!(
+                    "{} {tried}: the run's deadline comes first.",
+                    failure.message
+                )));
+            }
+            attempt += 1;
+            self.record_event(
+                retry.run_id,
+                MODEL_RETRY_EVENT,
+                &json!({"attempt": attempt, "wait_ms": wait.as_millis() as u64}),
+                false,
+                &format!(
+                    "{} Trying again in {:.1} s (attempt {attempt} of {MAX_ATTEMPTS}).",
+                    failure.message,
+                    wait.as_secs_f64()
+                ),
+            )?;
+            tokio::time::sleep(wait).await;
+        }
+    }
+
+    async fn send(&self, connection: &Connection, body: &Value) -> Result<Value, Failure> {
         let endpoint = format!("{}/chat/completions", connection.profile.base_url);
         let response = self
             .http
@@ -806,20 +898,22 @@ impl ModelService {
             .json(body)
             .send()
             .await
-            .map_err(|e| ServiceError::Upstream(format!("Model request failed: {e}")))?;
+            .map_err(|e| Failure::transient(format!("Model request failed: {e}")))?;
         let status = response.status();
-        let text = response.text().await.map_err(|e| {
-            ServiceError::Upstream(format!("Couldn't read the model response: {e}"))
-        })?;
+        let retry_after = retry_after(response.headers());
+        let text = response
+            .text()
+            .await
+            .map_err(|e| Failure::transient(format!("Couldn't read the model response: {e}")))?;
         if !status.is_success() {
-            return Err(ServiceError::Upstream(upstream_error(
-                status.as_u16(),
-                &text,
-                &connection.api_key,
-            )));
+            return Err(Failure {
+                message: upstream_error(status.as_u16(), &text, &connection.api_key),
+                retryable: matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504),
+                retry_after,
+            });
         }
         serde_json::from_str(&text)
-            .map_err(|_| ServiceError::Upstream("The model endpoint returned invalid JSON.".into()))
+            .map_err(|_| Failure::fatal("The model endpoint returned invalid JSON."))
     }
 
     pub(super) fn finish(&self, id: Uuid, response: Option<String>, error: Option<String>, usage: Usage) {
@@ -840,10 +934,10 @@ impl ModelService {
         });
     }
 
+    /// Appends an event to the run, after the ones it already has.
     pub(super) fn record_event(
         &self,
         run_id: Uuid,
-        sequence: i64,
         tool: &str,
         args: &Value,
         success: bool,
@@ -858,10 +952,10 @@ impl ModelService {
             .with(|c| {
                 c.execute(
                     "INSERT INTO ai_run_events (run_id, sequence, tool, arguments, success, detail)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                     VALUES (?1, COALESCE((SELECT MAX(sequence) FROM ai_run_events WHERE run_id = ?1), 0) + 1,
+                             ?2, ?3, ?4, ?5)",
                     params![
                         run_id.to_string(),
-                        sequence,
                         tool,
                         args.to_string(),
                         success,
@@ -1164,6 +1258,33 @@ fn scoped_args(name: &str, raw: &str, portfolio: &str) -> Result<Value, ServiceE
         args.remove("portfolio");
     }
     Ok(args)
+}
+
+/// How long to wait before attempt `attempt + 1`: doubling from
+/// `RETRY_BASE`, less a random part so that runs started together don't
+/// retry together.
+fn backoff(attempt: u32) -> Duration {
+    let full = RETRY_BASE * 2u32.pow(attempt.saturating_sub(1).min(10));
+    let jitter = (Uuid::new_v4().as_u128() % 1_000) as f64 / 1_000.0;
+    full.mul_f64(0.5 + 0.5 * jitter)
+}
+
+/// The wait a provider asked for: `retry-after-ms`, or `Retry-After` in
+/// seconds. An HTTP date is ignored, and backoff applies instead.
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    let number = |name: &str| {
+        headers
+            .get(name)?
+            .to_str()
+            .ok()?
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= 0.0)
+    };
+    number("retry-after-ms")
+        .map(|ms| Duration::from_secs_f64(ms / 1_000.0))
+        .or_else(|| number("retry-after").map(Duration::from_secs_f64))
 }
 
 fn upstream_error(status: u16, body: &str, api_key: &str) -> String {
