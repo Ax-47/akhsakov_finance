@@ -18,7 +18,7 @@ use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::Tic
 use crate::{
     events::quote_update_event::QuoteUpdateEvent,
     repositories::{
-        manual_quotes::ManualQuotes, quote_cache::QuoteCache, quote_gateway::QuoteGateway,
+        manual_quotes::{ManualQuotes, ManualSeries}, quote_cache::QuoteCache, quote_gateway::QuoteGateway,
         quote_gateway_errors::QuoteGateWayError,
     },
 };
@@ -67,10 +67,15 @@ struct FxCache {
 }
 
 /// Daily candles from hand-entered prices: each weekday from the first
-/// entry to `today` carries the latest price entered on or before it,
-/// limited to `range`.
+/// entry to `today` carries the latest price entered on or before it (plus
+/// interest since, at `yearly_rate`), limited to `range`.
 #[cfg(feature = "server")]
-pub fn manual_candles(prices: &[dtos::assets::ManualPrice], range: Range, today: NaiveDate) -> Vec<Candle> {
+pub fn manual_candles(
+    prices: &[dtos::assets::ManualPrice],
+    yearly_rate: Option<Decimal>,
+    range: Range,
+    today: NaiveDate,
+) -> Vec<Candle> {
     use chrono::{Datelike, TimeZone, Weekday};
     let mut series: Vec<(NaiveDate, Decimal)> = prices
         .iter()
@@ -98,7 +103,8 @@ pub fn manual_candles(prices: &[dtos::assets::ManualPrice], range: Range, today:
     let mut day = start;
     while day <= today {
         if !matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
-            if let Some(price) = rate_on(&series, day) {
+            let key = day.format("%Y-%m-%d").to_string();
+            if let Some(price) = dtos::assets::value_on(prices, yearly_rate, &key).or_else(|| rate_on(&series, day)) {
                 let ts = chrono::Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0).expect("midnight"));
                 out.push(Candle { ts, open: price, high: price, low: price, close: price, volume: None, adj_factor: None });
             }
@@ -161,7 +167,7 @@ impl QuoteService {
     }
 
     /// Currency and prices of a hand-priced asset.
-    fn manual(&self, ticker: &TickerSymbol) -> Option<(String, Vec<dtos::assets::ManualPrice>)> {
+    fn manual(&self, ticker: &TickerSymbol) -> Option<ManualSeries> {
         self.manual.as_ref()?.manual(ticker)
     }
 
@@ -180,8 +186,8 @@ impl QuoteService {
         interval: Interval,
         is_prepost_market: bool,
     ) -> Result<Vec<Candle>, QuoteGateWayError> {
-        if let Some((_, prices)) = self.manual(&ticker) {
-            return Ok(manual_candles(&prices, range, chrono::Utc::now().date_naive()));
+        if let Some(series) = self.manual(&ticker) {
+            return Ok(manual_candles(&series.prices, series.yearly_rate, range, chrono::Utc::now().date_naive()));
         }
         let key = format!("{ticker}|{}|{interval:?}|{is_prepost_market}", range.code());
         let fetched = tokio::time::timeout(
@@ -260,8 +266,9 @@ impl QuoteService {
     /// Latest quote in the instrument's own currency, e.g. for recording a
     /// trade as the broker shows it.
     pub async fn native_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
-        if let Some((currency, prices)) = self.manual(&ticker) {
-            let (current, previous) = dtos::assets::latest_two(&prices).ok_or_else(|| {
+        if let Some(ManualSeries { currency, prices, yearly_rate }) = self.manual(&ticker) {
+            let today = chrono::Utc::now().date_naive().format("%Y-%m-%d").to_string();
+            let (current, previous) = dtos::assets::current_and_previous(&prices, yearly_rate, &today).ok_or_else(|| {
                 QuoteGateWayError::GateWayError(format!("no price entered for {ticker} yet"))
             })?;
             self.fx.lock().await.currency.insert(ticker.clone(), currency.clone());
@@ -570,9 +577,13 @@ mod tests {
 
     struct OneFund;
     impl ManualQuotes for OneFund {
-        fn manual(&self, t: &TickerSymbol) -> Option<(String, Vec<dtos::assets::ManualPrice>)> {
+        fn manual(&self, t: &TickerSymbol) -> Option<ManualSeries> {
             let p = |d: &str, v| dtos::assets::ManualPrice { date: d.into(), price: v };
-            (t.as_str() == "KFSSF").then(|| ("THB".into(), vec![p("2026-01-05", dec!(10)), p("2026-01-07", dec!(11))]))
+            (t.as_str() == "KFSSF").then(|| ManualSeries {
+                currency: "THB".into(),
+                prices: vec![p("2026-01-05", dec!(10)), p("2026-01-07", dec!(11))],
+                yearly_rate: None,
+            })
         }
     }
 
@@ -586,12 +597,16 @@ mod tests {
         assert!(service.watch(vec![fund]).await.is_ok());
 
         let d = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
-        let prices = OneFund.manual(&TickerSymbol::new("KFSSF").unwrap()).unwrap().1;
+        let prices = OneFund.manual(&TickerSymbol::new("KFSSF").unwrap()).unwrap().prices;
         // Mon 5th to Mon 12th: six weekdays, the weekend skipped.
-        let candles = manual_candles(&prices, Range::Max, d("2026-01-12"));
+        let candles = manual_candles(&prices, None, Range::Max, d("2026-01-12"));
         let closes: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
         assert_eq!(closes, vec![dec!(10), dec!(10), dec!(11), dec!(11), dec!(11), dec!(11)]);
-        assert_eq!(manual_candles(&prices, Range::D5, d("2026-01-12")).len(), 4);
+        // At 36.5% a year, each day after an entry adds 0.1% of it.
+        let deposit = manual_candles(&prices, Some(dec!(36.5)), Range::Max, d("2026-01-12"));
+        assert_eq!(deposit[1].close, dec!(10.01));
+        assert_eq!(deposit[5].close, dec!(11) * dec!(1.005));
+        assert_eq!(manual_candles(&prices, None, Range::D5, d("2026-01-12")).len(), 4);
     }
 
     #[test]

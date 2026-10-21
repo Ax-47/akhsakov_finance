@@ -74,6 +74,7 @@ mod tests {
             currency: "THB".into(),
             manual: true,
             wrapper: Some(TaxWrapper::Ssf),
+            yearly_rate: Some(dec!(1.25)),
             ..AssetInfo::new(t.clone())
         };
         s.save_asset(fund.clone()).unwrap();

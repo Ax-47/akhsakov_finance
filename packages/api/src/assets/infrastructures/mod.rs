@@ -23,14 +23,14 @@ fn corrupt(what: &str, value: &str) -> RepositoryError {
 
 impl AssetRepository for SqliteAssetRepository {
     fn assets(&self) -> Result<Vec<AssetInfo>, RepositoryError> {
-        type Row = (String, String, String, String, bool, Option<String>);
+        type Row = (String, String, String, String, bool, Option<String>, Option<String>);
         let rows: Vec<Row> = self.db.with(|c| {
-            c.prepare("SELECT ticker, class, name, currency, manual, wrapper FROM assets ORDER BY ticker")?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
+            c.prepare("SELECT ticker, class, name, currency, manual, wrapper, yearly_rate FROM assets ORDER BY ticker")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
                 .collect()
         })?;
         rows.into_iter()
-            .map(|(ticker, class, name, currency, manual, wrapper)| {
+            .map(|(ticker, class, name, currency, manual, wrapper, rate)| {
                 Ok(AssetInfo {
                     ticker: TickerSymbol::new(&ticker).map_err(|_| corrupt("ticker", &ticker))?,
                     class: AssetClass::from_key(&class),
@@ -38,6 +38,7 @@ impl AssetRepository for SqliteAssetRepository {
                     currency,
                     manual,
                     wrapper: wrapper.as_deref().and_then(TaxWrapper::from_key),
+                    yearly_rate: rate.map(|r| Decimal::from_str(&r).map_err(|_| corrupt("interest rate", &r))).transpose()?,
                 })
             })
             .collect()
@@ -46,9 +47,17 @@ impl AssetRepository for SqliteAssetRepository {
     fn save_asset(&self, a: &AssetInfo) -> Result<(), RepositoryError> {
         self.db.with(|c| {
             c.execute(
-                "INSERT OR REPLACE INTO assets (ticker, class, name, currency, manual, wrapper)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![a.ticker.as_str(), a.class.key(), a.name, a.currency, a.manual, a.wrapper.map(|w| w.key())],
+                "INSERT OR REPLACE INTO assets (ticker, class, name, currency, manual, wrapper, yearly_rate)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    a.ticker.as_str(),
+                    a.class.key(),
+                    a.name,
+                    a.currency,
+                    a.manual,
+                    a.wrapper.map(|w| w.key()),
+                    a.yearly_rate.map(|r| r.to_string())
+                ],
             )
         })?;
         Ok(())

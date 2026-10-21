@@ -1,6 +1,9 @@
 //! SQLite adapter for [`ManualQuotes`], reading the assets context's tables.
 
-use crate::{database::Database, quote::repositories::manual_quotes::ManualQuotes};
+use crate::{
+    database::Database,
+    quote::repositories::manual_quotes::{ManualQuotes, ManualSeries},
+};
 use dtos::assets::ManualPrice;
 use rusqlite::OptionalExtension;
 use rust_decimal::Decimal;
@@ -18,14 +21,14 @@ impl SqliteManualQuotes {
 }
 
 impl ManualQuotes for SqliteManualQuotes {
-    fn manual(&self, ticker: &TickerSymbol) -> Option<(String, Vec<ManualPrice>)> {
+    fn manual(&self, ticker: &TickerSymbol) -> Option<ManualSeries> {
         self.db
             .with(|c| {
-                let Some(currency) = c
+                let Some((currency, rate)) = c
                     .query_row(
-                        "SELECT currency FROM assets WHERE ticker = ?1 AND manual = 1",
+                        "SELECT currency, yearly_rate FROM assets WHERE ticker = ?1 AND manual = 1",
                         [ticker.as_str()],
-                        |r| r.get::<_, String>(0),
+                        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
                     )
                     .optional()?
                 else {
@@ -39,7 +42,8 @@ impl ManualQuotes for SqliteManualQuotes {
                         Some(ManualPrice { date, price: Decimal::from_str(&price).ok()? })
                     })
                     .collect();
-                Ok(Some((currency, prices)))
+                let yearly_rate = rate.and_then(|r| Decimal::from_str(&r).ok());
+                Ok(Some(ManualSeries { currency, prices, yearly_rate }))
             })
             .ok()
             .flatten()
