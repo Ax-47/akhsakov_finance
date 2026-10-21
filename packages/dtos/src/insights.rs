@@ -167,7 +167,7 @@ pub fn gains_by_ticker(transactions: &[Transaction], prices: &HashMap<String, f6
 
 // ─── Backtest ─────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct BacktestPlan {
     /// Target weight per asset (fractions, normalised if they don't sum to 1).
     pub weights: Vec<f64>,
@@ -177,6 +177,18 @@ pub struct BacktestPlan {
     /// Reset to the target weights every 12 steps (once a year for monthly
     /// prices).
     pub rebalance_yearly: bool,
+    pub fees: Fees,
+}
+
+/// What investing costs, in the same money as the plan's amounts.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Fees {
+    /// Fraction of every amount bought or sold (0.001 = 0.1%).
+    pub rate: f64,
+    /// Charged for each asset bought or sold in a step.
+    pub per_trade: f64,
+    /// Fraction of the value taken each year, a twelfth every step.
+    pub yearly: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -202,6 +214,8 @@ pub struct BacktestResult {
     /// Best and worst full calendar years, as `(year, return)`.
     pub best_year: Option<(String, f64)>,
     pub worst_year: Option<(String, f64)>,
+    /// Everything [`Fees`] took, in the same money as the plan's amounts.
+    pub fees_paid: f64,
 }
 
 impl BacktestResult {
@@ -280,28 +294,64 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
             .map(|(u, p)| p[t].map_or(0.0, |px| u * px))
             .sum()
     };
-    // Spends `cash` across available assets at their target weights.
-    let buy = |units: &mut [f64], cash: f64, t: usize| {
+    let fees = plan.fees;
+    // The assets with a price at `t` and a weight, and their total weight.
+    let live = |t: usize| -> (Vec<usize>, f64) {
         let live: Vec<usize> = (0..prices.len())
-            .filter(|&a| prices[a][t].is_some_and(|p| p > 0.0))
+            .filter(|&a| prices[a][t].is_some_and(|p| p > 0.0) && plan.weights[a] > 0.0)
             .collect();
-        let total_w: f64 = live.iter().map(|&a| plan.weights[a].max(0.0)).sum();
+        let total_w = live.iter().map(|&a| plan.weights[a]).sum();
+        (live, total_w)
+    };
+    // Spends `cash` across available assets at their target weights, after
+    // trading fees; returns the fees, or `None` if nothing can be bought.
+    let buy = |units: &mut [f64], cash: f64, t: usize| -> Option<f64> {
+        let (live, total_w) = live(t);
         if total_w <= 0.0 {
-            return false;
+            return None;
         }
+        let net = (cash - fees.per_trade * live.len() as f64).max(0.0) / (1.0 + fees.rate);
         for &a in &live {
-            units[a] += cash * plan.weights[a].max(0.0) / total_w / prices[a][t].unwrap();
+            units[a] += net * plan.weights[a] / total_w / prices[a][t].unwrap();
         }
-        true
+        Some(cash - net)
+    };
+    // Resets holdings to the target weights; returns the trading fees, worked
+    // out on the trades before fees (close enough at realistic rates).
+    let rebalance = |units: &mut [f64], t: usize| -> f64 {
+        let (live, total_w) = live(t);
+        if total_w <= 0.0 {
+            return 0.0;
+        }
+        let total = value_at(units, t);
+        let trades: Vec<f64> = (0..units.len())
+            .map(|a| {
+                let target = if live.contains(&a) { total * plan.weights[a] / total_w } else { 0.0 };
+                (target - prices[a][t].map_or(0.0, |p| units[a] * p)).abs()
+            })
+            .collect();
+        let traded = trades.iter().filter(|x| **x > 1e-9).count();
+        let fee = (fees.rate * trades.iter().sum::<f64>() + fees.per_trade * traded as f64).min(total);
+        units.iter_mut().for_each(|u| *u = 0.0);
+        for &a in &live {
+            units[a] = (total - fee) * plan.weights[a] / total_w / prices[a][t].unwrap();
+        }
+        fee
     };
 
     let mut invested = 0.0;
+    let mut fees_paid = 0.0;
     let mut flows: Vec<(String, f64)> = Vec::new();
     let mut points = Vec::with_capacity(n);
     let (mut index, mut peak, mut max_dd) = (1.0_f64, 1.0_f64, 0.0_f64);
     let mut started: Option<usize> = None;
     let mut index_points: Vec<(String, f64)> = Vec::new();
     for t in 0..n {
+        if started.is_some_and(|s| t > s) && fees.yearly > 0.0 {
+            let share = fees.yearly / 12.0;
+            fees_paid += value_at(&units, t) * share;
+            units.iter_mut().for_each(|u| *u *= 1.0 - share);
+        }
         let before = value_at(&units, t);
         if let Some(s) = started {
             if t > s {
@@ -315,7 +365,8 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
             }
         }
         let cash = if started.is_none() { plan.initial } else { plan.contribution };
-        if cash > 0.0 && buy(&mut units, cash, t) {
+        if let Some(fee) = (cash > 0.0).then(|| buy(&mut units, cash, t)).flatten() {
+            fees_paid += fee;
             invested += cash;
             flows.push((dates[t].clone(), -cash));
             started.get_or_insert(t);
@@ -325,9 +376,7 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
         }
         index_points.push((dates[t].clone(), index));
         if plan.rebalance_yearly && t > started.unwrap() && (t - started.unwrap()) % 12 == 0 {
-            let total = value_at(&units, t);
-            units.iter_mut().for_each(|u| *u = 0.0);
-            buy(&mut units, total, t);
+            fees_paid += rebalance(&mut units, t);
         }
         points.push((dates[t].clone(), value_at(&units, t), invested));
     }
@@ -343,6 +392,7 @@ pub fn backtest(dates: &[String], prices: &[Vec<Option<f64>>], plan: &BacktestPl
     let (volatility, best_year, worst_year) = index_stats(&index_points);
     BacktestResult {
         recovery_months: recovery_steps(&index_points),
+        fees_paid,
         volatility,
         best_year,
         worst_year,
@@ -378,7 +428,7 @@ mod backtest_stats_tests {
                 prices.push(Some(p));
             }
         }
-        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
         let r = backtest(&dates, &[prices], &plan);
         let (best, worst) = (r.best_year.clone().unwrap(), r.worst_year.clone().unwrap());
         assert_eq!(best.0, "2025");
@@ -394,7 +444,7 @@ mod backtest_stats_tests {
     #[test]
     fn time_to_recover_from_the_worst_fall() {
         let dates: Vec<String> = (1..=6).map(|m| format!("2026-{m:02}-01")).collect();
-        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
         let run = |p: &[f64]| backtest(&dates[..p.len()], &[p.iter().copied().map(Some).collect()], &plan);
         // Halves, then is back at the old high three months after it.
         let r = run(&[10.0, 5.0, 8.0, 10.0, 12.0, 12.0]);
@@ -415,9 +465,90 @@ mod backtest_stats_tests {
     #[test]
     fn too_short_for_stats() {
         let dates: Vec<String> = (1..=2).map(|m| format!("2026-{m:02}-01")).collect();
-        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
         let r = backtest(&dates, &[vec![Some(1.0), Some(1.1)]], &plan);
         assert_eq!((r.volatility, r.best_year, r.worst_year), (None, None, None));
+    }
+}
+
+#[cfg(test)]
+mod fee_tests {
+    use super::*;
+
+    fn months(n: usize) -> Vec<String> {
+        (1..=n).map(|m| format!("2026-{m:02}-01")).collect()
+    }
+
+    #[test]
+    fn trading_fees_come_off_each_purchase() {
+        let dates = months(2);
+        let prices = vec![vec![Some(10.0); 2], vec![Some(20.0); 2]];
+        let plan = BacktestPlan {
+            weights: vec![0.5, 0.5],
+            initial: 1000.0,
+            contribution: 100.0,
+            fees: Fees { rate: 0.01, per_trade: 2.0, yearly: 0.0 },
+            ..Default::default()
+        };
+        let r = backtest(&dates, &prices, &plan);
+        // 1000 − 2 × 2 = 996 to trade, 996 / 1.01 bought; then 100 − 4 = 96.
+        let bought = 996.0 / 1.01 + 96.0 / 1.01;
+        assert!((r.final_value - bought).abs() < 1e-9, "{}", r.final_value);
+        assert!((r.fees_paid - (1100.0 - bought)).abs() < 1e-9, "{}", r.fees_paid);
+        assert_eq!(r.invested, 1100.0);
+        // Flat prices, so the fees are the whole loss.
+        assert!(r.irr.unwrap() < 0.0);
+    }
+
+    #[test]
+    fn a_yearly_fee_is_taken_monthly_and_shows_in_growth() {
+        let dates = months(13);
+        let prices = vec![vec![Some(10.0); 13]];
+        let plan = BacktestPlan {
+            weights: vec![1.0],
+            initial: 1200.0,
+            fees: Fees { yearly: 0.012, ..Default::default() },
+            ..Default::default()
+        };
+        let r = backtest(&dates, &prices, &plan);
+        let left = 1200.0 * (1.0 - 0.001f64).powi(12);
+        assert!((r.final_value - left).abs() < 1e-9, "{}", r.final_value);
+        assert!((r.fees_paid - (1200.0 - left)).abs() < 1e-9);
+        assert!((r.cagr.unwrap() + 0.012).abs() < 0.001, "{:?}", r.cagr);
+        assert!(r.max_drawdown < 0.0);
+    }
+
+    #[test]
+    fn rebalancing_pays_on_what_it_trades() {
+        let dates = months(13);
+        let prices = vec![
+            (0..13).map(|i| Some(if i == 12 { 30.0 } else { 10.0 })).collect(),
+            vec![Some(10.0); 13],
+        ];
+        let plan = BacktestPlan {
+            weights: vec![0.5, 0.5],
+            initial: 100.0,
+            rebalance_yearly: true,
+            fees: Fees { rate: 0.01, ..Default::default() },
+            ..Default::default()
+        };
+        let r = backtest(&dates, &prices, &plan);
+        // Bought 100 / 1.01 at the start, so 4.95 units of each. A triples:
+        // 148.5 + 49.5 = 198, rebalanced by moving 49.5 from A to B, which
+        // costs 1% of the 99 traded.
+        let start = 100.0 / 1.01;
+        let before = start / 2.0 * 3.0 + start / 2.0;
+        let fee = 0.01 * (start / 2.0 * 3.0 - before / 2.0) * 2.0;
+        assert!((r.final_value - (before - fee)).abs() < 1e-9, "{}", r.final_value);
+        assert!((r.fees_paid - (100.0 - start + fee)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn no_fees_by_default() {
+        let dates = months(3);
+        let plan = BacktestPlan { weights: vec![1.0], initial: 100.0, contribution: 10.0, ..Default::default() };
+        let r = backtest(&dates, &[vec![Some(10.0); 3]], &plan);
+        assert_eq!((r.final_value, r.fees_paid), (120.0, 0.0));
     }
 }
 
@@ -504,7 +635,7 @@ mod tests {
         // +1% a month for two years.
         let dates = months(25);
         let prices = vec![(0..25).map(|i| Some(100.0 * 1.01f64.powi(i))).collect()];
-        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false };
+        let plan = BacktestPlan { weights: vec![1.0], initial: 1000.0, contribution: 0.0, rebalance_yearly: false, ..Default::default() };
         let r = backtest(&dates, &prices, &plan);
         assert!((r.final_value - 1000.0 * 1.01f64.powi(24)).abs() < 1e-6);
         assert_eq!(r.invested, 1000.0);
@@ -521,7 +652,7 @@ mod tests {
             vec![Some(10.0), Some(5.0), Some(10.0), Some(10.0)],
             vec![None, None, Some(20.0), Some(20.0)],
         ];
-        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 100.0, rebalance_yearly: false };
+        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 100.0, rebalance_yearly: false, ..Default::default() };
         let r = backtest(&dates, &prices, &plan);
         assert_eq!(r.invested, 400.0);
         assert!((r.max_drawdown + 0.5).abs() < 1e-9, "{}", r.max_drawdown);
@@ -537,7 +668,7 @@ mod tests {
             (0..13).map(|i| Some(if i == 12 { 30.0 } else { 10.0 })).collect(),
             vec![Some(10.0); 13],
         ];
-        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 0.0, rebalance_yearly: true };
+        let plan = BacktestPlan { weights: vec![0.5, 0.5], initial: 100.0, contribution: 0.0, rebalance_yearly: true, ..Default::default() };
         let r = backtest(&dates, &prices, &plan);
         // Before: 5 A × 30 + 5 B × 10 = 200, rebalanced 100 / 100.
         assert!((r.final_value - 200.0).abs() < 1e-9);

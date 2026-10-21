@@ -14,7 +14,7 @@ use crate::{
 };
 use api::quote::quote::get_charts;
 use dioxus::prelude::*;
-use dtos::insights::{backtest, BacktestPlan, BacktestResult};
+use dtos::insights::{backtest, BacktestPlan, BacktestResult, Fees};
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
 use types::{candle::Candle, interval::Interval, range::Range, ticker_symbol::TickerSymbol};
@@ -24,6 +24,34 @@ struct Asset {
     ticker: String,
     /// Percent.
     weight: String,
+}
+
+/// The fee fields as typed: percentages, and a per-trade amount in the
+/// display currency.
+#[derive(Clone, PartialEq)]
+struct FeeInputs {
+    rate: String,
+    per_trade: String,
+    yearly: String,
+}
+
+impl FeeInputs {
+    /// `rate` converts display-currency amounts to USD.
+    fn parse(&self, rate: f64) -> Result<Fees, String> {
+        let number = |s: &str| {
+            let s = s.trim();
+            if s.is_empty() {
+                Some(0.0)
+            } else {
+                s.replace(',', "").parse::<f64>().ok().filter(|v| (0.0..=1e9).contains(v))
+            }
+        };
+        let percent = |s: &str| number(s).filter(|v| *v <= 10.0).map(|v| v / 100.0);
+        match (percent(&self.rate), number(&self.per_trade), percent(&self.yearly)) {
+            (Some(r), Some(flat), Some(yearly)) => Ok(Fees { rate: r, per_trade: flat / rate, yearly }),
+            _ => Err(tr("Fees are zero or more, and percentages at most 10%").into()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -89,6 +117,7 @@ pub fn BacktestPage() -> Element {
     let mut monthly = use_signal(move || format!("{:.0}", 500.0 * rate));
     let mut years = use_signal(|| Years::Five);
     let mut rebalance = use_signal(|| true);
+    let mut fees = use_signal(|| FeeInputs { rate: "0".into(), per_trade: "0".into(), yearly: "0".into() });
     let mut outcome = use_signal(|| None::<Result<Outcome, String>>);
     let mut running = use_signal(|| false);
 
@@ -102,6 +131,7 @@ pub fn BacktestPage() -> Element {
             &monthly(),
             years(),
             rebalance(),
+            fees(),
             settings.benchmark(),
         )
         .await;
@@ -194,6 +224,21 @@ pub fn BacktestPage() -> Element {
                         label { class: "flex items-center gap-2 text-sm text-ctp-subtext1 cursor-pointer",
                             input { r#type: "checkbox", checked: rebalance(), onchange: move |e| rebalance.set(e.checked()) }
                             {tr("Rebalance to the weights once a year")}
+                        }
+                        details {
+                            summary { class: "cursor-pointer text-sm text-ctp-subtext1", {tr("Fees")} }
+                            div { class: "mt-3 grid gap-3",
+                                Field { label: tr("Trading fee (% of each trade)"),
+                                    input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{fees.read().rate}", oninput: move |e| fees.write().rate = e.value() }
+                                }
+                                Field { label: format!("{} ({})", tr("Fee per trade"), symbol.trim()),
+                                    input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{fees.read().per_trade}", oninput: move |e| fees.write().per_trade = e.value() }
+                                }
+                                Field { label: tr("Yearly fee (% of value)"), hint: tr("Fund prices already include their own expense ratio; use this for anything on top, such as an advisory or platform fee."),
+                                    input { class: "{INPUT} tabular-nums", inputmode: "decimal", value: "{fees.read().yearly}", oninput: move |e| fees.write().yearly = e.value() }
+                                }
+                                p { class: "text-xs text-ctp-overlay1", {tr("The benchmark pays the same fees.")} }
+                            }
                         }
                         ActionButton { label: run_label, disabled: running(), onclick: run }
                     }
@@ -290,7 +335,13 @@ fn Results(outcome: Outcome) -> Element {
                 tone: "text-ctp-red",
             }
         }
-        p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Prices include dividends, reinvested; fees and taxes aren't counted.")} }
+        p { class: "mt-2 text-xs text-ctp-overlay1",
+            if mix.fees_paid > 0.0 {
+                {crate::i18n::trf("Prices include dividends, reinvested. Fees paid: {}; taxes aren't counted.", &[&money(mix.fees_paid)])}
+            } else {
+                {tr("Prices include dividends, reinvested; fees and taxes aren't counted.")}
+            }
+        }
         div { class: "mt-5 motion-safe:animate-rise",
             Card { title: tr("Return on money put in"), subtitle: note.unwrap_or_else(|| tr("Value ÷ amount invested so far").into()),
                 document::Script { src: asset!("/assets/js/growth_chart.js") }
@@ -308,9 +359,11 @@ async fn simulate(
     monthly: &str,
     years: Years,
     rebalance: bool,
+    fees: FeeInputs,
     benchmark: TickerSymbol,
 ) -> Result<Outcome, String> {
     let (_, rate) = display_currency();
+    let fees = fees.parse(rate)?;
     let amount = |s: &str| s.trim().replace(',', "").parse::<f64>().ok().filter(|v| *v >= 0.0);
     let (Some(initial), Some(monthly)) = (amount(initial), amount(monthly)) else {
         return Err("Enter amounts of zero or more".into());
@@ -380,6 +433,7 @@ async fn simulate(
         initial,
         contribution: monthly,
         rebalance_yearly: rebalance,
+        fees,
     };
     let mix = backtest(&dates, &prices, &plan);
     let bench_prices = vec![dates.iter().map(|d| bench.get(d).copied()).collect()];
@@ -397,4 +451,25 @@ async fn simulate(
         benchmark_name: dtos::settings::benchmark_name(benchmark.as_str()),
         note: (!late.is_empty()).then(|| crate::i18n::trf("Not listed yet at the start: {}. Until then the others take their share.", &[&late.join(", ")])),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inputs(rate: &str, per_trade: &str, yearly: &str) -> FeeInputs {
+        FeeInputs { rate: rate.into(), per_trade: per_trade.into(), yearly: yearly.into() }
+    }
+
+    #[test]
+    fn reads_fee_inputs() {
+        // A per-trade fee of ฿35 at 35 baht to the dollar is $1.
+        let fees = inputs("0.15", "35", "").parse(35.0).unwrap();
+        assert!((fees.rate - 0.0015).abs() < 1e-12);
+        assert!((fees.per_trade - 1.0).abs() < 1e-12);
+        assert_eq!(fees.yearly, 0.0);
+        assert!(inputs("-1", "0", "0").parse(1.0).is_err());
+        assert!(inputs("0", "0", "12").parse(1.0).is_err());
+        assert!(inputs("0", "abc", "0").parse(1.0).is_err());
+    }
 }
