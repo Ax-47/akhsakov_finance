@@ -252,7 +252,11 @@ fn Results(outcome: Outcome) -> Element {
             MetricTile {
                 label: tr("Worst fall"),
                 value: format!("{:.1}%", mix.max_drawdown * 100.0),
-                hint: tr("Largest drop from a peak along the way"),
+                hint: match (mix.max_drawdown < 0.0, mix.recovery_months) {
+                    (false, _) => tr("Largest drop from a peak along the way").to_string(),
+                    (true, Some(months)) => crate::i18n::trf("Back to its peak after {} months", &[&months]),
+                    (true, None) => tr("Not back to its peak yet").to_string(),
+                },
                 tone: "text-ctp-red",
             }
             MetricTile {
