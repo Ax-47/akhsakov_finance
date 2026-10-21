@@ -7,7 +7,7 @@ use crate::{
     components::{
         analysis::stock::open_stock,
         card::{Card, Segmented, ToggleButton},
-        charts::{HeatItem, HeatmapLegend, Treemap, DAY_SATURATION},
+        charts::{bars::Sparkline, HeatItem, HeatmapLegend, Treemap, DAY_SATURATION},
     },
     editors::{Dialog, Dialogs},
     format::{fmt_compact, fmt_usd, signed_color},
@@ -41,6 +41,20 @@ fn since_added(candles: &[types::candle::Candle], added: &str, price: Decimal) -
         .find(|c| c.ts.date_naive().format("%Y-%m-%d").to_string().as_str() >= day)?
         .close;
     (!base.is_zero()).then(|| (price / base - Decimal::ONE) * Decimal::ONE_HUNDRED)
+}
+
+/// Green if the line ends higher than it starts, red if lower.
+fn trend_color(values: &[Option<f64>]) -> &'static str {
+    let mut known = values.iter().flatten();
+    match (known.next(), known.last()) {
+        (Some(first), Some(last)) if last < first => "var(--catppuccin-color-red)",
+        _ => "var(--catppuccin-color-green)",
+    }
+}
+
+/// Closes from `from` on, oldest first, for a row's trend line.
+fn closes_since(candles: &[types::candle::Candle], from: chrono::NaiveDate) -> Vec<Option<f64>> {
+    candles.iter().filter(|c| c.ts.date_naive() >= from).map(|c| c.close.to_f64()).collect()
 }
 
 #[component]
@@ -253,6 +267,7 @@ pub fn WatchlistPage() -> Element {
                         },
                         (_, items) => {
                             let history = history.read().clone().unwrap_or_default();
+                            let three_months_ago = chrono::Utc::now().date_naive() - chrono::Duration::days(91);
                             let live = quotes.read();
                             let mut rows: Vec<Row> = items
                                 .into_iter()
@@ -261,7 +276,8 @@ pub fn WatchlistPage() -> Element {
                                     let price = quote.map(|q| q.current_price);
                                     let day = quote.filter(|q| !q.previous_close_price.is_zero()).map(|q| (q.current_price / q.previous_close_price - Decimal::ONE) * Decimal::ONE_HUNDRED);
                                     let since = price.and_then(|p| since_added(history.get(&item.ticker)?, &item.added_at, p));
-                                    Row { price, day, since, item }
+                                    let trend = history.get(&item.ticker).map(|c| closes_since(c, three_months_ago)).unwrap_or_default();
+                                    Row { price, day, since, trend, item }
                                 })
                                 .collect();
                             let (key, desc) = sort();
@@ -299,6 +315,7 @@ pub fn WatchlistPage() -> Element {
                                     {head(SortKey::Ticker, "Ticker", "w-20 text-left sm:w-24")}
                                     span { class: "hidden flex-1 sm:block" }
                                     {head(SortKey::Price, "Price", "flex-1 text-right")}
+                                    span { class: "hidden w-20 text-right sm:block", {tr("3 months")} }
                                     {head(SortKey::Day, "Today", "w-16 text-right sm:w-20")}
                                     {head(SortKey::SinceAdded, "Since added", "w-20 text-right")}
                                     {head(SortKey::Added, "Added", "hidden w-20 text-right sm:block")}
@@ -315,6 +332,7 @@ pub fn WatchlistPage() -> Element {
                                                 price: row.price,
                                                 day: row.day,
                                                 since: row.since,
+                                                trend: row.trend,
                                                 added: row.item.added_at.get(..10).unwrap_or_default().to_string(),
                                                 alerts: count,
                                                 list: list_id,
@@ -340,6 +358,8 @@ struct Row {
     price: Option<Decimal>,
     day: Option<Decimal>,
     since: Option<Decimal>,
+    /// Closes over the last three months, oldest first.
+    trend: Vec<Option<f64>>,
 }
 
 #[component]
@@ -348,6 +368,7 @@ fn WatchRow(
     price: Option<Decimal>,
     day: Option<Decimal>,
     since: Option<Decimal>,
+    trend: Vec<Option<f64>>,
     /// `YYYY-MM-DD`.
     added: String,
     alerts: usize,
@@ -374,6 +395,9 @@ fn WatchRow(
             }
             span { class: "flex-1 text-right tabular-nums text-ctp-text",
                 {price.map(|p| fmt_usd(p, 2)).unwrap_or_else(|| "—".into())}
+            }
+            span { class: "hidden w-20 justify-end sm:flex",
+                Sparkline { values: trend.clone(), color: trend_color(&trend) }
             }
             span { class: "w-16 text-right text-sm tabular-nums sm:w-20 {day.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
                 {day.map(|d| format!("{d:+.2}%")).unwrap_or_else(|| "—".into())}
@@ -571,5 +595,28 @@ mod tests {
         assert_eq!(since_added(&candles, "2026-03-02 18:00:00", dec!(45)), Some(dec!(-50)));
         assert_eq!(since_added(&candles, "2026-04-01 10:00:00", dec!(120)), None, "no close since");
         assert_eq!(since_added(&candles, "bad", dec!(120)), None);
+    }
+}
+
+#[cfg(test)]
+mod trend_tests {
+    use super::*;
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use types::candle::Candle;
+
+    fn candle(day: u32, close: Decimal) -> Candle {
+        let ts = Utc.with_ymd_and_hms(2026, 10, day, 20, 0, 0).unwrap();
+        Candle { ts, open: close, high: close, low: close, close, volume: None, adj_factor: None }
+    }
+
+    #[test]
+    fn trend_from_recent_closes() {
+        let candles = [candle(1, Decimal::from(10)), candle(5, Decimal::from(12)), candle(9, Decimal::from(9))];
+        let from = NaiveDate::from_ymd_opt(2026, 10, 5).unwrap();
+        let trend = closes_since(&candles, from);
+        assert_eq!(trend, [Some(12.0), Some(9.0)]);
+        assert_eq!(trend_color(&trend), "var(--catppuccin-color-red)");
+        assert_eq!(trend_color(&[Some(1.0), None, Some(2.0)]), "var(--catppuccin-color-green)");
+        assert_eq!(trend_color(&[]), "var(--catppuccin-color-green)");
     }
 }
