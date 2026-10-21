@@ -163,7 +163,7 @@ fn PlanRow(plan: DcaPlan, today: String, on_edit: EventHandler<DcaPlan>) -> Elem
                         }
                         button {
                             class: "rounded-full px-2 py-0.5 text-ctp-subtext0 cursor-pointer hover:bg-ctp-surface0 hover:text-ctp-text",
-                            "aria-label": "Edit plan",
+                            "aria-label": crate::i18n::tr("Edit plan"),
                             onclick: move |_| on_edit.call(edit.clone()),
                             "✎"
                         }

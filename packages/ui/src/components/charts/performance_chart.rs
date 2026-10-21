@@ -245,7 +245,7 @@ fn AddLineButton(
         button {
             class: "flex h-9 w-9 items-center justify-center rounded-full border border-ctp-surface1 \
                     text-lg text-ctp-subtext0 cursor-pointer transition-colors hover:border-ctp-mauve hover:text-ctp-text",
-            "aria-label": "Compare another line",
+            "aria-label": crate::i18n::tr("Compare another line"),
             title: tr("Compare another line"),
             onclick: move |_| {
                 let next = next_unused(&picks.read(), &transactions.read());

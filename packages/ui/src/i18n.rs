@@ -127,6 +127,67 @@ mod tests {
         assert_eq!(tr_str("Largest"), "Largest");
     }
 
+    /// Every literal passed to `tr` or `trf` in the UI's source has a Thai
+    /// entry, so a new string can't ship in English only.
+    #[test]
+    fn every_translated_string_has_a_thai_entry() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut missing = vec![];
+        let mut dirs = vec![src];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("i18n.rs") && !path.ends_with("i18n/thai.rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for key in tr_literals(&text) {
+                        if !THAI.contains_key(key.as_str()) {
+                            missing.push(format!("{}: {key:?}", path.display()));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "add these to i18n/thai.rs:\n{}", missing.join("\n"));
+    }
+
+    /// The string literals passed straight to `tr(` / `trf(` in `source`.
+    fn tr_literals(source: &str) -> Vec<String> {
+        let mut found = vec![];
+        for call in ["tr(", "trf("] {
+            for (at, _) in source.match_indices(call) {
+                let before = source[..at].chars().next_back();
+                if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let rest = source[at + call.len()..].trim_start();
+                let Some(body) = rest.strip_prefix('"') else { continue };
+                let mut text = String::new();
+                let mut chars = body.chars();
+                while let Some(c) = chars.next() {
+                    match c {
+                        '"' => break,
+                        '\\' => match chars.next() {
+                            Some('n') => text.push('\n'),
+                            Some(other) => text.push(other),
+                            None => break,
+                        },
+                        c => text.push(c),
+                    }
+                }
+                found.push(text);
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn finds_translated_literals() {
+        let code = r#"tr("Save") attr("x") trf("{} \"quoted\"", &[&a]) crate::i18n::tr( "Spaced")"#;
+        assert_eq!(tr_literals(code), ["Save", "Spaced", "{} \"quoted\""]);
+    }
+
     #[test]
     fn templates_keep_their_placeholders() {
         for (en, th) in thai::PAIRS {

@@ -587,10 +587,10 @@ async fn simulate(
     let fees = fees.parse(rate)?;
     let amount = |s: &str| s.trim().replace(',', "").parse::<f64>().ok().filter(|v| *v >= 0.0);
     let (Some(initial), Some(monthly)) = (amount(initial), amount(monthly)) else {
-        return Err("Enter amounts of zero or more".into());
+        return Err(tr("Enter amounts of zero or more").into());
     };
     if initial + monthly <= 0.0 {
-        return Err("Invest something at the start or each month".into());
+        return Err(tr("Invest something at the start or each month").into());
     }
     // Amounts are typed in the display currency; prices are USD.
     let (initial, monthly) = (initial / rate, monthly / rate);
@@ -602,7 +602,7 @@ async fn simulate(
             if a.ticker.trim().is_empty() {
                 continue;
             }
-            let t = TickerSymbol::new(&a.ticker).map_err(|_| format!("“{}” isn't a ticker", a.ticker))?;
+            let t = TickerSymbol::new(&a.ticker).map_err(|_| crate::i18n::trf("“{}” isn't a ticker", &[&a.ticker]))?;
             let w = a.weight.trim().parse::<f64>().ok().filter(|w| *w > 0.0).ok_or(crate::i18n::trf("Enter a weight for {}", &[&t]))?;
             mix.push((t, w));
         }
@@ -610,7 +610,7 @@ async fn simulate(
             return Err(if several {
                 crate::i18n::trf("Add at least one ticker to {}", &[&mix_name(k)])
             } else {
-                "Add at least one ticker".into()
+                tr("Add at least one ticker").into()
             });
         }
         picked.push(mix);
@@ -655,7 +655,7 @@ async fn simulate(
         .filter(|(_, p)| p.first().is_some_and(Option::is_none))
         .map(|(t, p)| {
             let first = p.iter().position(Option::is_some).and_then(|i| dates.get(i)).cloned().unwrap_or_default();
-            format!("{t} from {}", first.get(..7).unwrap_or_default())
+            crate::i18n::trf("{} from {}", &[&t, &first.get(..7).unwrap_or_default()])
         })
         .collect::<Vec<_>>();
 
@@ -666,7 +666,7 @@ async fn simulate(
         let weights = mix.iter().map(|(_, w)| *w).collect();
         let result = backtest(&dates, &columns, &BacktestPlan { weights, ..plan.clone() });
         if result.points.is_empty() {
-            return Err("Not enough price history".into());
+            return Err(tr("Not enough price history").into());
         }
         results.push((mix_name(k), result));
     }

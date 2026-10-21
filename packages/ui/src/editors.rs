@@ -474,7 +474,7 @@ pub fn AlertDialog(
             return error.set(Some(tr("Enter a ticker, e.g. NVDA").into()));
         };
         let Some(v) = num(&value()) else {
-            return error.set(Some("Enter a number".into()));
+            return error.set(Some(tr("Enter a number").into()));
         };
         if let Err(e) = kind().validate(v) {
             return error.set(Some(tr(e).into()));
@@ -574,7 +574,7 @@ pub fn GoalDialog(#[props(default)] goal: Option<Goal>, on_close: EventHandler<(
 
     let submit = move |_| async move {
         let Some(target_value) = num(&target()) else {
-            return error.set(Some("Enter the target amount".into()));
+            return error.set(Some(tr("Enter the target amount").into()));
         };
         let monthly_value = if monthly().trim().is_empty() {
             Some(Decimal::ZERO)
@@ -582,7 +582,7 @@ pub fn GoalDialog(#[props(default)] goal: Option<Goal>, on_close: EventHandler<(
             num(&monthly())
         };
         let Some(monthly_value) = monthly_value else {
-            return error.set(Some("Enter a number for the monthly amount".into()));
+            return error.set(Some(tr("Enter a number for the monthly amount").into()));
         };
         busy.set(true);
         let g = Goal {
@@ -661,7 +661,7 @@ pub fn ImportDialog(
 
     let submit = move |_| async move {
         let Some(portfolio_id) = target() else {
-            return error.set(Some("Choose a portfolio".into()));
+            return error.set(Some(tr("Choose a portfolio").into()));
         };
         busy.set(true);
         match api::import_transactions(portfolio_id, csv(), broker()).await {

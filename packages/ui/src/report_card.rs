@@ -92,7 +92,7 @@ pub fn ReportCard(portfolio: Option<Uuid>) -> Element {
                 div { class: "flex flex-wrap items-center gap-2 print:hidden",
                     select {
                         class: "rounded-full border border-ctp-surface1 bg-ctp-crust/40 px-3 py-1 text-sm text-ctp-text cursor-pointer [&_option]:bg-ctp-mantle",
-                        "aria-label": "Month",
+                        "aria-label": crate::i18n::tr("Month"),
                         onchange: move |e| chosen.set(Some(e.value())),
                         for m in months.iter() {
                             option { key: "{m}", value: "{m}", selected: month.as_deref() == Some(m.as_str()), "{m}" }

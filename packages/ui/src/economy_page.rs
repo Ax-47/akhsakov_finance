@@ -179,8 +179,8 @@ fn IndicatorCard(indicator: Indicator) -> Element {
                         {month_year(&date)}
                         if let Some(c) = change {
                             " · "
-                            span { class: if c >= 0.0 { "text-ctp-peach" } else { "text-ctp-teal" }, "{c:+.2} pts" }
-                            " vs a year earlier"
+                            span { class: if c >= 0.0 { "text-ctp-peach" } else { "text-ctp-teal" }, {crate::i18n::trf("{} pts", &[&format!("{c:+.2}")])} }
+                            {crate::i18n::tr(" vs a year earlier")}
                         }
                     }
                 }

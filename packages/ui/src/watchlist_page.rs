@@ -142,7 +142,7 @@ pub fn WatchlistPage() -> Element {
                     change: live_change.or(known.and_then(|i| i.change_pct)),
                     group: None,
                     detail: cap.map_or_else(
-                        || "market cap unknown".into(),
+                        || tr("market cap unknown").into(),
                         |c| crate::i18n::trf("{} market cap", &[&fmt_compact(c)]),
                     ),
                 }
@@ -517,7 +517,7 @@ fn AlertsCard(alerts: Vec<Alert>) -> Element {
     rsx! {
         Card {
             title: tr("Alerts"),
-            subtitle: format!("{active} active · {} fired", alerts.len() - active),
+            subtitle: crate::i18n::trf("{} active · {} fired", &[&active, &(alerts.len() - active)]),
             flush: true,
             if alerts.is_empty() {
                 p { class: "px-6 pb-8 text-sm text-ctp-subtext0", {tr("No alerts. Create one with 🔔 New alert.")} }

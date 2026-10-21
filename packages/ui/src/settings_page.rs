@@ -122,7 +122,7 @@ pub fn SettingsPage() -> Element {
                     div { class: "grid gap-5 md:grid-cols-3",
                         div {
                             div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Risk-free rate")} }
-                            Stepper { aria_label: "Risk-free rate", value: risk_free(), step: 0.25, suffix: "%", width: "w-14", on_change: move |v| risk_free.set(v) }
+                            Stepper { aria_label: tr("Risk-free rate"), value: risk_free(), step: 0.25, suffix: "%", width: "w-14", on_change: move |v| risk_free.set(v) }
                             p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Used for Sharpe, alpha and CAPM. Roughly the 3-month T-bill yield.")} }
                         }
                         div {
@@ -163,7 +163,7 @@ pub fn SettingsPage() -> Element {
                         }
                         div {
                             div { class: "mb-2 text-xs text-ctp-subtext0", {tr("Assumed yearly return")} }
-                            Stepper { aria_label: "Assumed return", value: assumed(), step: 0.5, suffix: "%", width: "w-14", on_change: move |v| assumed.set(v) }
+                            Stepper { aria_label: tr("Assumed return"), value: assumed(), step: 0.5, suffix: "%", width: "w-14", on_change: move |v| assumed.set(v) }
                             p { class: "mt-2 text-xs text-ctp-overlay1", {tr("Used to project your goals.")} }
                         }
                     }
@@ -262,7 +262,7 @@ fn NotificationSettings() -> Element {
     let c = channels();
     let field = |label: &'static str, hint: &'static str, value: String, placeholder: &'static str, set: fn(&mut dtos::notifications::Channels, String)| {
         rsx! {
-            Field { label, hint,
+            Field { label: tr(label), hint: tr(hint),
                 input {
                     class: INPUT,
                     placeholder,
@@ -300,7 +300,7 @@ fn NotificationSettings() -> Element {
                         span {
                             key: "{name}",
                             class: if error.is_none() { "text-sm text-ctp-green" } else { "text-sm text-ctp-red" },
-                            {match &error { None => format!("{name}: sent ✓"), Some(e) => format!("{name}: {e}") }}
+                            {match &error { None => trf("{}: sent ✓", &[&name]), Some(e) => format!("{name}: {e}") }}
                         }
                     }
                 }
@@ -540,7 +540,7 @@ fn ConnectorCard() -> Element {
                             div { class: "flex flex-wrap items-center justify-between gap-2",
                                 div {
                                     p { class: "font-medium text-ctp-text", "{connection.name}" }
-                                    p { class: "text-xs text-ctp-subtext0", {format!("{} · {} · {} portfolios · last used {}", if connection.enabled { "enabled" } else { "disabled" }, connection.preset.key(), connection.portfolio_ids.len(), connection.last_used_at.as_deref().map_or("never".to_string(), crate::format::fmt_when))} }
+                                    p { class: "text-xs text-ctp-subtext0", {trf("{} · {} · {} portfolios · last used {}", &[&if connection.enabled { tr("enabled") } else { tr("disabled") }, &connection.preset.key(), &connection.portfolio_ids.len(), &connection.last_used_at.as_deref().map_or(tr("never").to_string(), crate::format::fmt_when)])} }
                                 }
                                 div { class: "flex flex-wrap gap-2",
                                     GhostButton { label: tr("Edit"), onclick: { let c=connection.clone(); move |_| { editing.set(Some(c.id));editing_enabled.set(c.enabled);name.set(c.name.clone());preset.set(c.preset);selected.set(c.portfolio_ids.clone()); } } }
@@ -564,29 +564,29 @@ fn ConnectorCard() -> Element {
                         }
                     }
                     div { class: "rounded-xl border border-ctp-surface0 p-4 grid gap-3",
-                        p { class: "font-medium", if editing().is_some() { "Edit connection" } else { "New connection" } }
-                        Field { label: "Name", input { class: INPUT, value:"{name}", oninput:move|e|name.set(e.value()) } }
+                        p { class: "font-medium", if editing().is_some() { {tr("Edit connection")} } else { {tr("New connection")} } }
+                        Field { label: tr("Name"), input { class: INPUT, value:"{name}", oninput:move|e|name.set(e.value()) } }
                         div { class:"flex flex-wrap gap-2", for (value,label) in [(McpAccessPreset::ReadOnly,"Read only"),(McpAccessPreset::ThesisEditor,"Thesis editor"),(McpAccessPreset::Trader,"Trader")] { button { class:example_chip(preset()==value),onclick:move |_|preset.set(value),{tr(label)} } } }
                         p { class: "text-xs text-ctp-overlay1", {tr(preset_hint(preset()))} }
                         div { class: "grid gap-2",
                             div { class: "flex flex-wrap items-end justify-between gap-2",
                                 div {
-                                    p { class: "text-sm font-medium text-ctp-text", "Portfolio access" }
-                                    p { class: "text-xs text-ctp-subtext0", "Choose one or more portfolios · {selected().len()} selected" }
+                                    p { class: "text-sm font-medium text-ctp-text", {tr("Portfolio access")} }
+                                    p { class: "text-xs text-ctp-subtext0", {trf("Choose one or more portfolios · {} selected", &[&selected().len()])} }
                                 }
                                 div { class: "flex gap-2",
                                     button {
                                         r#type: "button",
                                         class: "text-xs text-ctp-mauve hover:underline",
                                         onclick: move |_| selected.set(scopes().into_iter().map(|portfolio| portfolio.id).collect()),
-                                        "Select all"
+                                        {tr("Select all")}
                                     }
                                     button {
                                         r#type: "button",
                                         class: "text-xs text-ctp-subtext0 hover:text-ctp-text hover:underline",
                                         disabled: selected().is_empty(),
                                         onclick: move |_| selected.set(Vec::new()),
-                                        "Clear"
+                                        {tr("Clear")}
                                     }
                                 }
                             }
@@ -614,21 +614,21 @@ fn ConnectorCard() -> Element {
                                         }
                                         span { class: "min-w-0 flex-1 truncate", "{portfolio.name}" }
                                         if portfolio.ai {
-                                            span { class: "shrink-0 text-xs text-ctp-mauve", "AI paper" }
+                                            span { class: "shrink-0 text-xs text-ctp-mauve", {tr("AI paper")} }
                                         }
                                     }
                                 }
                             }
                         }
-                        div { class:"flex gap-2", ActionButton { label:if editing().is_some(){"Save"}else{"Create connection"},onclick:save } if editing().is_some(){GhostButton{label:"Cancel",onclick:move |_|{editing.set(None);name.set(String::new());selected.set(vec![])}}} }
+                        div { class:"flex gap-2", ActionButton { label:if editing().is_some(){tr("Save")}else{tr("Create connection")},onclick:save } if editing().is_some(){GhostButton{label:tr("Cancel"),onclick:move |_|{editing.set(None);name.set(String::new());selected.set(vec![])}}} }
                     }
-                    if let Some(k)=secret() { div { class:"rounded-xl border border-ctp-peach/50 p-4 grid gap-3", p { class:"font-medium text-ctp-peach","Copy this secret now. It will not be shown again." } div { class:"flex flex-wrap gap-2", for choice in McpExample::ALL { button { class:example_chip(example()==choice),onclick:move |_|example.set(choice),"{choice.label()}" } } } match example() { McpExample::Generic=>rsx!{ConnectorRow{label:"Bearer token",hint:"Use this URL and Authorization header.",shown:format!("{base}/mcp · Bearer {}",masked(&k)),copy:format!("{base}/mcp\nAuthorization: Bearer {k}")}}, McpExample::Claude=>rsx!{ConnectorRow{label:"Claude Code",hint:"Run in a terminal.",shown:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"",masked(&k)),copy:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\"")}}, McpExample::Codex=>rsx!{ConnectorRow{label:"Codex config.toml",hint:"Restart Codex after editing.",shown:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {}\" }}",masked(&k)),copy:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {k}\" }}")}}, McpExample::Agy=>rsx!{ConnectorRow{label:"Antigravity / agy MCP config",hint:"Put this beneath mcpServers.",shown:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Editors=>rsx!{ConnectorRow{label:"Cursor / VS Code MCP JSON",hint:"Add this beneath mcpServers or servers.",shown:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Other=>rsx!{ConnectorRow{label:"URL token",hint:"For clients that cannot set headers.",shown:format!("{base}/mcp/{}",masked(&k)),copy:format!("{base}/mcp/{k}")}} } GhostButton { label:"I saved it",onclick:move |_|secret.set(None) } } }
+                    if let Some(k)=secret() { div { class:"rounded-xl border border-ctp-peach/50 p-4 grid gap-3", p { class:"font-medium text-ctp-peach",{tr("Copy this secret now. It will not be shown again.")} } div { class:"flex flex-wrap gap-2", for choice in McpExample::ALL { button { class:example_chip(example()==choice),onclick:move |_|example.set(choice),"{choice.label()}" } } } match example() { McpExample::Generic=>rsx!{ConnectorRow{label:tr("Bearer token"),hint:tr("Use this URL and Authorization header."),shown:format!("{base}/mcp · Bearer {}",masked(&k)),copy:format!("{base}/mcp\nAuthorization: Bearer {k}")}}, McpExample::Claude=>rsx!{ConnectorRow{label:"Claude Code",hint:tr("Run in a terminal."),shown:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {}\"",masked(&k)),copy:format!("claude mcp add --transport http akhsakov {base}/mcp --header \"Authorization: Bearer {k}\"")}}, McpExample::Codex=>rsx!{ConnectorRow{label:"Codex config.toml",hint:tr("Restart Codex after editing."),shown:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {}\" }}",masked(&k)),copy:format!("[mcp_servers.akhsakov]\nurl = \"{base}/mcp\"\nhttp_headers = {{ Authorization = \"Bearer {k}\" }}")}}, McpExample::Agy=>rsx!{ConnectorRow{label:"Antigravity / agy MCP config",hint:tr("Put this beneath mcpServers."),shown:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"serverUrl\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Editors=>rsx!{ConnectorRow{label:"Cursor / VS Code MCP JSON",hint:tr("Add this beneath mcpServers or servers."),shown:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {}\" }} }}",masked(&k)),copy:format!("\"akhsakov\": {{ \"type\": \"http\", \"url\": \"{base}/mcp\", \"headers\": {{ \"Authorization\": \"Bearer {k}\" }} }}")}}, McpExample::Other=>rsx!{ConnectorRow{label:tr("URL token"),hint:tr("For clients that cannot set headers."),shown:format!("{base}/mcp/{}",masked(&k)),copy:format!("{base}/mcp/{k}")}} } GhostButton { label:tr("I saved it"),onclick:move |_|secret.set(None) } } }
                     if audit_for().is_some() {
                         div { class:"rounded-xl border border-ctp-surface0 p-4 grid gap-2",
-                            p { class:"font-medium","Latest audit events" }
-                            if audit().is_empty() { p { class:"text-xs text-ctp-subtext0","No events yet." } }
+                            p { class:"font-medium",{tr("Latest audit events")} }
+                            if audit().is_empty() { p { class:"text-xs text-ctp-subtext0",{tr("No events yet.")} } }
                             for event in audit() {
-                                p { key:"{event.id}", class:"text-xs text-ctp-subtext0", {format!("{} · {} {} · {}",crate::format::fmt_when(&event.at),event.method,event.tool.as_deref().unwrap_or(""),if event.success{"success"}else{event.error_category.as_deref().unwrap_or("error")})} }
+                                p { key:"{event.id}", class:"text-xs text-ctp-subtext0", {format!("{} · {} {} · {}",crate::format::fmt_when(&event.at),event.method,event.tool.as_deref().unwrap_or(""),if event.success{tr("success")}else{event.error_category.as_deref().unwrap_or(tr("error"))})} }
                             }
                         }
                     }
