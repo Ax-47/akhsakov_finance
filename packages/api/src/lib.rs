@@ -48,6 +48,9 @@ pub use watchlist::controller::*;
 pub mod thesis;
 pub use thesis::controller::*;
 
+pub mod drawings;
+pub use drawings::controller::*;
+
 pub mod mcp;
 pub use mcp::controller::*;
 
@@ -107,6 +110,7 @@ pub fn with_services(router: dioxus::server::axum::Router) -> dioxus::server::ax
         .layer(Extension(models))
         .layer(Extension(notifications.clone()))
         .layer(Extension(planning::planning_services_setup(db.clone())))
+        .layer(Extension(drawings::drawing_services_setup(db.clone())))
         .layer(Extension(planning::dca_services_setup(db.clone(), portfolio.clone(), notifications.clone())))
         .layer(Extension(reports::report_services_setup(
             db.clone(),

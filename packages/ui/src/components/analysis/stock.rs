@@ -184,7 +184,7 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
             Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-subtext0", {tr("Loading a year of prices…")} } }
         },
         Some(None) => rsx! {
-            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-subtext0", "No price history for {ticker}." } }
+            Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-subtext0", {crate::i18n::trf("No price history for {}", &[&ticker])} } }
         },
         Some(Some((stats, cmp))) => {
             let series = vec![
