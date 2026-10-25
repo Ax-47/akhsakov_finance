@@ -59,7 +59,7 @@ pub fn IncomeTab(positions: Vec<Position>, transactions: Vec<Transaction>, total
             MetricTile {
                 label: tr("Expected next 12 months"),
                 value: if forecast.is_some() { money(annual) } else { "…".to_string() },
-                hint: format!("≈ {} a month", money(annual / 12.0)),
+                hint: crate::i18n::trf("≈ {} a month", &[&money(annual / 12.0)]),
                 tone: "text-ctp-green",
             }
             MetricTile {
@@ -200,7 +200,7 @@ pub fn ReturnDrivers(
     rsx! {
         Card {
             title: tr("What drove your return"),
-            subtitle: format!("{} in total", fmt_signed(Decimal::try_from(total).unwrap_or_default(), 2)),
+            subtitle: crate::i18n::trf("{} in total", &[&fmt_signed(Decimal::try_from(total).unwrap_or_default(), 2)]),
             actions: rsx! {
                 Segmented {
                     ToggleButton { label: tr("All time"), active: period() == Period::AllTime, onclick: move |_| period.set(Period::AllTime) }

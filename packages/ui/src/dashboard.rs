@@ -697,7 +697,7 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
     rsx! {
         Card {
             title: tr("Transactions"),
-            subtitle: format!("{count} shown · {} total", fmt_usd(total, 2)),
+            subtitle: crate::i18n::trf("{} shown · {} total", &[&count, &fmt_usd(total, 2)]),
             flush: true,
             actions: rsx! {
                 div { class: "flex flex-wrap items-center gap-2",

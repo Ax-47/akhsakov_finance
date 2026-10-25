@@ -76,7 +76,7 @@ pub fn PortfoliosCard(
     rsx! {
         Card {
             title: tr("Portfolios"),
-            subtitle: format!("{} portfolios", rows.len()),
+            subtitle: crate::i18n::trf("{} portfolios", &[&rows.len()]),
             flush: true,
             div { class: "overflow-x-auto",
                 table { class: "w-full text-sm whitespace-nowrap",

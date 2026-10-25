@@ -263,7 +263,7 @@ fn RebalanceEditor(positions: Vec<Position>, portfolio_id: Uuid) -> Element {
                                     span { class: "flex-1 text-xs text-ctp-subtext0", "{t.current_pct:.1}% → {t.target_pct:.1}%" }
                                     span { class: "tabular-nums text-ctp-text", "{fmt_compact(t.amount.abs())}" }
                                     span { class: "w-24 text-right text-xs tabular-nums text-ctp-subtext0",
-                                        {t.shares.map(|s| format!("{:.4} sh", s.abs())).unwrap_or_default()}
+                                        {t.shares.map(|s| crate::i18n::trf("{} sh", &[&format!("{:.4}", s.abs())])).unwrap_or_default()}
                                     }
                                 }
                             }

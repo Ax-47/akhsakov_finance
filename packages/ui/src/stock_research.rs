@@ -49,7 +49,7 @@ pub fn NewsTab(ticker: TickerSymbol) -> Element {
             rsx! { Empty { title: tr("News"), text: "No recent news." } }
         }
         Some(Some(items)) => rsx! {
-            Card { title: tr("News"), subtitle: format!("{} latest stories", items.len()), flush: true,
+            Card { title: tr("News"), subtitle: crate::i18n::trf("{} latest stories", &[&items.len()]), flush: true,
                 for n in items {
                     a {
                         key: "{n.title}",
