@@ -43,7 +43,8 @@ const DAYS_PER_YEAR: f64 = 365.25;
 pub struct PriceSeries {
     /// Close per day number.
     pub closes: BTreeMap<i64, f64>,
-    /// When the session opens, in seconds after UTC midnight (median).
+    /// When the session opens, in seconds after UTC midnight (median);
+    /// `None` for a market open every day, like crypto.
     pub session: Option<i64>,
     /// Average shares traded per session, over the last 20.
     pub avg_volume: Option<f64>,
@@ -78,6 +79,9 @@ impl PriceSeries {
             .map(|c| c.ts.timestamp().rem_euclid(86_400))
             .collect();
         sessions.sort_unstable();
+        // Day 0 (1970-01-01) was a Thursday, so Saturday is 6 and Sunday 0.
+        let on = |weekday: i64| closes.keys().filter(|d| (*d + 4).rem_euclid(7) == weekday).count();
+        let every_day = !closes.is_empty() && on(6) * 10 >= closes.len() && on(0) * 10 >= closes.len();
         let volumes: Vec<f64> = sorted
             .iter()
             .rev()
@@ -87,7 +91,7 @@ impl PriceSeries {
             .collect();
         Self {
             closes,
-            session: sessions.get(sessions.len() / 2).copied(),
+            session: if every_day { None } else { sessions.get(sessions.len() / 2).copied() },
             avg_volume: (!volumes.is_empty()).then(|| mean(&volumes)),
         }
     }
@@ -181,6 +185,24 @@ fn align(series: &[&PriceSeries], start: i64) -> Option<Aligned> {
     Some(Aligned { start, days, returns })
 }
 
+/// Returns of `a` and `b` between the days both traded, from the day
+/// `start` on. A move on a day only one of them traded (a weekend for
+/// crypto, a holiday) counts toward the next shared day, instead of being
+/// paired with a flat day that hides how closely they move.
+fn align_shared(a: &PriceSeries, b: &PriceSeries, start: i64) -> Option<(Vec<f64>, Vec<f64>)> {
+    let mut prev_a = *a.closes.range(..=start).next_back()?.1;
+    let mut prev_b = *b.closes.range(..=start).next_back()?.1;
+    let (mut x, mut y) = (vec![], vec![]);
+    for (day, close_a) in a.closes.range(start + 1..) {
+        if let Some(close_b) = b.closes.get(day) {
+            x.push(close_a / prev_a - 1.0);
+            y.push(close_b / prev_b - 1.0);
+            (prev_a, prev_b) = (*close_a, *close_b);
+        }
+    }
+    Some((x, y))
+}
+
 /// Covariance of two aligned return series, adding the lagged term when
 /// one market trades earlier in the day than the other.
 fn cross_cov(a: &[f64], b: &[f64], a_first: bool, b_first: bool) -> f64 {
@@ -202,18 +224,17 @@ fn cross_cov(a: &[f64], b: &[f64], a_first: bool, b_first: bool) -> f64 {
 /// different times. `None` with too little shared history.
 pub fn correlation(a: &PriceSeries, b: &PriceSeries) -> Option<f64> {
     let start = a.first_day()?.max(b.first_day()?);
-    let aligned = align(&[a, b], start)?;
-    let (x, y) = (&aligned.returns[0], &aligned.returns[1]);
+    let (x, y) = align_shared(a, b, start)?;
     if x.len() < MIN_SAMPLES {
         return None;
     }
     let cov = cross_cov(
-        x,
-        y,
+        &x,
+        &y,
         trades_earlier(a.session, b.session),
         trades_earlier(b.session, a.session),
     );
-    let denom = (variance(x) * variance(y)).sqrt();
+    let denom = (variance(&x) * variance(&y)).sqrt();
     (denom > 0.0).then(|| (cov / denom).clamp(-1.0, 1.0))
 }
 
@@ -761,6 +782,36 @@ mod tests {
         assert!(close(correlation(&series(&a), &series(&a)).unwrap(), 1.0, 1e-9));
         assert!(close(correlation(&series(&a), &series(&neg)).unwrap(), -1.0, 1e-9));
         assert!(correlation(&series(&a[..5]), &series(&a[..5])).is_none());
+    }
+
+    #[test]
+    fn crypto_weekends_count_toward_monday() {
+        // A coin that trades every day, and a fund that holds it but only
+        // trades on weekdays: same prices, so they move together.
+        let days: Vec<i64> = (4000..4140).collect();
+        let coin = series_on(&days, &noise(140, 9), 0);
+        let weekdays = coin.closes.iter().filter(|(d, _)| !matches!((*d + 4).rem_euclid(7), 0 | 6));
+        let fund = PriceSeries { closes: weekdays.map(|(d, c)| (*d, *c)).collect(), session: Some(US_OPEN), avg_volume: None };
+        let coin = PriceSeries { session: None, ..coin };
+        assert!(close(correlation(&coin, &fund).unwrap(), 1.0, 1e-9));
+    }
+
+    #[test]
+    fn markets_open_every_day_have_no_session() {
+        use rust_decimal::Decimal;
+        let candle = |day: i64, secs: i64| Candle {
+            ts: chrono::DateTime::from_timestamp(day * 86_400 + secs, 0).unwrap(),
+            open: Decimal::ONE,
+            high: Decimal::ONE,
+            low: Decimal::ONE,
+            close: Decimal::ONE,
+            volume: None,
+            adj_factor: None,
+        };
+        let coin: Vec<Candle> = (4000..4030).map(|d| candle(d, 0)).collect();
+        assert_eq!(PriceSeries::from_candles(&coin).session, None);
+        let stock: Vec<Candle> = (4000..4030).filter(|d| !matches!((d + 4) % 7, 0 | 6)).map(|d| candle(d, US_OPEN)).collect();
+        assert_eq!(PriceSeries::from_candles(&stock).session, Some(US_OPEN));
     }
 
     #[test]
