@@ -2,6 +2,10 @@
 //! Bollinger bands, volume, and an RSI or MACD pane. Indicators are
 //! computed here (see `dtos::technicals`); `stock_chart.js` draws them.
 //!
+//! The chart is live: each streamed price moves the last candle, or starts
+//! the next one, between fetches. One- and five-day spans use one- and
+//! five-minute candles and fetch again every few minutes.
+//!
 //! Prices are the ones actually traded, in the stock's own currency, as a
 //! broker shows them: converting a Thai stock's history to dollars (or
 //! back) at each day's rate would mix exchange-rate moves into the price,
@@ -10,6 +14,7 @@
 
 use crate::i18n::tr;
 use crate::components::card::{Card, Segmented, ToggleButton};
+use crate::hooks::LiveTick;
 use api::quote::quote::get_native_chart;
 use dioxus::prelude::*;
 use dtos::technicals::{bollinger, ema, macd, rsi, sma};
@@ -22,6 +27,8 @@ static CHART_CTR: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Span {
+    D1,
+    D5,
     M1,
     M3,
     M6,
@@ -31,10 +38,12 @@ enum Span {
 }
 
 impl Span {
-    const ALL: [Self; 6] = [Self::M1, Self::M3, Self::M6, Self::Y1, Self::Y2, Self::Y5];
+    const ALL: [Self; 8] = [Self::D1, Self::D5, Self::M1, Self::M3, Self::M6, Self::Y1, Self::Y2, Self::Y5];
 
     fn label(self) -> &'static str {
         match self {
+            Self::D1 => "1D",
+            Self::D5 => "5D",
             Self::M1 => "1M",
             Self::M3 => "3M",
             Self::M6 => "6M",
@@ -44,10 +53,40 @@ impl Span {
         }
     }
 
+    /// Trading sessions shown at first for the minute spans.
+    fn sessions(self) -> Option<usize> {
+        match self {
+            Self::D1 => Some(1),
+            Self::D5 => Some(5),
+            _ => None,
+        }
+    }
+
+    /// Seconds each candle covers.
+    fn step(self) -> i64 {
+        match self {
+            Self::D1 => 60,
+            Self::D5 => 300,
+            Self::Y5 => 7 * 86_400,
+            _ => 86_400,
+        }
+    }
+
+    /// What the averages count, e.g. "days".
+    fn unit(self) -> &'static str {
+        match self {
+            Self::D1 => tr("minutes"),
+            Self::D5 => tr("5-minute candles"),
+            Self::Y5 => tr("weeks"),
+            _ => tr("days"),
+        }
+    }
+
     /// Days shown at first; the rest of the fetched history warms up the
     /// indicators and stays reachable by zooming out.
     fn days(self) -> i64 {
         match self {
+            Self::D1 | Self::D5 => 0,
             Self::M1 => 31,
             Self::M3 => 92,
             Self::M6 => 183,
@@ -60,6 +99,8 @@ impl Span {
     /// History fetched (longer than shown, so a 200-day average is ready).
     fn fetch(self) -> (Range, Interval) {
         match self {
+            Self::D1 => (Range::D5, Interval::I1m),
+            Self::D5 => (Range::M1, Interval::I5m),
             Self::M1 | Self::M3 => (Range::Y1, Interval::D1),
             Self::M6 | Self::Y1 => (Range::Y2, Interval::D1),
             Self::Y2 => (Range::Y5, Interval::D1),
@@ -84,8 +125,11 @@ struct Overlays {
     bollinger: bool,
 }
 
+/// How often the minute spans fetch their candles again.
+const REFETCH_MS: u32 = 5 * 60 * 1000;
+
 #[component]
-pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
+pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) -> Element {
     let mut span = use_signal(|| Span::Y1);
     let mut candles_style = use_signal(|| true);
     let mut lower = use_signal(|| Lower::Rsi);
@@ -98,8 +142,19 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
     });
     let chart_id = use_hook(|| format!("stock-chart-{}", CHART_CTR.fetch_add(1, Ordering::Relaxed)));
 
+    // Bumped to fetch the minute spans again.
+    let mut refetch = use_signal(|| 0_u32);
+    use_future(move || async move {
+        loop {
+            crate::notify::poll_delay(REFETCH_MS).await;
+            if span.peek().sessions().is_some() {
+                refetch += 1;
+            }
+        }
+    });
     let (t, key) = (ticker.clone(), ticker.clone());
     let history = crate::cache::use_cached(move || format!("technical/{key}/{:?}", span()), move || {
+        let _ = refetch();
         let t = t.clone();
         async move {
             let (range, interval) = span().fetch();
@@ -133,8 +188,24 @@ pub fn TechnicalChart(ticker: TickerSymbol) -> Element {
         });
     });
 
+    // Each streamed price moves the drawn chart without redrawing it.
+    let id = chart_id.clone();
+    use_effect(move || {
+        let Some(tick) = live() else {
+            return;
+        };
+        let Some(price) = tick.native.to_f64() else {
+            return;
+        };
+        document::eval(&format!(
+            "window.StockChart && window.StockChart.tick && window.StockChart.tick({}, {price}, {});",
+            json!(id),
+            tick.ts
+        ));
+    });
+
     let o = overlays();
-    let unit = if span() == Span::Y5 { "weeks" } else { "days" };
+    let unit = span().unit();
     let status = match &*history.read() {
         None => Some(tr("Loading chart…").to_string()),
         // The raw error is a server message with the data source's URL in
@@ -272,11 +343,23 @@ fn chart_config(
     };
 
     // Start zoomed to the chosen span; earlier history is a scroll away.
-    let cutoff = candles
-        .last()
-        .map(|c| (c.ts - chrono::Duration::days(span.days())).date_naive().to_string())
-        .unwrap_or_default();
-    let first_shown = dates.iter().position(|d| *d >= cutoff).unwrap_or(0);
+    let first_shown = match span.sessions() {
+        // The last few days that traded (candles are dated in UTC, and a
+        // session sits within one UTC day on the exchanges people use).
+        Some(n) => {
+            let mut days: Vec<&String> = dates.iter().collect();
+            days.dedup();
+            let first_day = days.len().saturating_sub(n);
+            days.get(first_day).and_then(|d| dates.iter().position(|x| x == *d)).unwrap_or(0)
+        }
+        None => {
+            let cutoff = candles
+                .last()
+                .map(|c| (c.ts - chrono::Duration::days(span.days())).date_naive().to_string())
+                .unwrap_or_default();
+            dates.iter().position(|d| *d >= cutoff).unwrap_or(0)
+        }
+    };
     let zoom_start = if dates.is_empty() {
         0.0
     } else {
@@ -295,6 +378,13 @@ fn chart_config(
         "lower": lower_cfg,
         "symbol": symbol,
         "zoomStart": zoom_start,
+        // For live prices: when each candle starts and how long it lasts;
+        // minute candles are labelled with the viewer's local time.
+        "times": candles.iter().map(|c| c.ts.timestamp()).collect::<Vec<_>>(),
+        "step": span.step(),
+        "intraday": span.sessions().is_some(),
+        // A redraw of the same span keeps where the viewer has zoomed to.
+        "view": span.label(),
     })
 }
 
@@ -335,6 +425,28 @@ mod tests {
         // Three months of 400 days: the view starts about 77% in.
         let zoom = cfg["zoomStart"].as_f64().unwrap();
         assert!((75.0..80.0).contains(&zoom), "{zoom}");
+    }
+
+    #[test]
+    fn minute_spans_open_on_the_last_sessions() {
+        // Three days of five-minute candles, 13:30 to 20:00 UTC.
+        let day = |d: i64| (0..78).map(move |i| 1_700_000_000 - 1_700_000_000 % 86_400 + d * 86_400 + 48_600 + i * 300);
+        let c: Vec<Candle> = (0..3)
+            .flat_map(day)
+            .map(|ts| Candle { ts: Utc.timestamp_opt(ts, 0).unwrap(), ..candles(1)[0].clone() })
+            .collect();
+        let o = Overlays { sma20: true, sma50: false, sma200: false, ema20: false, bollinger: false };
+        let one_day = chart_config(&c, "$".into(), Span::D1, true, o, Lower::None);
+        // The last day's 78 candles of 234: the view starts two thirds in.
+        assert!((one_day["zoomStart"].as_f64().unwrap() - 200.0 / 3.0).abs() < 1e-9);
+        assert_eq!(one_day["step"], 60);
+        assert_eq!(one_day["intraday"], true);
+        assert_eq!(one_day["times"][0], c[0].ts.timestamp());
+        assert_eq!(one_day["times"].as_array().unwrap().len(), 234);
+        // Five sessions asked of three: everything shows.
+        assert_eq!(chart_config(&c, "$".into(), Span::D5, true, o, Lower::None)["zoomStart"], 0.0);
+        let daily = chart_config(&candles(400), "$".into(), Span::Y1, true, o, Lower::None);
+        assert_eq!((daily["step"].as_i64(), daily["intraday"].as_bool()), (Some(86_400), Some(false)));
     }
 
     #[test]
