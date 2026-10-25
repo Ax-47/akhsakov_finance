@@ -368,7 +368,8 @@ function draw(el, id, cfg) {
     yAxis: yAxes,
     axisPointer: { link: [{ xAxisIndex: "all" }], label: { backgroundColor: col.grid, color: col.text } },
     tooltip: {
-      trigger: "axis", axisPointer: { type: "cross" },
+      // Kept inside the chart: on a phone it ran off the screen's edge.
+      trigger: "axis", axisPointer: { type: "cross" }, confine: true,
       backgroundColor: col.base, borderColor: col.grid, textStyle: { color: col.text, fontSize: 12 },
       formatter: function (params) {
         var lines = ["<b>" + esc(params[0].axisValue) + "</b>"];
