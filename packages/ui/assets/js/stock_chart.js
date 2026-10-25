@@ -291,9 +291,11 @@ function draw(el, id, cfg) {
     yAxis(1, { splitNumber: 1, axisLabel: { show: false }, splitLine: { show: false } }),
   ];
   if (hasLower) {
-    yAxes.push(cfg.lower.kind === "rsi"
+    // RSI and Stochastic run 0–100; the others take their own scale (OBV
+    // can run to billions, so its labels are short).
+    yAxes.push(cfg.lower.bounded
       ? yAxis(2, { min: 0, max: 100, interval: 50, scale: false })
-      : yAxis(2, { splitNumber: 2 }));
+      : yAxis(2, { splitNumber: 2, axisLabel: { color: col.faint, fontSize: 12, formatter: shortNumber } }));
   }
 
   var series = [];
@@ -366,7 +368,8 @@ function draw(el, id, cfg) {
     yAxis: yAxes,
     axisPointer: { link: [{ xAxisIndex: "all" }], label: { backgroundColor: col.grid, color: col.text } },
     tooltip: {
-      trigger: "axis", axisPointer: { type: "cross" },
+      // Kept inside the chart: on a phone it ran off the screen's edge.
+      trigger: "axis", axisPointer: { type: "cross" }, confine: true,
       backgroundColor: col.base, borderColor: col.grid, textStyle: { color: col.text, fontSize: 12 },
       formatter: function (params) {
         var lines = ["<b>" + esc(params[0].axisValue) + "</b>"];
@@ -404,11 +407,22 @@ function draw(el, id, cfg) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
     });
   }
-  function compact(v) {
-    var a = Math.abs(v);
-    if (a >= 1e9) return (v / 1e9).toFixed(2) + "B";
-    if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
-    if (a >= 1e3) return (v / 1e3).toFixed(1) + "K";
-    return String(v);
+}
+
+// An axis label of at most three significant digits, e.g. -300M or 1.25B.
+function shortNumber(v) {
+  var a = Math.abs(v);
+  var units = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
+  for (var i = 0; i < units.length; i++) {
+    if (a >= units[i][0]) return Number((v / units[i][0]).toPrecision(3)) + units[i][1];
   }
+  return String(Number(v.toPrecision(3)));
+}
+
+function compact(v) {
+  var a = Math.abs(v);
+  if (a >= 1e9) return (v / 1e9).toFixed(2) + "B";
+  if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
+  if (a >= 1e3) return (v / 1e3).toFixed(1) + "K";
+  return String(Math.round(v * 100) / 100);
 }

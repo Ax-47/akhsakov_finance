@@ -23,7 +23,7 @@ use api::quote::quote::get_native_chart;
 use api::{add_drawing, clear_drawings, delete_drawing, get_drawings};
 use dioxus::prelude::*;
 use dtos::drawings::{ChartDrawing, ChartPoint, DrawingKind};
-use dtos::technicals::{bollinger, ema, macd, rsi, sma};
+use dtos::technicals::{atr, bollinger, ema, macd, obv, rsi, sma, stochastic, vwap};
 use rust_decimal::prelude::ToPrimitive;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -120,15 +120,103 @@ enum Lower {
     None,
     Rsi,
     Macd,
+    Stochastic,
+    Atr,
+    Obv,
 }
 
+impl Lower {
+    const ALL: [Self; 5] = [Self::Rsi, Self::Macd, Self::Stochastic, Self::Atr, Self::Obv];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Rsi => tr("RSI"),
+            Self::Macd => tr("MACD"),
+            Self::Stochastic => tr("Stochastic"),
+            Self::Atr => tr("ATR"),
+            Self::Obv => tr("OBV"),
+        }
+    }
+
+    fn color(self) -> &'static str {
+        match self {
+            Self::None | Self::Rsi => "teal",
+            Self::Macd => "blue",
+            Self::Stochastic => "mauve",
+            Self::Atr => "flamingo",
+            Self::Obv => "sapphire",
+        }
+    }
+
+    /// What it shows, under the chart.
+    fn note(self) -> &'static str {
+        match self {
+            Self::None | Self::Rsi | Self::Macd => tr("RSI above 70 is often read as overbought and below 30 as oversold; a MACD line crossing above its signal as momentum turning up. Signals, not predictions."),
+            Self::Stochastic => tr("Stochastic above 80 is often read as overbought and below 20 as oversold; %K crossing %D as a turn. Signals, not predictions."),
+            Self::Atr => tr("ATR is how far the price typically moves in one candle, gaps included: a guide to how wide a stop needs to be."),
+            Self::Obv => tr("OBV adds each up candle's volume and takes away each down candle's: rising with the price, it backs the move."),
+        }
+    }
+}
+
+/// Which lines sit on the price.
 #[derive(Clone, Copy, PartialEq)]
 struct Overlays {
-    sma20: bool,
-    sma50: bool,
-    sma200: bool,
-    ema20: bool,
+    /// The fast, middle and slow simple averages.
+    sma: [bool; 3],
+    ema: bool,
     bollinger: bool,
+    /// Only on the minute spans, where each session has its own.
+    vwap: bool,
+}
+
+/// Indicator lengths, in candles; remembered on this device.
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct Periods {
+    sma: [usize; 3],
+    ema: usize,
+    bollinger: usize,
+    /// Standard deviations from the middle band.
+    bollinger_width: f64,
+    rsi: usize,
+    /// Fast, slow and signal.
+    macd: [usize; 3],
+    /// %K and %D.
+    stochastic: [usize; 2],
+    atr: usize,
+}
+
+impl Default for Periods {
+    fn default() -> Self {
+        Self {
+            sma: [20, 50, 200],
+            ema: 20,
+            bollinger: 20,
+            bollinger_width: 2.0,
+            rsi: 14,
+            macd: [12, 26, 9],
+            stochastic: [14, 3],
+            atr: 14,
+        }
+    }
+}
+
+/// The longest period allowed.
+const MAX_PERIOD: usize = 500;
+/// Where [`Periods`] are kept on this device.
+const PERIODS_KEY: &str = "akhsakov.chart.periods";
+
+impl Periods {
+    /// Within 1–500 candles and 0.5–5 deviations (a stored copy may not be).
+    fn clamped(mut self) -> Self {
+        let fix = |n: &mut usize| *n = (*n).clamp(1, MAX_PERIOD);
+        self.sma.iter_mut().chain(self.macd.iter_mut()).chain(self.stochastic.iter_mut()).for_each(fix);
+        [&mut self.ema, &mut self.bollinger, &mut self.rsi, &mut self.atr].into_iter().for_each(fix);
+        self.bollinger_width = if self.bollinger_width.is_finite() { self.bollinger_width.clamp(0.5, 5.0) } else { 2.0 };
+        self
+    }
 }
 
 /// How often the minute spans fetch their candles again.
@@ -215,12 +303,27 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
     let mut candles_style = use_signal(|| true);
     let mut lower = use_signal(|| Lower::Rsi);
     let mut overlays = use_signal(|| Overlays {
-        sma20: false,
-        sma50: true,
-        sma200: true,
-        ema20: false,
+        sma: [false, true, true],
+        ema: false,
         bollinger: false,
+        vwap: false,
     });
+    let mut periods = use_signal(Periods::default);
+    let mut show_periods = use_signal(|| false);
+    use_future(move || async move {
+        let read = format!("try {{ return localStorage.getItem({PERIODS_KEY:?}) || ''; }} catch (e) {{ return ''; }}");
+        if let Ok(text) = document::eval(&read).join::<String>().await {
+            if let Ok(saved) = serde_json::from_str::<Periods>(&text) {
+                periods.set(saved.clamped());
+            }
+        }
+    });
+    let mut set_periods = move |p: Periods| {
+        let p = p.clamped();
+        periods.set(p);
+        let text = serde_json::to_string(&p).unwrap_or_default();
+        document::eval(&format!("try {{ localStorage.setItem({PERIODS_KEY:?}, {}); }} catch (e) {{}}", json!(text)));
+    };
     let chart_id = use_hook(|| format!("stock-chart-{}", CHART_CTR.fetch_add(1, Ordering::Relaxed)));
 
     // Bumped to fetch the minute spans again.
@@ -318,7 +421,7 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
         let Some(Ok((candles, currency))) = &*history.read() else {
             return;
         };
-        let cfg = chart_config(candles, currency_symbol(currency), span(), candles_style(), overlays(), lower());
+        let cfg = chart_config(candles, currency_symbol(currency), span(), candles_style(), overlays(), lower(), periods());
         // The chart scripts may still be loading the first time.
         let script = format!(
             "for (let i = 0; i < 200 && !(window.StockChart && window.StockChart.init && window.GrowthChart); i++)
@@ -349,6 +452,7 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
     });
 
     let o = overlays();
+    let p = periods();
     let unit = span().unit();
     let status = match &*history.read() {
         None => Some(tr("Loading chart…").to_string()),
@@ -380,14 +484,58 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
             },
             div { class: "mb-3 flex flex-wrap items-center gap-2 text-xs",
                 span { class: "text-ctp-subtext0", {tr("Overlays")} }
-                Chip { label: tr("SMA 20"), color: "yellow", on: o.sma20, onclick: move |_| overlays.with_mut(|o| o.sma20 = !o.sma20) }
-                Chip { label: tr("SMA 50"), color: "sky", on: o.sma50, onclick: move |_| overlays.with_mut(|o| o.sma50 = !o.sma50) }
-                Chip { label: tr("SMA 200"), color: "peach", on: o.sma200, onclick: move |_| overlays.with_mut(|o| o.sma200 = !o.sma200) }
-                Chip { label: tr("EMA 20"), color: "pink", on: o.ema20, onclick: move |_| overlays.with_mut(|o| o.ema20 = !o.ema20) }
+                for (i, color) in SMA_COLORS.into_iter().enumerate() {
+                    Chip {
+                        key: "sma{i}",
+                        label: crate::i18n::trf("SMA {}", &[&p.sma[i]]),
+                        color,
+                        on: o.sma[i],
+                        onclick: move |_| overlays.with_mut(|o| o.sma[i] = !o.sma[i]),
+                    }
+                }
+                Chip { label: crate::i18n::trf("EMA {}", &[&p.ema]), color: "pink", on: o.ema, onclick: move |_| overlays.with_mut(|o| o.ema = !o.ema) }
                 Chip { label: tr("Bollinger"), color: "lavender", on: o.bollinger, onclick: move |_| overlays.with_mut(|o| o.bollinger = !o.bollinger) }
+                if span().sessions().is_some() {
+                    Chip { label: tr("VWAP"), color: "rosewater", on: o.vwap, onclick: move |_| overlays.with_mut(|o| o.vwap = !o.vwap) }
+                }
                 span { class: "ml-3 text-ctp-subtext0", {tr("Lower pane")} }
-                Chip { label: tr("RSI"), color: "teal", on: lower() == Lower::Rsi, onclick: move |_| lower.set(if lower() == Lower::Rsi { Lower::None } else { Lower::Rsi }) }
-                Chip { label: tr("MACD"), color: "blue", on: lower() == Lower::Macd, onclick: move |_| lower.set(if lower() == Lower::Macd { Lower::None } else { Lower::Macd }) }
+                for l in Lower::ALL {
+                    Chip {
+                        key: "{l.label()}",
+                        label: l.label(),
+                        color: l.color(),
+                        on: lower() == l,
+                        onclick: move |_| lower.set(if lower() == l { Lower::None } else { l }),
+                    }
+                }
+                button {
+                    class: "ml-1 rounded-full px-2.5 py-1 text-ctp-subtext0 underline-offset-2 hover:text-ctp-text hover:underline cursor-pointer",
+                    onclick: move |_| show_periods.toggle(),
+                    if show_periods() { {tr("Hide periods")} } else { {tr("Periods…")} }
+                }
+            }
+            if show_periods() {
+                div { class: "mb-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4",
+                    for (i, name) in [tr("Fast SMA"), tr("Middle SMA"), tr("Slow SMA")].into_iter().enumerate() {
+                        PeriodInput { key: "{name}", label: name, value: p.sma[i] as f64, onchange: move |v: f64| { let mut q = periods(); q.sma[i] = v as usize; set_periods(q); } }
+                    }
+                    PeriodInput { label: tr("EMA"), value: p.ema as f64, onchange: move |v: f64| set_periods(Periods { ema: v as usize, ..periods() }) }
+                    PeriodInput { label: tr("Bollinger"), value: p.bollinger as f64, onchange: move |v: f64| set_periods(Periods { bollinger: v as usize, ..periods() }) }
+                    PeriodInput { label: tr("Band width (σ)"), value: p.bollinger_width, step: 0.1, onchange: move |v: f64| set_periods(Periods { bollinger_width: v, ..periods() }) }
+                    PeriodInput { label: tr("RSI"), value: p.rsi as f64, onchange: move |v: f64| set_periods(Periods { rsi: v as usize, ..periods() }) }
+                    for (i, name) in [tr("MACD fast"), tr("MACD slow"), tr("MACD signal")].into_iter().enumerate() {
+                        PeriodInput { key: "{name}", label: name, value: p.macd[i] as f64, onchange: move |v: f64| { let mut q = periods(); q.macd[i] = v as usize; set_periods(q); } }
+                    }
+                    for (i, name) in [tr("Stochastic %K"), tr("Stochastic %D")].into_iter().enumerate() {
+                        PeriodInput { key: "{name}", label: name, value: p.stochastic[i] as f64, onchange: move |v: f64| { let mut q = periods(); q.stochastic[i] = v as usize; set_periods(q); } }
+                    }
+                    PeriodInput { label: tr("ATR"), value: p.atr as f64, onchange: move |v: f64| set_periods(Periods { atr: v as usize, ..periods() }) }
+                    button {
+                        class: "rounded-xl border border-ctp-surface0 px-2.5 py-1.5 text-ctp-subtext0 hover:text-ctp-text cursor-pointer",
+                        onclick: move |_| set_periods(Periods::default()),
+                        {tr("Reset periods")}
+                    }
+                }
             }
             div { class: "mb-3 flex flex-wrap items-center gap-2 text-xs",
                 span { class: "text-ctp-subtext0", {tr("Draw")} }
@@ -420,8 +568,35 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
                     div { class: "absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ctp-subtext0 break-words", "{status}" }
                 }
             }
-            p { class: "mt-2 text-xs text-ctp-overlay1",
-                {tr("RSI above 70 is often read as overbought and below 30 as oversold; a MACD line crossing above its signal as momentum turning up. Signals, not predictions.")}
+            p { class: "mt-2 text-xs text-ctp-overlay1", {lower().note()} }
+        }
+    }
+}
+
+/// Colours of the fast, middle and slow averages.
+const SMA_COLORS: [&str; 3] = ["yellow", "sky", "peach"];
+
+/// A labelled number box for one indicator period; applied when it's left
+/// or Enter is pressed.
+#[component]
+fn PeriodInput(label: String, value: f64, #[props(default = 1.0)] step: f64, onchange: EventHandler<f64>) -> Element {
+    rsx! {
+        label { class: "flex items-center justify-between gap-2 rounded-xl border border-ctp-surface0 px-2.5 py-1.5",
+            span { class: "text-ctp-subtext0", "{label}" }
+            input {
+                class: "w-14 bg-transparent text-right tabular-nums text-ctp-text outline-none",
+                r#type: "number",
+                min: if step < 1.0 { "0.5" } else { "1" },
+                max: "{MAX_PERIOD}",
+                step: "{step}",
+                value: "{value}",
+                onchange: move |e| {
+                    if let Ok(v) = e.value().parse::<f64>() {
+                        if v.is_finite() && v > 0.0 {
+                            onchange.call(v);
+                        }
+                    }
+                },
             }
         }
     }
@@ -463,11 +638,15 @@ fn chart_config(
     candle_style: bool,
     o: Overlays,
     lower: Lower,
+    p: Periods,
 ) -> Value {
     // Undo the dividend adjustment, back to the price that traded.
     let px = |d: rust_decimal::Decimal, c: &Candle| d.to_f64().unwrap_or(0.0) / c.adjustment();
     let dates: Vec<String> = candles.iter().map(|c| c.ts.date_naive().to_string()).collect();
     let close: Vec<f64> = candles.iter().map(|c| px(c.close, c)).collect();
+    let high: Vec<f64> = candles.iter().map(|c| px(c.high, c)).collect();
+    let low: Vec<f64> = candles.iter().map(|c| px(c.low, c)).collect();
+    let volume: Vec<f64> = candles.iter().map(|c| c.volume.unwrap_or(0) as f64).collect();
     let round = |v: Option<f64>| v.map(|x| (x * 1e4).round() / 1e4);
     let line = |v: Vec<Option<f64>>| v.into_iter().map(round).collect::<Vec<_>>();
 
@@ -477,12 +656,15 @@ fn chart_config(
             overlays.push(json!({"name": name, "color": color, "values": line(values)}));
         }
     };
-    add(o.sma20, "SMA 20", "yellow", sma(&close, 20));
-    add(o.sma50, "SMA 50", "sky", sma(&close, 50));
-    add(o.sma200, "SMA 200", "peach", sma(&close, 200));
-    add(o.ema20, "EMA 20", "pink", ema(&close, 20));
+    for (i, color) in SMA_COLORS.into_iter().enumerate() {
+        add(o.sma[i], &format!("SMA {}", p.sma[i]), color, sma(&close, p.sma[i]));
+    }
+    add(o.ema, &format!("EMA {}", p.ema), "pink", ema(&close, p.ema));
+    // Each session's own average: candles grouped by their UTC day.
+    let sessions: Vec<i64> = candles.iter().map(|c| c.ts.timestamp().div_euclid(86_400)).collect();
+    add(o.vwap && span.sessions().is_some(), "VWAP", "rosewater", vwap(&high, &low, &close, &volume, &sessions));
     if o.bollinger {
-        let bands = bollinger(&close, 20, 2.0);
+        let bands = bollinger(&close, p.bollinger, p.bollinger_width);
         for (name, pick) in [("Upper band", 1usize), ("Lower band", 2)] {
             let values: Vec<Option<f64>> = bands
                 .iter()
@@ -496,10 +678,30 @@ fn chart_config(
         Lower::None => json!({"kind": "none"}),
         Lower::Rsi => json!({
             "kind": "rsi",
-            "lines": [{"name": "RSI 14", "color": "teal", "values": line(rsi(&close, 14)), "levels": [30, 70]}],
+            "bounded": true,
+            "lines": [{"name": format!("RSI {}", p.rsi), "color": "teal", "values": line(rsi(&close, p.rsi)), "levels": [30, 70]}],
+        }),
+        Lower::Stochastic => {
+            let (k, d) = stochastic(&high, &low, &close, p.stochastic[0], p.stochastic[1]);
+            json!({
+                "kind": "stochastic",
+                "bounded": true,
+                "lines": [
+                    {"name": "%K", "color": "mauve", "values": line(k), "levels": [20, 80]},
+                    {"name": "%D", "color": "peach", "values": line(d)},
+                ],
+            })
+        }
+        Lower::Atr => json!({
+            "kind": "atr",
+            "lines": [{"name": format!("ATR {}", p.atr), "color": "flamingo", "values": line(atr(&high, &low, &close, p.atr))}],
+        }),
+        Lower::Obv => json!({
+            "kind": "obv",
+            "lines": [{"name": "OBV", "color": "sapphire", "values": line(obv(&close, &volume))}],
         }),
         Lower::Macd => {
-            let m = macd(&close, 12, 26, 9);
+            let m = macd(&close, p.macd[0], p.macd[1], p.macd[2]);
             json!({
                 "kind": "macd",
                 "bars": [{"name": "Histogram", "values": line(m.histogram)}],
@@ -584,8 +786,8 @@ mod tests {
     #[test]
     fn config_lines_up_every_series_and_zooms_to_the_span() {
         let c = candles(400);
-        let o = Overlays { sma20: true, sma50: false, sma200: true, ema20: false, bollinger: true };
-        let cfg = chart_config(&c, "$".into(), Span::M3, true, o, Lower::Macd);
+        let o = Overlays { sma: [true, false, true], ema: false, bollinger: true, vwap: false };
+        let cfg = chart_config(&c, "$".into(), Span::M3, true, o, Lower::Macd, Periods::default());
         assert_eq!(cfg["ohlc"].as_array().unwrap().len(), 400);
         let overlays = cfg["overlays"].as_array().unwrap();
         assert_eq!(overlays.len(), 4, "SMA 20, SMA 200 and two bands");
@@ -605,8 +807,8 @@ mod tests {
             .flat_map(day)
             .map(|ts| Candle { ts: Utc.timestamp_opt(ts, 0).unwrap(), ..candles(1)[0].clone() })
             .collect();
-        let o = Overlays { sma20: true, sma50: false, sma200: false, ema20: false, bollinger: false };
-        let one_day = chart_config(&c, "$".into(), Span::D1, true, o, Lower::None);
+        let o = Overlays { sma: [true, false, false], ema: false, bollinger: false, vwap: false };
+        let one_day = chart_config(&c, "$".into(), Span::D1, true, o, Lower::None, Periods::default());
         // The last day's 78 candles of 234: the view starts two thirds in.
         assert!((one_day["zoomStart"].as_f64().unwrap() - 200.0 / 3.0).abs() < 1e-9);
         assert_eq!(one_day["step"], 60);
@@ -614,17 +816,39 @@ mod tests {
         assert_eq!(one_day["times"][0], c[0].ts.timestamp());
         assert_eq!(one_day["times"].as_array().unwrap().len(), 234);
         // Five sessions asked of three: everything shows.
-        assert_eq!(chart_config(&c, "$".into(), Span::D5, true, o, Lower::None)["zoomStart"], 0.0);
-        let daily = chart_config(&candles(400), "$".into(), Span::Y1, true, o, Lower::None);
+        assert_eq!(chart_config(&c, "$".into(), Span::D5, true, o, Lower::None, Periods::default())["zoomStart"], 0.0);
+        let daily = chart_config(&candles(400), "$".into(), Span::Y1, true, o, Lower::None, Periods::default());
         assert_eq!((daily["step"].as_i64(), daily["intraday"].as_bool()), (Some(86_400), Some(false)));
+    }
+
+    #[test]
+    fn periods_and_new_panes_reach_the_config() {
+        let c = candles(120);
+        let o = Overlays { sma: [true, false, false], ema: true, bollinger: false, vwap: true };
+        let p = Periods { sma: [10, 50, 200], ema: 7, stochastic: [5, 3], ..Periods::default() };
+        let cfg = chart_config(&c, "$".into(), Span::Y1, true, o, Lower::Stochastic, p);
+        let names: Vec<&str> = cfg["overlays"].as_array().unwrap().iter().map(|o| o["name"].as_str().unwrap()).collect();
+        // VWAP only belongs to the minute spans.
+        assert_eq!(names, ["SMA 10", "EMA 7"]);
+        assert!(cfg["overlays"][0]["values"][8].is_null() && !cfg["overlays"][0]["values"][9].is_null());
+        assert_eq!((cfg["lower"]["kind"].as_str(), cfg["lower"]["bounded"].as_bool()), (Some("stochastic"), Some(true)));
+        assert!(!cfg["lower"]["lines"][0]["values"][4].is_null());
+        let atr_cfg = chart_config(&c, "$".into(), Span::D1, true, o, Lower::Atr, p);
+        assert_eq!(atr_cfg["lower"]["lines"][0]["name"], "ATR 14");
+        assert!(atr_cfg["overlays"].as_array().unwrap().iter().any(|o| o["name"] == "VWAP"));
+        // A stored copy out of range is pulled back in.
+        let wild = Periods { sma: [0, 9999, 50], bollinger_width: f64::NAN, ..Periods::default() }.clamped();
+        assert_eq!((wild.sma, wild.bollinger_width), ([1, MAX_PERIOD, 50], 2.0));
+        let saved: Periods = serde_json::from_str(r#"{"rsi": 9}"#).unwrap();
+        assert_eq!((saved.rsi, saved.sma), (9, [20, 50, 200]));
     }
 
     #[test]
     fn draws_prices_as_traded() {
         let mut c = candles(2);
         c[0].adj_factor = Some(0.5);
-        let o = Overlays { sma20: false, sma50: false, sma200: false, ema20: false, bollinger: false };
-        let cfg = chart_config(&c, "฿".into(), Span::M1, false, o, Lower::None);
+        let o = Overlays { sma: [false; 3], ema: false, bollinger: false, vwap: false };
+        let cfg = chart_config(&c, "฿".into(), Span::M1, false, o, Lower::None, Periods::default());
         // 100.5 adjusted at half is 201 as traded; the next day is as is.
         assert_eq!(cfg["close"][0], 201.0);
         assert_eq!(cfg["close"][1], 101.5);

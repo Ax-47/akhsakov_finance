@@ -117,9 +117,130 @@ pub fn macd(values: &[f64], fast: usize, slow: usize, signal: usize) -> Macd {
     }
 }
 
+/// Average true range with Wilder's smoothing: how far price typically
+/// moves in one candle, gaps included.
+pub fn atr(high: &[f64], low: &[f64], close: &[f64], n: usize) -> Vec<Option<f64>> {
+    let len = close.len().min(high.len()).min(low.len());
+    let mut out = vec![None; close.len()];
+    if n == 0 || len <= n {
+        return out;
+    }
+    let tr = |i: usize| {
+        let range = high[i] - low[i];
+        if i == 0 {
+            return range;
+        }
+        range.max((high[i] - close[i - 1]).abs()).max((low[i] - close[i - 1]).abs())
+    };
+    let mut prev = (1..=n).map(tr).sum::<f64>() / n as f64;
+    out[n] = Some(prev);
+    for (i, slot) in out.iter_mut().enumerate().take(len).skip(n + 1) {
+        prev = (prev * (n as f64 - 1.0) + tr(i)) / n as f64;
+        *slot = Some(prev);
+    }
+    out
+}
+
+/// Stochastic oscillator: %K, where the close sits in the last `k`
+/// candles' range (0–100), and %D, its `d`-candle average.
+pub fn stochastic(high: &[f64], low: &[f64], close: &[f64], k: usize, d: usize) -> (Vec<Option<f64>>, Vec<Option<f64>>) {
+    let len = close.len().min(high.len()).min(low.len());
+    let mut pct_k = vec![None; close.len()];
+    if k == 0 {
+        return (pct_k.clone(), pct_k);
+    }
+    for i in k.saturating_sub(1)..len {
+        let hi = high[i + 1 - k..=i].iter().cloned().fold(f64::MIN, f64::max);
+        let lo = low[i + 1 - k..=i].iter().cloned().fold(f64::MAX, f64::min);
+        pct_k[i] = Some(if hi > lo { (close[i] - lo) / (hi - lo) * 100.0 } else { 50.0 });
+    }
+    let start = pct_k.iter().position(Option::is_some).unwrap_or(pct_k.len());
+    let defined: Vec<f64> = pct_k[start..].iter().map(|v| v.unwrap_or(0.0)).collect();
+    let mut pct_d = vec![None; start];
+    pct_d.extend(sma(&defined, d));
+    (pct_k, pct_d)
+}
+
+/// On-balance volume: volume added on up candles and taken away on down
+/// ones, starting from zero.
+pub fn obv(close: &[f64], volume: &[f64]) -> Vec<Option<f64>> {
+    let mut total = 0.0;
+    close
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if i > 0 {
+                let v = volume.get(i).copied().unwrap_or(0.0);
+                if *c > close[i - 1] {
+                    total += v;
+                } else if *c < close[i - 1] {
+                    total -= v;
+                }
+            }
+            Some(total)
+        })
+        .collect()
+}
+
+/// Volume-weighted average price of each session so far: the typical
+/// price ((high + low + close) / 3) weighted by volume, starting again
+/// whenever `session` changes. `None` until a session has traded volume.
+pub fn vwap(high: &[f64], low: &[f64], close: &[f64], volume: &[f64], session: &[i64]) -> Vec<Option<f64>> {
+    let (mut value, mut traded, mut current) = (0.0, 0.0, None);
+    (0..close.len())
+        .map(|i| {
+            let s = session.get(i).copied();
+            if s != current {
+                (value, traded, current) = (0.0, 0.0, s);
+            }
+            let v = volume.get(i).copied().unwrap_or(0.0);
+            let typical = (high.get(i)? + low.get(i)? + close[i]) / 3.0;
+            value += typical * v;
+            traded += v;
+            (traded > 0.0).then(|| value / traded)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atr_counts_gaps() {
+        // Ranges of 2, then a gap up from 10 to a 13–14 candle: its true
+        // range is 4, not 1.
+        let (h, l, c) = ([11.0, 11.0, 11.0, 14.0], [9.0, 9.0, 9.0, 13.0], [10.0, 10.0, 10.0, 13.5]);
+        let a = atr(&h, &l, &c, 2);
+        assert_eq!(a[..2], [None, None]);
+        assert_eq!(a[2], Some(2.0));
+        assert_eq!(a[3], Some(3.0));
+    }
+
+    #[test]
+    fn stochastic_places_the_close_in_its_range() {
+        let h = [10.0, 12.0, 14.0, 14.0];
+        let l = [8.0, 8.0, 9.0, 10.0];
+        let c = [9.0, 11.0, 14.0, 11.0];
+        let (k, d) = stochastic(&h, &l, &c, 3, 2);
+        assert_eq!(k[..2], [None, None]);
+        assert_eq!(k[2], Some(100.0));
+        // Range 8–14, close 11: halfway.
+        assert_eq!(k[3], Some(50.0));
+        assert_eq!(d[2], None);
+        assert_eq!(d[3], Some(75.0));
+    }
+
+    #[test]
+    fn obv_and_vwap_follow_volume() {
+        assert_eq!(obv(&[10.0, 11.0, 10.5, 10.5], &[5.0, 3.0, 2.0, 9.0]), vec![Some(0.0), Some(3.0), Some(1.0), Some(1.0)]);
+        // Two sessions: the second starts over.
+        let v = vwap(&[11.0, 13.0, 21.0], &[9.0, 11.0, 19.0], &[10.0, 12.0, 20.0], &[1.0, 3.0, 2.0], &[1, 1, 2]);
+        assert_eq!(v[0], Some(10.0));
+        assert_eq!(v[1], Some(11.5));
+        assert_eq!(v[2], Some(20.0));
+        assert_eq!(vwap(&[1.0], &[1.0], &[1.0], &[0.0], &[1]), vec![None]);
+    }
 
     fn close(a: Option<f64>, b: f64) -> bool {
         a.is_some_and(|a| (a - b).abs() < 1e-6)

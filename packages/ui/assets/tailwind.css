@@ -3799,6 +3799,10 @@
     font-variant-numeric: var(--tw-ordinal, ) var(--tw-slashed-zero, ) var(--tw-numeric-figure, ) var(--tw-numeric-spacing, ) var(--tw-numeric-fraction, );
   }
 
+  .underline-offset-2 {
+    text-underline-offset: 2px;
+  }
+
   .accent-ctp-red {
     accent-color: var(--catppuccin-color-red);
   }
