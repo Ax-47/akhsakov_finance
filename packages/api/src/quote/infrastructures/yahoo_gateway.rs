@@ -65,13 +65,12 @@ impl YahooGateWay {
                 let Ok(symbol) = TickerSymbol::new(update.instrument.symbol.as_str()) else {
                     continue;
                 };
+                let price = update.price.map(|p| p.into_inner()).unwrap_or(Decimal::ZERO);
                 let quote = QuoteUpdate {
                     ticker_symbol: symbol,
-                    current_price: update
-                        .price
-                        .map(|p| p.into_inner())
-                        .unwrap_or(Decimal::ZERO),
+                    current_price: price,
                     timestamp: update.ts.timestamp(),
+                    native_price: Some(price),
                 };
                 let _ = tx.send(QuoteUpdateEvent::QuoteUpdate(quote));
             }

@@ -1,6 +1,7 @@
 // Technical stock chart: candles or a line with overlays (moving averages,
 // Bollinger bands), volume, and an RSI or MACD pane. Rust computes every
-// series; this file only draws. Loads ECharts through GrowthChart.ready.
+// series; this file only draws, and moves the last candle with each live
+// price (StockChart.tick). Loads ECharts through GrowthChart.ready.
 window.StockChart = window.StockChart || {};
 window.StockChart.latest = window.StockChart.latest || {};
 window.StockChart.charts = window.StockChart.charts || {};
@@ -29,6 +30,62 @@ window.StockChart.init = function (id, cfg) {
   }).catch(function (e) { console.error("[StockChart]", e); });
 };
 
+// Moves the chart with a streamed price: the last candle's close (and its
+// high or low), or a new candle once the last one's time is up. The
+// indicators catch up on the next fetch.
+window.StockChart.tick = function (id, price, ts) {
+  var chart = window.StockChart.charts[id];
+  var d = chart && !chart.isDisposed() && chart.__data;
+  if (!d || !d.times.length || !(price > 0)) return;
+  var n = d.times.length - 1;
+  var start = d.times[n];
+  if (ts < start) return;
+  // A daily candle belongs to its UTC day, like the fetched ones.
+  var next = d.step >= 86400 && d.step < 7 * 86400
+    ? Math.floor(ts / 86400) > Math.floor(start / 86400)
+    : ts >= start + d.step;
+  if (next) {
+    var t = d.step >= 86400 && d.step < 7 * 86400
+      ? start + (Math.floor(ts / 86400) - Math.floor(start / 86400)) * 86400
+      : start + Math.floor((ts - start) / d.step) * d.step;
+    d.times.push(t);
+    d.dates.push(d.intraday ? fullTime(t) : new Date(t * 1000).toISOString().slice(0, 10));
+    d.ohlc.push([price, price, price, price]);
+    d.close.push(price);
+    d.volume.push(0);
+    d.up.push(true);
+  } else {
+    var o = d.ohlc[n]; // [open, close, low, high]
+    if (o[1] === price) return;
+    o[1] = price;
+    o[2] = Math.min(o[2], price);
+    o[3] = Math.max(o[3], price);
+    d.close[n] = price;
+    d.up[n] = price >= o[0];
+  }
+  var axes = [];
+  for (var i = 0; i < d.axes; i++) axes.push({ data: d.dates.slice() });
+  chart.setOption({
+    xAxis: axes,
+    series: [
+      { id: "price", data: d.style === "candle" ? d.ohlc.map(function (o) { return o.slice(); }) : d.close.slice() },
+      { id: "volume", data: volumeData(d, d.col) },
+    ],
+  });
+};
+
+function fullTime(t) {
+  return new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+function shortTime(t) {
+  return new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+function volumeData(d, col) {
+  return d.volume.map(function (v, i) {
+    return { value: v, itemStyle: { color: (d.up[i] ? col.up : col.down) + "88" } };
+  });
+}
+
 function draw(el, id, cfg) {
   var css = getComputedStyle(el);
   function c(name) { return css.getPropertyValue("--catppuccin-color-" + name).trim(); }
@@ -44,6 +101,18 @@ function draw(el, id, cfg) {
     chart.__unwatch = window.GrowthChart.watchSize(el, chart);
   }
 
+  // Minute candles are labelled in the viewer's local time.
+  var times = cfg.times || [];
+  var dates = cfg.intraday ? times.map(fullTime) : cfg.dates;
+  // A redraw of the same span (new data, an indicator toggled) keeps the
+  // viewer's zoom; a new span starts from its own.
+  var zoom = { start: cfg.zoomStart, end: 100 };
+  if (chart.__view === cfg.view) {
+    var dz = (chart.getOption() || {}).dataZoom;
+    if (dz && dz[0] && dz[0].end !== undefined) zoom = { start: dz[0].start, end: dz[0].end };
+  }
+  chart.__view = cfg.view;
+
   var hasLower = cfg.lower && cfg.lower.kind !== "none";
   var grids = [
     { left: 56, right: 16, top: 12, height: hasLower ? "52%" : "66%" },
@@ -53,9 +122,12 @@ function draw(el, id, cfg) {
 
   function xAxis(i) {
     return {
-      type: "category", gridIndex: i, data: cfg.dates, boundaryGap: true,
+      type: "category", gridIndex: i, data: dates, boundaryGap: true,
       axisLine: { lineStyle: { color: col.grid } }, axisTick: { show: false },
-      axisLabel: { show: i === grids.length - 1, color: col.faint, fontSize: 12 },
+      axisLabel: {
+        show: i === grids.length - 1, color: col.faint, fontSize: 12,
+        formatter: cfg.intraday ? function (v, k) { return times[k] ? shortTime(times[k]) : v; } : undefined,
+      },
       axisPointer: { label: { show: i === grids.length - 1 } },
     };
   }
@@ -80,12 +152,12 @@ function draw(el, id, cfg) {
   var series = [];
   if (cfg.style === "candle") {
     series.push({
-      name: "Price", type: "candlestick", data: cfg.ohlc,
+      id: "price", name: "Price", type: "candlestick", data: cfg.ohlc,
       itemStyle: { color: col.up, color0: col.down, borderColor: col.up, borderColor0: col.down },
     });
   } else {
     series.push({
-      name: "Price", type: "line", data: cfg.close, showSymbol: false,
+      id: "price", name: "Price", type: "line", data: cfg.close, showSymbol: false,
       lineStyle: { color: col.mauve, width: 2 },
       areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
         { offset: 0, color: col.mauve + "55" }, { offset: 1, color: col.mauve + "00" },
@@ -99,10 +171,14 @@ function draw(el, id, cfg) {
       emphasis: { disabled: true },
     });
   });
+  // What StockChart.tick moves: copies, so the next redraw starts clean.
+  var data = {
+    times: times.slice(), dates: dates.slice(), ohlc: cfg.ohlc.map(function (o) { return o.slice(); }),
+    close: cfg.close.slice(), volume: cfg.volume.slice(), up: cfg.up.slice(),
+    step: cfg.step || 86400, intraday: !!cfg.intraday, style: cfg.style, axes: grids.length, col: col,
+  };
   series.push({
-    name: "Volume", type: "bar", xAxisIndex: 1, yAxisIndex: 1, data: cfg.volume.map(function (v, i) {
-      return { value: v, itemStyle: { color: (cfg.up[i] ? col.up : col.down) + "88" } };
-    }),
+    id: "volume", name: "Volume", type: "bar", xAxisIndex: 1, yAxisIndex: 1, data: volumeData(data, col),
   });
   if (hasLower) {
     (cfg.lower.bars || []).forEach(function (b) {
@@ -156,14 +232,15 @@ function draw(el, id, cfg) {
     },
     dataZoom: [
       // The wheel scrolls the page; Ctrl+wheel (or pinch) zooms, drag pans.
-      { type: "inside", xAxisIndex: allAxes, start: cfg.zoomStart, end: 100,
+      { type: "inside", xAxisIndex: allAxes, start: zoom.start, end: zoom.end,
         zoomOnMouseWheel: "ctrl", moveOnMouseWheel: false, moveOnMouseMove: true },
-      { type: "slider", xAxisIndex: allAxes, start: cfg.zoomStart, end: 100, bottom: 4, height: 18,
+      { type: "slider", xAxisIndex: allAxes, start: zoom.start, end: zoom.end, bottom: 4, height: 18,
         borderColor: col.grid, fillerColor: col.mauve + "22", handleStyle: { color: col.mauve },
         textStyle: { color: col.faint }, dataBackground: { lineStyle: { color: col.faint }, areaStyle: { color: col.grid } } },
     ],
     series: series,
   }, true);
+  chart.__data = data;
 
   function fmt(v) { return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
   function esc(t) {

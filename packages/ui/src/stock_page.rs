@@ -98,9 +98,17 @@ fn StockView(ticker: TickerSymbol) -> Element {
         async move { get_quote(t).await.ok() }
     });
 
+    // The price moves with each streamed trade, like the chart below.
+    let live = crate::hooks::use_live_tick(ticker.clone());
+
     let loading = fundamentals.read().is_none();
     let f: Option<StockFundamentals> = fundamentals.read().clone().flatten();
-    let q = quote.read().clone().flatten();
+    let q = quote.read().clone().flatten().map(|mut q| {
+        if let Some(tick) = live() {
+            q.current_price = tick.usd;
+        }
+        q
+    });
 
     let price = q.as_ref().map(|q| q.current_price).or_else(|| {
         f.as_ref()
@@ -166,7 +174,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                             } else {
                                 "rounded-full px-3 py-1 text-sm font-semibold bg-ctp-red/15 text-ctp-red"
                             },
-                            "{fmt_signed(abs, 2)} ({pct:+.2}%) today"
+                            {crate::i18n::trf("{} ({}) today", &[&fmt_signed(abs, 2), &format!("{pct:+.2}%")])}
                         }
                     }
                 }
@@ -197,7 +205,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
             match (tab(), &f) {
                 (Tab::Summary, _) => rsx! {
                     div { class: "grid gap-5 motion-safe:animate-rise",
-                        crate::components::charts::TechnicalChart { ticker: ticker.clone() }
+                        crate::components::charts::TechnicalChart { ticker: ticker.clone(), live }
                         if let Some(f) = &f {
                             About { fundamentals: f.clone() }
                         }

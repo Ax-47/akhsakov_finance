@@ -27,4 +27,8 @@ pub struct QuoteUpdate {
     pub ticker_symbol: TickerSymbol,
     pub current_price: Decimal,
     pub timestamp: i64,
+    /// The price in the instrument's own currency, before the websocket
+    /// converts `current_price` to USD (what a chart in that currency moves by).
+    #[serde(default)]
+    pub native_price: Option<Decimal>,
 }
