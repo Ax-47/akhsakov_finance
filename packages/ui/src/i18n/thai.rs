@@ -1396,4 +1396,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("{}% a year", "{}% ต่อปี"),
     ("AI traders", "AI เทรดเดอร์"),
     ("Let an AI invest paper money for you and see how it does. Connect a model in Settings first.", "ให้ AI ลงทุนด้วยเงินสมมติแทนคุณ แล้วดูว่าทำได้ดีแค่ไหน เชื่อมต่อโมเดลใน Settings ก่อน"),
+    ("Your goals", "เป้าหมายของคุณ"),
+    ("If each goal's savings grew the way these did, from now to its date", "ถ้าเงินเก็บของแต่ละเป้าหมายโตแบบนี้ ตั้งแต่ตอนนี้ถึงวันที่ตั้งไว้"),
+    ("{} by {} · {} now, {} a month", "{} ภายใน {} · ตอนนี้ {} เดือนละ {}"),
+    ("{}: {} at {}% a year", "{}: {} ที่ {}% ต่อปี"),
 ];
