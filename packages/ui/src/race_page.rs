@@ -349,7 +349,7 @@ fn RaceSummary(race: AiRace) -> Element {
         .map(|b| b.ticker.clone())
         .unwrap_or_else(|| tr("Not recorded for this race").to_string());
     let bench_tone = bench.map(tone).unwrap_or("text-ctp-text");
-    let beat_value = beat.map(|b| format!("{b:+.2} pt")).unwrap_or_else(|| "—".into());
+    let beat_value = beat.map(|b| crate::i18n::trf("{} pt", &[&format!("{b:+.2}")])).unwrap_or_else(|| "—".into());
     let beat_tone = beat.map(tone).unwrap_or("text-ctp-text");
     let failed_hint = trf("{} of {} rounds", &[&race.completed_rounds, &race.rounds]);
     let failed_tone = if failed > 0 { "text-ctp-peach" } else { "text-ctp-text" };

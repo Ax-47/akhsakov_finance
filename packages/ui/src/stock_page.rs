@@ -856,7 +856,7 @@ fn Ratings(analysts: Analysts) -> Element {
     let marker = a.mean.map(|m| ((m - 1.0) / 4.0 * 100.0).clamp(0.0, 100.0));
 
     rsx! {
-        Card { title: tr("Analyst ratings"), subtitle: format!("{total} analysts"),
+        Card { title: tr("Analyst ratings"), subtitle: crate::i18n::trf("{} analysts", &[&total]),
             div { class: "flex items-baseline gap-3",
                 span { class: "text-3xl font-semibold capitalize text-ctp-text", "{rating}" }
                 if let Some(m) = a.mean {
@@ -918,7 +918,7 @@ fn PriceTarget(analysts: Analysts, price: Option<f64>) -> Element {
     };
 
     rsx! {
-        Card { title: tr("Price target"), subtitle: a.count.map(|n| format!("{n} analysts")).unwrap_or_default(),
+        Card { title: tr("Price target"), subtitle: a.count.map(|n| crate::i18n::trf("{} analysts", &[&n])).unwrap_or_default(),
             div { class: "grid grid-cols-2 gap-3",
                 MetricTile { label: tr("Average target"), value: or_dash(a.target_mean, |v| format!("${v:.2}")) }
                 MetricTile {

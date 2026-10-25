@@ -127,13 +127,10 @@ mod tests {
         assert_eq!(tr_str("Largest"), "Largest");
     }
 
-    /// Every literal passed to `tr` or `trf` in the UI's source has a Thai
-    /// entry, so a new string can't ship in English only.
-    #[test]
-    fn every_translated_string_has_a_thai_entry() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut missing = vec![];
-        let mut dirs = vec![src];
+    /// The UI's source files, with their text (the translations aside).
+    fn ui_sources() -> Vec<(std::path::PathBuf, String)> {
+        let mut files = vec![];
+        let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
         while let Some(dir) = dirs.pop() {
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
@@ -141,15 +138,69 @@ mod tests {
                     dirs.push(path);
                 } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("i18n.rs") && !path.ends_with("i18n/thai.rs") {
                     let text = std::fs::read_to_string(&path).unwrap();
-                    for key in tr_literals(&text) {
-                        if !THAI.contains_key(key.as_str()) {
-                            missing.push(format!("{}: {key:?}", path.display()));
-                        }
-                    }
+                    files.push((path, text));
+                }
+            }
+        }
+        files
+    }
+
+    /// Every literal passed to `tr` or `trf` in the UI's source has a Thai
+    /// entry, so a new string can't ship in English only.
+    #[test]
+    fn every_translated_string_has_a_thai_entry() {
+        let mut missing = vec![];
+        for (path, text) in ui_sources() {
+            for key in tr_literals(&text) {
+                if !THAI.contains_key(key.as_str()) {
+                    missing.push(format!("{}: {key:?}", path.display()));
                 }
             }
         }
         assert!(missing.is_empty(), "add these to i18n/thai.rs:\n{}", missing.join("\n"));
+    }
+
+    /// Titles, subtitles, hints, labels, placeholders and warnings aren't
+    /// built with `format!` around English words, which `tr` never sees.
+    #[test]
+    fn shown_text_is_not_formatted_in_english() {
+        let mut found = vec![];
+        for (path, text) in ui_sources() {
+            for template in english_format_props(&text) {
+                found.push(format!("{}: {template:?}", path.display()));
+            }
+        }
+        assert!(found.is_empty(), "use trf(...) with a Thai entry for:\n{}", found.join("\n"));
+    }
+
+    /// The `format!` templates given to text props in `source` that have
+    /// English words outside their `{placeholders}`.
+    fn english_format_props(source: &str) -> Vec<String> {
+        let mut found = vec![];
+        for prop in ["title", "subtitle", "hint", "label", "placeholder", "warning"] {
+            let call = format!("{prop}: format!(\"");
+            for (at, _) in source.match_indices(&call) {
+                if source[..at].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let body = &source[at + call.len()..];
+                let template = &body[..body.find('"').unwrap_or(body.len())];
+                let mut words = String::new();
+                let mut depth = 0;
+                for c in template.chars() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => depth -= 1,
+                        c if depth == 0 => words.push(c),
+                        _ => {}
+                    }
+                }
+                if words.split(|c: char| !c.is_ascii_alphabetic()).any(|w| w.len() >= 2) {
+                    found.push(template.to_string());
+                }
+            }
+        }
+        found
     }
 
     /// The string literals passed straight to `tr(` / `trf(` in `source`.
@@ -180,6 +231,12 @@ mod tests {
             }
         }
         found
+    }
+
+    #[test]
+    fn finds_english_format_props() {
+        let code = r#"subtitle: format!("{} in total", x) label: format!("{} A", tr("Volatility")) aria_label: format!("Color {hex}") hint: format!("±{}", m) title: format!("{count} shown")"#;
+        assert_eq!(english_format_props(code), ["shown", "{} in total"].map(|t| if t == "shown" { "{count} shown" } else { t }));
     }
 
     #[test]
