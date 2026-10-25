@@ -11,7 +11,7 @@ use crate::{
     notify::today,
 };
 use dioxus::prelude::*;
-use dtos::assets::{AssetInfo, ManualPrice, TaxWrapper};
+use dtos::assets::{AssetInfo, ManualPrice, PriceFeed, TaxWrapper};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use types::{asset_class::AssetClass, ticker_symbol::TickerSymbol};
@@ -20,6 +20,15 @@ fn message(e: ServerFnError) -> String {
     match e {
         ServerFnError::ServerError { message, .. } => message,
         other => other.to_string(),
+    }
+}
+
+/// Where a hand-priced asset's prices come from, in the user's words.
+fn feed_label(feed: Option<PriceFeed>) -> &'static str {
+    match feed {
+        None => tr("You enter them"),
+        Some(PriceFeed::ThaiGold) => tr("Gold Traders Association (96.5% bar, buy-back price per baht-weight)"),
+        Some(PriceFeed::ThaiFundNav) => tr("SEC daily NAV (the ticker is the fund or class short name)"),
     }
 }
 
@@ -37,14 +46,41 @@ pub fn AssetsCard() -> Element {
     let assets = use_assets();
     let mut editing = use_signal(|| None::<Option<AssetInfo>>);
     let list = assets.read().clone().unwrap_or_default();
+    let has_feeds = list.iter().any(|a| a.feed.is_some());
+    let refresh = use_context::<DataRefresh>();
+    let toasts = use_context::<crate::notify::Toasts>();
+    let mut updating = use_signal(|| false);
+    let mut feed_errors = use_signal(Vec::<String>::new);
+    let update_now = move |_| async move {
+        updating.set(true);
+        match api::refresh_price_feeds().await {
+            Ok(updates) => {
+                let done = updates.iter().filter(|u| u.outcome.is_ok()).count();
+                feed_errors.set(updates.iter().filter_map(|u| u.outcome.as_ref().err().map(|e| format!("{}: {e}", u.ticker))).collect());
+                toasts.show(crate::i18n::trf("Updated {} prices", &[&done]), "");
+                refresh.reload();
+                reprice();
+            }
+            Err(e) => feed_errors.set(vec![message(e)]),
+        }
+        updating.set(false);
+    };
 
     rsx! {
         Card {
             title: tr("Funds, gold & other assets"),
             subtitle: tr("Mutual funds, SSF / RMF, gold, deposits and bonds — enter prices yourself when there's no market price").to_string(),
             actions: rsx! {
-                ActionButton { label: tr("＋ Asset"), tone: ButtonTone::Quiet, onclick: move |_| editing.set(Some(None)) }
+                div { class: "flex gap-2",
+                    if has_feeds {
+                        ActionButton { label: if updating() { tr("Updating…") } else { tr("Update prices now") }, tone: ButtonTone::Quiet, disabled: updating(), onclick: update_now }
+                    }
+                    ActionButton { label: tr("＋ Asset"), tone: ButtonTone::Quiet, onclick: move |_| editing.set(Some(None)) }
+                }
             },
+            for e in feed_errors() {
+                p { key: "{e}", class: "mb-2 text-xs text-ctp-red break-words", "{e}" }
+            }
             if list.is_empty() {
                 p { class: "text-sm text-ctp-subtext0",
                     {tr("Add an asset, e.g. a Thai mutual fund with ticker KFSSF, then record buys with that ticker. Crypto (BTC-USD) and gold futures (GC=F) have market prices already.")}
@@ -105,6 +141,9 @@ fn AssetRow(asset: AssetInfo, on_edit: EventHandler<AssetInfo>) -> Element {
             span { class: "rounded-full bg-ctp-surface0 px-2 py-0.5 text-xs text-ctp-subtext1", {tr_str(&asset.class.to_string()).to_string()} }
             if let Some(w) = asset.wrapper {
                 span { class: "rounded-full bg-ctp-mauve/15 px-2 py-0.5 text-xs font-semibold text-ctp-mauve", "{w}" }
+            }
+            if asset.feed.is_some() {
+                span { class: "rounded-full bg-ctp-sky/15 px-2 py-0.5 text-xs text-ctp-sky", title: feed_label(asset.feed), {tr("Auto price")} }
             }
             if let Some(r) = asset.yearly_rate {
                 span { class: "rounded-full bg-ctp-green/15 px-2 py-0.5 text-xs text-ctp-green", {crate::i18n::trf("{}% a year", &[&r.normalize()])} }
@@ -274,6 +313,25 @@ pub fn AssetDialog(existing: Option<AssetInfo>, on_close: EventHandler<()>) -> E
                         }
                         Field { label: tr("Price today (optional)"), hint: tr("NAV per unit, gold price, or 1 for a deposit"),
                             input { class: INPUT, inputmode: "decimal", value: "{first_price}", oninput: move |e| first_price.set(e.value()) }
+                        }
+                        div { class: "col-span-2",
+                            Field { label: tr("Prices from"), hint: if f.feed == Some(PriceFeed::ThaiFundNav) { tr("Needs a free SEC open data API key in Settings.") } else { "" },
+                                select {
+                                    class: "{INPUT} cursor-pointer [&_option]:bg-ctp-mantle",
+                                    onchange: move |e| {
+                                        let feed = PriceFeed::from_key(&e.value());
+                                        let mut i = info.write();
+                                        i.feed = feed;
+                                        if feed.is_some() {
+                                            i.currency = "THB".into();
+                                        }
+                                    },
+                                    option { value: "", selected: f.feed.is_none(), {feed_label(None)} }
+                                    for feed in PriceFeed::ALL {
+                                        option { key: "{feed.key()}", value: "{feed.key()}", selected: f.feed == Some(feed), {feed_label(Some(feed))} }
+                                    }
+                                }
+                            }
                         }
                         div { class: "col-span-2",
                             Field { label: tr("Interest a year, % (optional)"), hint: tr("For a deposit or bond: its value grows by this much a year from the latest price you entered."),

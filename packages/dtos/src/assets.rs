@@ -49,6 +49,43 @@ impl fmt::Display for TaxWrapper {
     }
 }
 
+/// Where a hand-priced asset's prices come from, besides your own entries.
+/// The server fetches them a few times a day and saves each as a dated
+/// [`ManualPrice`], so they work like prices you typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PriceFeed {
+    /// The Gold Traders Association of Thailand: what it pays for a 96.5%
+    /// gold bar, in baht per baht-weight (15.244 g).
+    ThaiGold,
+    /// The fund's daily NAV from the Thai SEC's open data, looked up by the
+    /// asset's ticker as the fund's short name (e.g. K-CHANGE-SSF). Needs an
+    /// SEC API key in Settings.
+    ThaiFundNav,
+}
+
+impl PriceFeed {
+    pub const ALL: [PriceFeed; 2] = [Self::ThaiGold, Self::ThaiFundNav];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::ThaiGold => "thai_gold",
+            Self::ThaiFundNav => "thai_fund_nav",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.key() == key)
+    }
+}
+
+/// What an automatic price update did for one asset.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedUpdate {
+    pub ticker: TickerSymbol,
+    /// The price saved, or why there isn't one.
+    pub outcome: Result<ManualPrice, String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssetInfo {
     pub ticker: TickerSymbol,
@@ -65,6 +102,9 @@ pub struct AssetInfo {
     /// hand: the value grows by it from the latest price you entered.
     #[serde(default)]
     pub yearly_rate: Option<Decimal>,
+    /// Fetched prices, for an asset priced by hand.
+    #[serde(default)]
+    pub feed: Option<PriceFeed>,
 }
 
 impl AssetInfo {
@@ -77,6 +117,7 @@ impl AssetInfo {
             manual: false,
             wrapper: None,
             yearly_rate: None,
+            feed: None,
         }
     }
 
@@ -94,6 +135,12 @@ impl AssetInfo {
             return Err("Interest must be between 0% and 50% a year".into());
         }
         self.yearly_rate = self.yearly_rate.filter(|r| !r.is_zero());
+        if self.feed.is_some() && !self.manual {
+            return Err("Fetched prices are for assets you price by hand".into());
+        }
+        if self.feed.is_some() && self.currency != "THB" {
+            return Err("Thai gold and fund prices are in THB".into());
+        }
         Ok(self)
     }
 }
@@ -186,6 +233,15 @@ mod tests {
         assert_eq!(rate(dec!(1.5)).unwrap().yearly_rate, Some(dec!(1.5)));
         assert_eq!(rate(dec!(0)).unwrap().yearly_rate, None);
         assert!(rate(dec!(-1)).is_err() && rate(dec!(51)).is_err());
+        let gold = |manual, currency: &str| {
+            AssetInfo { feed: Some(PriceFeed::ThaiGold), manual, currency: currency.into(), ..AssetInfo::new(TickerSymbol::new("GOLD").unwrap()) }
+                .validated()
+        };
+        assert!(gold(true, "THB").is_ok());
+        assert!(gold(false, "THB").is_err() && gold(true, "USD").is_err());
+        for f in PriceFeed::ALL {
+            assert_eq!(PriceFeed::from_key(f.key()), Some(f));
+        }
         for w in TaxWrapper::ALL {
             assert_eq!(TaxWrapper::from_key(w.key()), Some(w));
         }

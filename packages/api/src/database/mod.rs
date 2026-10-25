@@ -105,8 +105,8 @@ impl Database {
     }
 
     /// A consistent copy of the whole database as SQLite file bytes,
-    /// without sign-in sessions, connector keys or model API keys (a
-    /// backup must not carry live tokens).
+    /// without sign-in sessions, connector keys, model API keys or other
+    /// service keys (a backup must not carry live tokens).
     pub fn export(&self) -> Result<Vec<u8>, DatabaseError> {
         let path = std::env::temp_dir().join(format!("akhsakov-export-{}.db", uuid::Uuid::new_v4()));
         let result = (|| {
@@ -118,6 +118,7 @@ impl Database {
                 copy.execute("DELETE FROM mcp_connections", [])?;
                 copy.execute("UPDATE ai_trader_configs SET mcp_connection_id = NULL", [])?;
                 copy.execute("DELETE FROM ai_model_secrets", [])?;
+                copy.execute("DELETE FROM app_secrets", [])?;
                 copy.execute_batch("VACUUM")?;
             }
             std::fs::read(&path).map_err(|e| DatabaseError::File(e.to_string()))
@@ -170,6 +171,8 @@ struct Accounts {
     mcp_connections: Vec<(String, String, i64, String, String, String, String, Option<String>)>,
     mcp_scopes: Vec<(String, String)>,
     mcp_audit: Vec<(i64, String, String, String, Option<String>, String, i64, Option<String>)>,
+    /// Keys for outside services; backups carry none.
+    app_secrets: Vec<(String, String)>,
 }
 
 impl Accounts {
@@ -191,12 +194,17 @@ impl Accounts {
         let mcp_audit = conn.prepare("SELECT id,connection_id,at,method,tool,portfolio_ids,success,error_category FROM mcp_audit")?
             .query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)))?
             .collect::<rusqlite::Result<_>>()?;
+        let app_secrets = conn
+            .prepare("SELECT name, value FROM app_secrets")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         Ok(Self {
             users,
             sessions,
             mcp_connections,
             mcp_scopes,
             mcp_audit,
+            app_secrets,
         })
     }
 
@@ -204,6 +212,10 @@ impl Accounts {
     /// (a fresh install), the backup's accounts stay, minus any sessions.
     fn write(&self, conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("DELETE FROM sessions", [])?;
+        conn.execute("DELETE FROM app_secrets", [])?;
+        for (name, value) in &self.app_secrets {
+            conn.execute("INSERT INTO app_secrets(name, value) VALUES(?1, ?2)", rusqlite::params![name, value])?;
+        }
         conn.execute("DELETE FROM mcp_access", [])?;
         conn.execute("DELETE FROM mcp_connections", [])?;
         for row in &self.mcp_connections {
@@ -614,6 +626,13 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE ai_model_profiles ADD COLUMN stream INTEGER NOT NULL DEFAULT 0;",
     // 27: yearly interest (percent) on deposits and bonds priced by hand
     "ALTER TABLE assets ADD COLUMN yearly_rate TEXT;",
+    // 28: where a hand-priced asset's prices are fetched from, and keys for
+    // the services that serve them (never returned, logged or backed up)
+    "ALTER TABLE assets ADD COLUMN feed TEXT;
+    CREATE TABLE app_secrets (
+        name  TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -803,6 +822,20 @@ mod backup_tests {
         let c = Database::in_memory().unwrap();
         c.restore(&bytes).unwrap();
         assert_eq!(count_connections(&c),0);
+    }
+
+    #[test]
+    fn backups_carry_no_service_keys_and_restores_keep_this_ones() {
+        let key = |db: &Database, v: &str| db.with(|c| c.execute("INSERT OR REPLACE INTO app_secrets(name, value) VALUES('sec_api_key', ?1)", [v])).unwrap();
+        let a = Database::in_memory().unwrap();
+        key(&a, "key-in-backup-source");
+        let bytes = a.export().unwrap();
+        assert!(!bytes.windows(20).any(|w| w == b"key-in-backup-source"));
+        let b = Database::in_memory().unwrap();
+        key(&b, "live-key");
+        b.restore(&bytes).unwrap();
+        let kept: String = b.with(|c| c.query_row("SELECT value FROM app_secrets", [], |r| r.get(0))).unwrap();
+        assert_eq!(kept, "live-key");
     }
 
     #[test]

@@ -175,6 +175,7 @@ pub fn SettingsPage() -> Element {
                 crate::server_address::ServerCard {}
                 crate::auth::SecurityCard {}
                 NotificationSettings {}
+                SecKeyCard {}
                 ConnectorCard {}
                 ModelProfilesCard {}
                 Card { title: tr("Your data"),
@@ -918,6 +919,68 @@ fn profile_summary(profile: &ModelProfile) -> String {
         parts.push(trf("${} / ${} per million tokens", &[&input, &output]));
     }
     parts.join(" · ")
+}
+
+/// The Thai SEC open data key, for funds that fetch their NAV. It's never
+/// sent back to the browser once saved.
+#[component]
+fn SecKeyCard() -> Element {
+    let mut saved = use_resource(|| async { api::has_sec_api_key().await.unwrap_or(false) });
+    let mut key = use_signal(String::new);
+    let mut error = use_signal(|| None::<String>);
+    let toasts = use_context::<crate::notify::Toasts>();
+    let save = move |_| async move {
+        match api::set_sec_api_key(key()).await {
+            Ok(()) => {
+                key.set(String::new());
+                error.set(None);
+                toasts.show(tr("SEC API key saved"), "");
+                saved.restart();
+            }
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let remove = move |_| async move {
+        match api::set_sec_api_key(String::new()).await {
+            Ok(()) => saved.restart(),
+            Err(e) => error.set(Some(server_message(e))),
+        }
+    };
+    let has_key = saved().unwrap_or(false);
+    rsx! {
+        Card {
+            title: tr("Thai fund prices"),
+            subtitle: tr("Funds set to fetch their NAV use the Thai SEC's open data API. Get a free key at secopendata.sec.or.th.").to_string(),
+            div { class: "grid gap-3",
+                p { class: "text-sm text-ctp-subtext1",
+                    if has_key { {tr("A key is saved.")} } else { {tr("No key saved.")} }
+                }
+                div { class: "flex flex-wrap items-center gap-2",
+                    div { class: "min-w-0 flex-1",
+                        input {
+                            class: INPUT,
+                            r#type: "password",
+                            autocomplete: "off",
+                            placeholder: tr("SEC API key"),
+                            value: "{key}",
+                            oninput: move |e| key.set(e.value()),
+                        }
+                    }
+                    ActionButton { label: tr("Save"), disabled: key().trim().is_empty(), onclick: save }
+                    if has_key {
+                        crate::page::ConfirmButton {
+                            label: tr("Remove"),
+                            warning: tr("Fund prices stop updating until you add a key again. Continue?"),
+                            onconfirm: remove,
+                        }
+                    }
+                }
+                if let Some(e) = error() {
+                    p { class: "text-sm text-ctp-red break-words", "{e}" }
+                }
+            }
+        }
+    }
 }
 
 /// What an MCP connection with `preset` may do, in the user's words.
