@@ -633,6 +633,15 @@ const MIGRATIONS: &[&str] = &[
         name  TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );",
+    // 29: lines drawn on each stock's chart (levels, trend lines, Fibonacci)
+    "CREATE TABLE chart_drawings (
+        id         INTEGER PRIMARY KEY,
+        ticker     TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        points     TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX chart_drawings_ticker ON chart_drawings(ticker);",
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

@@ -14,6 +14,7 @@ pub mod csv_export;
 pub mod market;
 pub mod economy;
 pub mod technicals;
+pub mod drawings;
 pub mod insights;
 pub mod notifications;
 pub mod auth;

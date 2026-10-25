@@ -6,6 +6,10 @@
 //! the next one, between fetches. One- and five-day spans use one- and
 //! five-minute candles and fetch again every few minutes.
 //!
+//! Levels, trend lines and Fibonacci retracements drawn on it are saved
+//! with the stock (`api::drawings`); a measure shows the change between
+//! two points without being saved.
+//!
 //! Prices are the ones actually traded, in the stock's own currency, as a
 //! broker shows them: converting a Thai stock's history to dollars (or
 //! back) at each day's rate would mix exchange-rate moves into the price,
@@ -16,7 +20,9 @@ use crate::i18n::tr;
 use crate::components::card::{Card, Segmented, ToggleButton};
 use crate::hooks::LiveTick;
 use api::quote::quote::get_native_chart;
+use api::{add_drawing, clear_drawings, delete_drawing, get_drawings};
 use dioxus::prelude::*;
+use dtos::drawings::{ChartDrawing, ChartPoint, DrawingKind};
 use dtos::technicals::{bollinger, ema, macd, rsi, sma};
 use rust_decimal::prelude::ToPrimitive;
 use serde_json::{json, Value};
@@ -128,6 +134,81 @@ struct Overlays {
 /// How often the minute spans fetch their candles again.
 const REFETCH_MS: u32 = 5 * 60 * 1000;
 
+/// Waits for the chart scripts, which may still be loading the first time.
+const WAIT_FOR_SCRIPTS: &str = "for (let i = 0; i < 200 && !(window.StockChart && window.StockChart.listen && window.GrowthChart); i++)
+     await new Promise(r => setTimeout(r, 25));";
+
+/// What a click on the chart does.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Tool {
+    Level,
+    Trend,
+    Fibonacci,
+    Measure,
+    Erase,
+}
+
+impl Tool {
+    const ALL: [Self; 5] = [Self::Level, Self::Trend, Self::Fibonacci, Self::Measure, Self::Erase];
+
+    /// Its name in `stock_chart.js`.
+    fn key(self) -> &'static str {
+        match self {
+            Self::Level => "level",
+            Self::Trend => "trend",
+            Self::Fibonacci => "fibonacci",
+            Self::Measure => "measure",
+            Self::Erase => "erase",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Level => tr("Level"),
+            Self::Trend => tr("Trend line"),
+            Self::Fibonacci => tr("Fibonacci"),
+            Self::Measure => tr("Measure"),
+            Self::Erase => tr("Erase"),
+        }
+    }
+
+    fn color(self) -> &'static str {
+        match self {
+            Self::Level => "peach",
+            Self::Trend => "sky",
+            Self::Fibonacci => "yellow",
+            Self::Measure => "green",
+            Self::Erase => "red",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Self::Level => tr("Click the chart where the level goes."),
+            Self::Trend => tr("Click the line's two ends."),
+            Self::Fibonacci => tr("Click where the move starts, then where it ends."),
+            Self::Measure => tr("Click two points to see the change between them."),
+            Self::Erase => tr("Click a drawing to remove it."),
+        }
+    }
+}
+
+/// A message from the chart: a drawing placed, or one clicked with the eraser.
+#[derive(serde::Deserialize)]
+struct ChartMessage {
+    add: Option<DrawingKind>,
+    points: Option<Vec<ChartPoint>>,
+    erase: Option<i64>,
+}
+
+/// Runs `js` on the chart once its scripts have loaded.
+fn chart_call(js: String) {
+    let script = format!("{WAIT_FOR_SCRIPTS}\n{js}");
+    spawn(async move {
+        let _ = document::eval(&script).await;
+    });
+}
+
 #[component]
 pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) -> Element {
     let mut span = use_signal(|| Span::Y1);
@@ -161,6 +242,69 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
             get_native_chart(t, range, interval).await.map_err(|e| e.to_string())
         }
     });
+
+    // Lines drawn on this stock's chart, and the tool clicks use.
+    let mut drawings = use_signal(Vec::<ChartDrawing>::new);
+    let mut tool = use_signal(|| None::<Tool>);
+    let mut draw_error = use_signal(|| None::<String>);
+    let t = ticker.clone();
+    use_future(move || {
+        let t = t.clone();
+        async move {
+            if let Ok(list) = get_drawings(t).await {
+                drawings.set(list);
+            }
+        }
+    });
+    let id = chart_id.clone();
+    use_effect(move || {
+        let list = json!(*drawings.read());
+        chart_call(format!("window.StockChart.setDrawings({}, {list});", json!(id)));
+    });
+    let id = chart_id.clone();
+    use_effect(move || {
+        let key = tool().map(Tool::key);
+        chart_call(format!("window.StockChart.setTool({}, {});", json!(id), json!(key)));
+    });
+    // Placed drawings are saved; erased ones deleted.
+    let (id, t) = (chart_id.clone(), ticker.clone());
+    use_future(move || {
+        let (id, t) = (id.clone(), t.clone());
+        async move {
+            let mut messages = document::eval(&format!(
+                "{WAIT_FOR_SCRIPTS}
+                 window.StockChart.listen({}, m => dioxus.send(m));
+                 await new Promise(() => {{}});",
+                json!(id)
+            ));
+            while let Ok(msg) = messages.recv::<ChartMessage>().await {
+                let result = match (msg.add, msg.points, msg.erase) {
+                    (Some(kind), Some(points), _) => add_drawing(t.clone(), kind, points).await.map(|d| {
+                        drawings.push(d);
+                        tool.set(None);
+                    }),
+                    (_, _, Some(erase)) => delete_drawing(t.clone(), erase).await.map(|()| {
+                        drawings.with_mut(|list| list.retain(|d| d.id != erase));
+                    }),
+                    _ => Ok(()),
+                };
+                draw_error.set(result.err().map(crate::settings_page::server_message));
+            }
+        }
+    });
+    let t = ticker.clone();
+    let clear = move |_| {
+        let t = t.clone();
+        spawn(async move {
+            match clear_drawings(t).await {
+                Ok(()) => {
+                    drawings.set(Vec::new());
+                    draw_error.set(None);
+                }
+                Err(e) => draw_error.set(Some(crate::settings_page::server_message(e))),
+            }
+        });
+    };
 
     let drop_id = chart_id.clone();
     use_drop(move || {
@@ -244,6 +388,31 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
                 span { class: "ml-3 text-ctp-subtext0", {tr("Lower pane")} }
                 Chip { label: tr("RSI"), color: "teal", on: lower() == Lower::Rsi, onclick: move |_| lower.set(if lower() == Lower::Rsi { Lower::None } else { Lower::Rsi }) }
                 Chip { label: tr("MACD"), color: "blue", on: lower() == Lower::Macd, onclick: move |_| lower.set(if lower() == Lower::Macd { Lower::None } else { Lower::Macd }) }
+            }
+            div { class: "mb-3 flex flex-wrap items-center gap-2 text-xs",
+                span { class: "text-ctp-subtext0", {tr("Draw")} }
+                for t in Tool::ALL {
+                    Chip {
+                        key: "{t.key()}",
+                        label: t.label(),
+                        color: t.color(),
+                        on: tool() == Some(t),
+                        onclick: move |_| tool.set(if tool() == Some(t) { None } else { Some(t) }),
+                    }
+                }
+                if !drawings.read().is_empty() {
+                    crate::page::ConfirmButton {
+                        label: tr("Clear drawings"),
+                        warning: tr("Every drawing on this chart goes. Continue?"),
+                        onconfirm: clear,
+                    }
+                }
+            }
+            if let Some(t) = tool() {
+                p { class: "mb-2 text-xs text-ctp-subtext0", {t.hint()} }
+            }
+            if let Some(e) = draw_error() {
+                p { class: "mb-2 text-xs text-ctp-red break-words", "{e}" }
             }
             div { class: "relative",
                 div { id: "{chart_id}", style: "width:100%;height:460px;" }
@@ -385,6 +554,7 @@ fn chart_config(
         "intraday": span.sessions().is_some(),
         // A redraw of the same span keeps where the viewer has zoomed to.
         "view": span.label(),
+        "measureUnit": tr("candles"),
     })
 }
 
