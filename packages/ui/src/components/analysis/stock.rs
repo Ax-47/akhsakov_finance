@@ -236,34 +236,34 @@ fn ReportHeader(stats: StockStats) -> Element {
     let mut chips: Vec<(String, &'static str)> = Vec::new();
     match s.trend() {
         Trend::Up => chips.push((
-            "Uptrend · above 50 & 200-day".into(),
+            tr("Uptrend · above 50 & 200-day").into(),
             "bg-ctp-green/15 text-ctp-green",
         )),
         Trend::Down => chips.push((
-            "Downtrend · below 50 & 200-day".into(),
+            tr("Downtrend · below 50 & 200-day").into(),
             "bg-ctp-red/15 text-ctp-red",
         )),
-        Trend::Mixed => chips.push(("Mixed trend".into(), "bg-ctp-yellow/15 text-ctp-yellow")),
+        Trend::Mixed => chips.push((tr("Mixed trend").into(), "bg-ctp-yellow/15 text-ctp-yellow")),
         Trend::Unknown => {}
     }
     if let Some(rsi) = s.rsi14 {
         if rsi >= 70.0 {
             chips.push((
-                format!("RSI {rsi:.0} · overbought"),
+                crate::i18n::trf("RSI {} · overbought", &[&format!("{rsi:.0}")]),
                 "bg-ctp-peach/15 text-ctp-peach",
             ));
         } else if rsi <= 30.0 {
             chips.push((
-                format!("RSI {rsi:.0} · oversold"),
+                crate::i18n::trf("RSI {} · oversold", &[&format!("{rsi:.0}")]),
                 "bg-ctp-sky/15 text-ctp-sky",
             ));
         }
     }
     let pos = s.range_position();
     if pos >= 0.9 {
-        chips.push(("Near 52-week high".into(), "bg-ctp-green/15 text-ctp-green"));
+        chips.push((tr("Near 52-week high").into(), "bg-ctp-green/15 text-ctp-green"));
     } else if pos <= 0.1 {
-        chips.push(("Near 52-week low".into(), "bg-ctp-red/15 text-ctp-red"));
+        chips.push((tr("Near 52-week low").into(), "bg-ctp-red/15 text-ctp-red"));
     }
     if let Some(r) = &s.risk {
         if r.beta > 1.3 {
@@ -273,7 +273,7 @@ fn ReportHeader(stats: StockStats) -> Element {
             ));
         } else if r.beta < 0.7 {
             chips.push((
-                "Defensive · low beta".into(),
+                tr("Defensive · low beta").into(),
                 "bg-ctp-teal/15 text-ctp-teal",
             ));
         }
@@ -373,14 +373,14 @@ fn RangeAndTrend(stats: StockStats) -> Element {
     rsx! {
         Card { title: tr("Range & trend"),
             div { class: "flex justify-between text-xs text-ctp-subtext0",
-                span { "52-week low" }
-                span { "52-week high" }
+                span { {tr("52-week low")} }
+                span { {tr("52-week high")} }
             }
             div { class: "relative mt-2 h-2 rounded-full bg-gradient-to-r from-ctp-red/50 via-ctp-yellow/50 to-ctp-green/50",
                 span {
                     class: "absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ctp-base bg-ctp-text",
                     style: "left:{pos:.1}%;",
-                    title: "{pos:.0}% of the way from low to high",
+                    title: crate::i18n::trf("{}% of the way from low to high", &[&format!("{pos:.0}")]),
                 }
             }
             div { class: "mt-2 flex justify-between text-sm tabular-nums text-ctp-subtext1",
@@ -388,7 +388,7 @@ fn RangeAndTrend(stats: StockStats) -> Element {
                 span { "{money(s.high_52w)}" }
             }
             div { class: "mt-5 grid gap-2 text-sm",
-                for (label, value) in [("50-day average", vs(s.sma50)), ("200-day average", vs(s.sma200))] {
+                for (label, value) in [(tr("50-day average"), vs(s.sma50)), (tr("200-day average"), vs(s.sma200))] {
                     div { class: "flex items-center justify-between",
                         span { class: "text-ctp-subtext0", "{label}" }
                         if let Some((avg, diff, color)) = value {
@@ -397,7 +397,7 @@ fn RangeAndTrend(stats: StockStats) -> Element {
                                 span { class: "{color}", "({diff})" }
                             }
                         } else {
-                            span { class: "text-ctp-overlay1", "not enough history" }
+                            span { class: "text-ctp-overlay1", {tr("not enough history")} }
                         }
                     }
                 }

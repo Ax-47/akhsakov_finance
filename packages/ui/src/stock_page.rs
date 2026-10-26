@@ -16,7 +16,7 @@ use crate::{
     format::{fmt_compact, fmt_signed, fmt_usd, or_dash, signed_color},
     hooks::{use_portfolio, use_portfolio_memo, PortfolioState},
     page::{GhostButton, HeroStat, Page},
-    stock_research::{DividendsAndSplits, NewsTab, OptionsTab, OwnershipTab, RatingChanges},
+    stock_research::{yahoo_term, DividendsAndSplits, NewsTab, OptionsTab, OwnershipTab, RatingChanges},
 };
 use api::quote::quote::get_quote;
 use dioxus::prelude::*;
@@ -62,7 +62,7 @@ pub fn StockPage(ticker: String) -> Element {
             }
         },
         Err(_) => rsx! {
-            Page { p { class: "text-ctp-subtext0", "“{ticker}” isn't a valid ticker." } }
+            Page { p { class: "text-ctp-subtext0", {crate::i18n::trf("“{}” isn't a valid ticker.", &[&ticker])} } }
         },
     }
 }
@@ -303,7 +303,7 @@ fn WatchButton(ticker: TickerSymbol) -> Element {
     let label = match on_lists {
         0 => tr("☆ Watch").to_string(),
         1 => tr("★ Watching").to_string(),
-        n => format!("★ On {n} lists"),
+        n => crate::i18n::trf("★ On {} lists", &[&n]),
     };
     rsx! {
         div { class: "relative",
@@ -485,12 +485,12 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
     let columns: Vec<ValuationPoint> = std::iter::once(current).chain(history).collect();
 
     let rows: [(&str, Getter, Unit); 6] = [
-        ("Market cap", |v| v.market_cap, Unit::Money),
-        ("Enterprise value", |v| v.enterprise_value, Unit::Money),
-        ("Trailing P/E", |v| v.pe_ttm, Unit::Number),
-        ("Price / sales", |v| v.price_to_sales, Unit::Number),
-        ("Price / book", |v| v.price_to_book, Unit::Number),
-        ("EV / revenue", |v| v.ev_to_revenue, Unit::Number),
+        (tr("Market cap"), |v| v.market_cap, Unit::Money),
+        (tr("Enterprise value"), |v| v.enterprise_value, Unit::Money),
+        (tr("Trailing P/E"), |v| v.pe_ttm, Unit::Number),
+        (tr("Price / sales"), |v| v.price_to_sales, Unit::Number),
+        (tr("Price / book"), |v| v.price_to_book, Unit::Number),
+        (tr("EV / revenue"), |v| v.ev_to_revenue, Unit::Number),
     ];
 
     rsx! {
@@ -560,68 +560,68 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
 
     let groups: Vec<(&str, Vec<(&str, String)>)> = vec![
         (
-            "Profitability (TTM)",
+            tr("Profitability (TTM)"),
             vec![
                 (
-                    "Gross margin",
+                    tr("Gross margin"),
                     or_dash(div(ttm(q, |p| p.gross_profit), revenue), pct),
                 ),
                 (
-                    "Operating margin",
+                    tr("Operating margin"),
                     or_dash(div(ttm(q, |p| p.operating_income), revenue), pct),
                 ),
-                ("Net margin", or_dash(div(net, revenue), pct)),
+                (tr("Net margin"), or_dash(div(net, revenue), pct)),
                 (
-                    "Return on equity",
+                    tr("Return on equity"),
                     or_dash(div(net, latest.total_equity), pct),
                 ),
                 (
-                    "Return on assets",
+                    tr("Return on assets"),
                     or_dash(div(net, latest.total_assets), pct),
                 ),
             ],
         ),
         (
-            "Income statement (TTM)",
+            tr("Income statement (TTM)"),
             vec![
-                ("Revenue", or_dash(revenue, fmt_compact)),
+                (tr("Revenue"), or_dash(revenue, fmt_compact)),
                 (
-                    "Revenue growth (YoY quarter)",
+                    tr("Revenue growth (YoY quarter)"),
                     or_dash(yoy_growth(q, |p| p.revenue), pct),
                 ),
-                ("Net income", or_dash(net, fmt_compact)),
+                (tr("Net income"), or_dash(net, fmt_compact)),
                 (
-                    "Earnings growth (YoY quarter)",
+                    tr("Earnings growth (YoY quarter)"),
                     or_dash(yoy_growth(q, |p| p.net_income), pct),
                 ),
                 (
-                    "EPS (TTM)",
+                    tr("EPS (TTM)"),
                     or_dash(f.stats.eps_ttm, |v| format!("${v:.2}")),
                 ),
                 (
-                    "EPS (next year, est.)",
+                    tr("EPS (next year, est.)"),
                     or_dash(f.stats.forward_eps, |v| format!("${v:.2}")),
                 ),
             ],
         ),
         (
-            "Balance sheet (latest quarter)",
+            tr("Balance sheet (latest quarter)"),
             vec![
-                ("Cash", or_dash(latest.cash, fmt_compact)),
+                (tr("Cash"), or_dash(latest.cash, fmt_compact)),
                 (
-                    "Long-term debt",
+                    tr("Long-term debt"),
                     or_dash(latest.long_term_debt, fmt_compact),
                 ),
                 (
-                    "Debt / equity",
+                    tr("Debt / equity"),
                     or_dash(latest.debt_to_equity(), |v| format!("{v:.2}")),
                 ),
                 (
-                    "Current ratio",
+                    tr("Current ratio"),
                     or_dash(latest.current_ratio(), |v| format!("{v:.2}")),
                 ),
                 (
-                    "Book value / share",
+                    tr("Book value / share"),
                     or_dash(div(latest.total_equity, latest.shares), |v| {
                         format!("${v:.2}")
                     }),
@@ -629,43 +629,43 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
             ],
         ),
         (
-            "Cash flow (TTM)",
+            tr("Cash flow (TTM)"),
             vec![
                 (
-                    "Operating cash flow",
+                    tr("Operating cash flow"),
                     or_dash(ttm(q, |p| p.operating_cashflow), fmt_compact),
                 ),
                 (
-                    "Free cash flow",
+                    tr("Free cash flow"),
                     or_dash(ttm(q, |p| p.free_cash_flow), fmt_compact),
                 ),
                 (
-                    "Free cash flow margin",
+                    tr("Free cash flow margin"),
                     or_dash(div(ttm(q, |p| p.free_cash_flow), revenue), pct),
                 ),
             ],
         ),
         (
-            "Trading information",
+            tr("Trading information"),
             vec![
                 (
-                    "52-week high",
+                    tr("52-week high"),
                     or_dash(f.stats.high_52w, |v| format!("${v:.2}")),
                 ),
                 (
-                    "52-week low",
+                    tr("52-week low"),
                     or_dash(f.stats.low_52w, |v| format!("${v:.2}")),
                 ),
                 (
-                    "50-day average",
+                    tr("50-day average"),
                     or_dash(f.stats.sma50, |v| format!("${v:.2}")),
                 ),
                 (
-                    "200-day average",
+                    tr("200-day average"),
                     or_dash(f.stats.sma200, |v| format!("${v:.2}")),
                 ),
                 (
-                    "Shares outstanding",
+                    tr("Shares outstanding"),
                     or_dash(f.stats.shares_outstanding, |v| {
                         fmt_compact(v).replacen('$', "", 1)
                     }),
@@ -673,18 +673,18 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
             ],
         ),
         (
-            "Dividends & dates",
+            tr("Dividends & dates"),
             vec![
-                ("Dividend yield", or_dash(f.stats.dividend_yield, pct)),
+                (tr("Dividend yield"), or_dash(f.stats.dividend_yield, pct)),
                 (
-                    "Ex-dividend date",
+                    tr("Ex-dividend date"),
                     f.stats
                         .ex_dividend_date
                         .clone()
                         .unwrap_or_else(|| "—".into()),
                 ),
                 (
-                    "Next earnings",
+                    tr("Next earnings"),
                     f.stats.next_earnings.clone().unwrap_or_else(|| "—".into()),
                 ),
             ],
@@ -694,11 +694,11 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
     rsx! {
         div { class: "grid gap-5 md:grid-cols-2",
             for (title, rows) in groups {
-                Card { key: "{title}", title: crate::i18n::tr_str(title),
+                Card { key: "{title}", title,
                     div { class: "flex flex-col",
                         for (label, value) in rows {
                             div { class: "flex items-center justify-between gap-4 border-t border-dashed border-ctp-surface0 py-2 text-sm first:border-t-0",
-                                span { class: "text-ctp-subtext0", {crate::i18n::tr_str(label)} }
+                                span { class: "text-ctp-subtext0", "{label}" }
                                 span { class: "font-medium tabular-nums text-ctp-text", "{value}" }
                             }
                         }
@@ -741,17 +741,17 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
 
     type Row = (&'static str, fn(&PeriodFinancials) -> Option<f64>, Unit);
     let table: [Row; 11] = [
-        ("Revenue", |p| p.revenue, Unit::Money),
-        ("Gross profit", |p| p.gross_profit, Unit::Money),
-        ("Operating income", |p| p.operating_income, Unit::Money),
-        ("Net income", |p| p.net_income, Unit::Money),
-        ("Gross margin", |p| p.gross_margin(), Unit::Percent),
-        ("Net margin", |p| p.net_margin(), Unit::Percent),
-        ("Operating cash flow", |p| p.operating_cashflow, Unit::Money),
-        ("Free cash flow", |p| p.free_cash_flow, Unit::Money),
-        ("Cash", |p| p.cash, Unit::Money),
-        ("Long-term debt", |p| p.long_term_debt, Unit::Money),
-        ("Shareholders' equity", |p| p.total_equity, Unit::Money),
+        (tr("Revenue"), |p| p.revenue, Unit::Money),
+        (tr("Gross profit"), |p| p.gross_profit, Unit::Money),
+        (tr("Operating income"), |p| p.operating_income, Unit::Money),
+        (tr("Net income"), |p| p.net_income, Unit::Money),
+        (tr("Gross margin"), |p| p.gross_margin(), Unit::Percent),
+        (tr("Net margin"), |p| p.net_margin(), Unit::Percent),
+        (tr("Operating cash flow"), |p| p.operating_cashflow, Unit::Money),
+        (tr("Free cash flow"), |p| p.free_cash_flow, Unit::Money),
+        (tr("Cash"), |p| p.cash, Unit::Money),
+        (tr("Long-term debt"), |p| p.long_term_debt, Unit::Money),
+        (tr("Shareholders' equity"), |p| p.total_equity, Unit::Money),
     ];
 
     rsx! {
@@ -760,7 +760,7 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
                 Card { title: tr("Revenue & net income"), actions: toggle,
                     BarChart {
                         labels: labels.clone(),
-                        series: vec![series("Revenue", "var(--catppuccin-color-blue)", |p| p.revenue), series("Net income", "var(--catppuccin-color-mauve)", |p| p.net_income)],
+                        series: vec![series(tr("Revenue"), "var(--catppuccin-color-blue)", |p| p.revenue), series(tr("Net income"), "var(--catppuccin-color-mauve)", |p| p.net_income)],
                         unit: Unit::Money,
                     }
                 }
@@ -768,9 +768,9 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
                     BarChart {
                         labels: labels.clone(),
                         series: vec![
-                            series("Gross", "var(--catppuccin-color-green)", |p| p.gross_margin()),
-                            series("Operating", "var(--catppuccin-color-yellow)", |p| p.operating_margin()),
-                            series("Net", "var(--catppuccin-color-mauve)", |p| p.net_margin()),
+                            series(tr("Gross"), "var(--catppuccin-color-green)", |p| p.gross_margin()),
+                            series(tr("Operating"), "var(--catppuccin-color-yellow)", |p| p.operating_margin()),
+                            series(tr("Net"), "var(--catppuccin-color-mauve)", |p| p.net_margin()),
                         ],
                         unit: Unit::Percent,
                     }
@@ -779,8 +779,8 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
                     BarChart {
                         labels: labels.clone(),
                         series: vec![
-                            series("Operating cash flow", "var(--catppuccin-color-sky)", |p| p.operating_cashflow),
-                            series("Free cash flow", "var(--catppuccin-color-teal)", |p| p.free_cash_flow),
+                            series(tr("Operating cash flow"), "var(--catppuccin-color-sky)", |p| p.operating_cashflow),
+                            series(tr("Free cash flow"), "var(--catppuccin-color-teal)", |p| p.free_cash_flow),
                         ],
                         unit: Unit::Money,
                     }
@@ -789,9 +789,9 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
                     BarChart {
                         labels: labels.clone(),
                         series: vec![
-                            series("Cash", "var(--catppuccin-color-green)", |p| p.cash),
-                            series("Long-term debt", "var(--catppuccin-color-red)", |p| p.long_term_debt),
-                            series("Equity", "var(--catppuccin-color-lavender)", |p| p.total_equity),
+                            series(tr("Cash"), "var(--catppuccin-color-green)", |p| p.cash),
+                            series(tr("Long-term debt"), "var(--catppuccin-color-red)", |p| p.long_term_debt),
+                            series(tr("Equity"), "var(--catppuccin-color-lavender)", |p| p.total_equity),
                         ],
                         unit: Unit::Money,
                     }
@@ -859,16 +859,16 @@ fn Ratings(analysts: Analysts) -> Element {
     let a = &analysts;
     let counts = [a.strong_buy, a.buy, a.hold, a.sell, a.strong_sell];
     let total: u32 = counts.iter().sum();
-    let rating = a.rating.clone().unwrap_or_default();
+    let rating = a.rating.as_deref().map(rating_name).unwrap_or_default();
     // Mean runs 1 (strong buy) … 5 (strong sell).
     let marker = a.mean.map(|m| ((m - 1.0) / 4.0 * 100.0).clamp(0.0, 100.0));
 
     rsx! {
         Card { title: tr("Analyst ratings"), subtitle: crate::i18n::trf("{} analysts", &[&total]),
             div { class: "flex items-baseline gap-3",
-                span { class: "text-3xl font-semibold capitalize text-ctp-text", "{rating}" }
+                span { class: "text-3xl font-semibold text-ctp-text", "{rating}" }
                 if let Some(m) = a.mean {
-                    span { class: "text-sm text-ctp-subtext0", "{m:.1} on a 1–5 scale" }
+                    span { class: "text-sm text-ctp-subtext0", {crate::i18n::trf("{} on a 1–5 scale", &[&format!("{m:.1}")])} }
                 }
             }
             if let Some(pos) = marker {
@@ -888,7 +888,7 @@ fn Ratings(analysts: Analysts) -> Element {
                             div {
                                 class: "h-full first:rounded-l-full last:rounded-r-full",
                                 style: "width:{*n as f64 / total as f64 * 100.0:.1}%;background:{RATING_COLORS[i].1};",
-                                title: "{RATING_COLORS[i].0}: {n}",
+                                title: format!("{}: {n}", tr(RATING_COLORS[i].0)),
                             }
                         }
                     }
@@ -897,7 +897,7 @@ fn Ratings(analysts: Analysts) -> Element {
                     for (i, n) in counts.iter().enumerate() {
                         div {
                             div { class: "font-semibold tabular-nums text-ctp-text", "{n}" }
-                            div { class: "text-ctp-subtext0", style: "color:{RATING_COLORS[i].1};", "{RATING_COLORS[i].0}" }
+                            div { class: "text-ctp-subtext0", style: "color:{RATING_COLORS[i].1};", {tr(RATING_COLORS[i].0)} }
                         }
                     }
                 }
@@ -941,17 +941,17 @@ fn PriceTarget(analysts: Analysts, price: Option<f64>) -> Element {
                     style: "left:{at(low):.1}%;width:{at(high) - at(low):.1}%;",
                 }
                 if let Some(m) = a.target_mean {
-                    span { class: "absolute -top-6 -translate-x-1/2 text-xs font-semibold text-ctp-mauve", style: "left:{at(m):.1}%;", "Avg ${m:.0}" }
+                    span { class: "absolute -top-6 -translate-x-1/2 text-xs font-semibold text-ctp-mauve", style: "left:{at(m):.1}%;", {crate::i18n::trf("Avg ${}", &[&format!("{m:.0}")])} }
                     span { class: "absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ctp-mauve", style: "left:{at(m):.1}%;" }
                 }
                 if let Some(p) = price {
                     span { class: "absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ctp-base bg-ctp-text", style: "left:{at(p):.1}%;" }
-                    span { class: "absolute top-4 -translate-x-1/2 text-xs text-ctp-subtext0", style: "left:{at(p):.1}%;", "Now ${p:.0}" }
+                    span { class: "absolute top-4 -translate-x-1/2 text-xs text-ctp-subtext0", style: "left:{at(p):.1}%;", {crate::i18n::trf("Now ${}", &[&format!("{p:.0}")])} }
                 }
             }
             div { class: "flex justify-between text-xs tabular-nums text-ctp-subtext0",
-                span { "Low ${low:.0}" }
-                span { "High ${high:.0}" }
+                span { {crate::i18n::trf("Low ${}", &[&format!("{low:.0}")])} }
+                span { {crate::i18n::trf("High ${}", &[&format!("{high:.0}")])} }
             }
         }
     }
@@ -986,9 +986,9 @@ fn EpsChart(surprises: Vec<EpsSurprise>) -> Element {
     rsx! {
         Card { title: tr("Earnings per share"), subtitle: tr("Reported vs analyst estimate").to_string(),
             div { class: "mb-2 flex gap-4 text-xs text-ctp-subtext0",
-                span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full border-2 border-ctp-overlay1" } "Estimate" }
-                span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full bg-ctp-green" } "Beat" }
-                span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full bg-ctp-red" } "Missed" }
+                span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full border-2 border-ctp-overlay1" } {tr("Estimate")} }
+                span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full bg-ctp-green" } {tr("Beat")} }
+                span { class: "flex items-center gap-1.5", span { class: "h-2.5 w-2.5 rounded-full bg-ctp-red" } {tr("Missed")} }
             }
             svg { class: "w-full", view_box: "0 0 {W} {H}",
                 for (i, s) in points.iter().enumerate() {
@@ -1033,6 +1033,18 @@ fn short_date(date: &str) -> String {
     }
 }
 
+/// Yahoo's overall rating (`strong_buy`) as a label in the interface
+/// language (`Strong buy`).
+fn rating_name(text: &str) -> String {
+    let words = text.replace('_', " ").to_lowercase();
+    let mut chars = words.chars();
+    let sentence_case: String = match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    };
+    yahoo_term(&sentence_case).to_string()
+}
+
 /// `Q2 '26` for quarters, `2025` for years.
 fn period_label(p: &PeriodFinancials, quarterly: bool) -> String {
     let Some(date) = &p.end_date else {
@@ -1061,5 +1073,12 @@ mod tests {
         };
         assert_eq!(period_label(&p, true), "Q2 '26");
         assert_eq!(period_label(&p, false), "2026");
+    }
+
+    #[test]
+    fn yahoo_ratings_read_as_sentences() {
+        assert_eq!(rating_name("strong_buy"), "Strong buy");
+        assert_eq!(rating_name("HOLD"), "Hold");
+        assert_eq!(rating_name(""), "");
     }
 }
