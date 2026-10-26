@@ -10,7 +10,8 @@ use crate::components::{
 use crate::format::or_dash;
 use dioxus::prelude::*;
 use dtos::fundamentals::{
-    current_valuation, ttm, yoy_growth, PeriodFinancials, StockFundamentals, ValuationPoint,
+    current_valuation, ttm, yoy_growth, KeyRatios, PeriodFinancials, StockFundamentals,
+    ValuationPoint,
 };
 use types::ticker_symbol::TickerSymbol;
 
@@ -35,6 +36,10 @@ pub struct Measure {
 
 fn safe_div(a: Option<f64>, b: Option<f64>) -> Option<f64> {
     Some(a? / b.filter(|b| *b != 0.0)?)
+}
+
+fn ratios(f: &StockFundamentals) -> KeyRatios {
+    KeyRatios::compute(&f.stats, &f.quarterly)
 }
 
 /// Every comparable measure, in display order.
@@ -82,6 +87,27 @@ pub fn measures() -> Vec<Measure> {
             unit: Unit::Number,
             better: Lower,
             get: |f| current_valuation(&f.stats, &f.quarterly).ev_to_revenue,
+        },
+        Measure {
+            group: "Valuation",
+            label: tr("EV / EBITDA"),
+            unit: Unit::Number,
+            better: Lower,
+            get: |f| current_valuation(&f.stats, &f.quarterly).ev_to_ebitda,
+        },
+        Measure {
+            group: "Valuation",
+            label: tr("Price / free cash flow"),
+            unit: Unit::Number,
+            better: Lower,
+            get: |f| current_valuation(&f.stats, &f.quarterly).price_to_fcf,
+        },
+        Measure {
+            group: "Valuation",
+            label: tr("PEG ratio"),
+            unit: Unit::Number,
+            better: Lower,
+            get: |f| ratios(f).peg,
         },
         Measure {
             group: "Profitability",
@@ -132,6 +158,13 @@ pub fn measures() -> Vec<Measure> {
             },
         },
         Measure {
+            group: "Profitability",
+            label: tr("Return on invested capital"),
+            unit: Unit::Percent,
+            better: Higher,
+            get: |f| ratios(f).return_on_invested_capital,
+        },
+        Measure {
             group: "Growth",
             label: tr("Revenue growth (YoY)"),
             unit: Unit::Percent,
@@ -154,10 +187,31 @@ pub fn measures() -> Vec<Measure> {
         },
         Measure {
             group: "Financial health",
+            label: tr("Net debt / EBITDA"),
+            unit: Unit::Number,
+            better: Lower,
+            get: |f| ratios(f).net_debt_to_ebitda,
+        },
+        Measure {
+            group: "Financial health",
+            label: tr("Interest coverage"),
+            unit: Unit::Number,
+            better: Higher,
+            get: |f| ratios(f).interest_coverage,
+        },
+        Measure {
+            group: "Financial health",
             label: tr("Current ratio"),
             unit: Unit::Number,
             better: Higher,
             get: |f| f.quarterly.first()?.current_ratio(),
+        },
+        Measure {
+            group: "Financial health",
+            label: tr("Quick ratio"),
+            unit: Unit::Number,
+            better: Higher,
+            get: |f| ratios(f).quick_ratio,
         },
         Measure {
             group: "Financial health",
@@ -177,6 +231,22 @@ pub fn measures() -> Vec<Measure> {
             unit: Unit::Percent,
             better: Higher,
             get: |f| f.stats.dividend_yield,
+        },
+        Measure {
+            group: "Income",
+            label: tr("Free cash flow yield"),
+            unit: Unit::Percent,
+            better: Higher,
+            get: |f| ratios(f).free_cash_flow_yield,
+        },
+        Measure {
+            group: "Income",
+            label: tr("Payout ratio"),
+            unit: Unit::Percent,
+            // A low payout leaves room to grow the dividend, a high one
+            // returns more now: neither is better on its own.
+            better: Neutral,
+            get: |f| ratios(f).payout_ratio,
         },
         Measure {
             group: "Analysts",
@@ -252,6 +322,7 @@ pub fn time_measures() -> Vec<TimeMeasure> {
         m("Income statement", "Net income", Unit::Money, |p, _| {
             p.net_income
         }),
+        m("Income statement", "EBITDA", Unit::Money, |p, _| p.ebitda()),
         m("Margins", "Gross margin", Unit::Percent, |p, _| {
             p.gross_margin()
         }),
@@ -269,6 +340,7 @@ pub fn time_measures() -> Vec<TimeMeasure> {
         }),
         m("Balance sheet", "Cash", Unit::Money, |p, _| p.cash),
         m("Balance sheet", DEBT, Unit::Money, |p, _| p.long_term_debt),
+        m("Balance sheet", "Net debt", Unit::Money, |p, _| p.net_debt()),
         m("Balance sheet", "Total liabilities", Unit::Money, |p, _| {
             p.total_liabilities
         }),
@@ -300,6 +372,10 @@ pub fn time_measures() -> Vec<TimeMeasure> {
         }),
         m("Valuation", "EV / revenue", Unit::Number, |_, v| {
             v?.ev_to_revenue
+        }),
+        m("Valuation", "EV / EBITDA", Unit::Number, |_, v| v?.ev_to_ebitda),
+        m("Valuation", "Price / free cash flow", Unit::Number, |_, v| {
+            v?.price_to_fcf
         }),
     ]
 }
