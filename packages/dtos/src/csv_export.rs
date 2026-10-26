@@ -1,7 +1,11 @@
-//! CSV export of transactions, holdings and backtests. The transactions
-//! format is the one `csv_import` reads, so an export can be imported again.
+//! CSV export of transactions, holdings, backtests and a stock's financial
+//! statements. The transactions format is the one `csv_import` reads, so an
+//! export can be imported again.
 
-use crate::{insights::BacktestResult, position::Position, transaction::Transaction};
+use crate::{
+    fundamentals::PeriodFinancials, insights::BacktestResult, position::Position,
+    statements::Statement, transaction::Transaction,
+};
 use std::collections::BTreeSet;
 
 /// `date,symbol,type,quantity,price,fee,currency,fx_to_usd,portfolio`,
@@ -73,6 +77,31 @@ pub fn backtest_csv(results: &[(String, BacktestResult)]) -> String {
     out
 }
 
+/// `statement,line`, then one column per period (its end date), newest
+/// first. Amounts are whole units of the statements' currency (USD); a line
+/// the period didn't report is left empty.
+pub fn statements_csv(periods: &[PeriodFinancials]) -> String {
+    let mut out = String::from("statement,line");
+    for p in periods {
+        out.push(',');
+        out.push_str(&quote(p.end_date.as_deref().unwrap_or(&p.period)));
+    }
+    out.push('\n');
+    for statement in Statement::ALL {
+        for line in statement.lines() {
+            out.push_str(&format!("{},{}", quote(statement.title()), quote(line.label)));
+            for p in periods {
+                out.push(',');
+                if let Some(v) = (line.get)(p) {
+                    out.push_str(&format!("{v:.0}"));
+                }
+            }
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// Quotes a field if it contains a comma, quote or newline.
 fn quote(s: &str) -> String {
     if s.contains([',', '"', '\n']) {
@@ -85,6 +114,20 @@ fn quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn statements_one_row_per_line_and_column_per_period() {
+        let periods = [
+            PeriodFinancials { period: "2026Q2".into(), end_date: Some("2026-06-30".into()), revenue: Some(1.5e9), ..Default::default() },
+            PeriodFinancials { period: "2026Q1".into(), revenue: Some(1.25e9), ..Default::default() },
+        ];
+        let csv = statements_csv(&periods);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines[0], "statement,line,2026-06-30,2026Q1");
+        assert_eq!(lines[1], "Income statement,Revenue,1500000000,1250000000");
+        assert!(lines.contains(&"Balance sheet,\"Property, plant & equipment\",,"));
+        assert_eq!(lines.len(), 1 + crate::statements::LINES.len());
+    }
 
     #[test]
     fn backtest_rows_by_month() {

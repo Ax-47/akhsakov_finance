@@ -189,6 +189,10 @@ fn merge(
         p.current_liabilities = money(r.current_liabilities.as_ref());
         p.shares = r.shares_outstanding.map(|s| s as f64);
         p.inventory = money(r.inventory.as_ref());
+        p.accounts_receivable = money(r.accounts_receivable.as_ref());
+        p.accounts_payable = money(r.accounts_payable.as_ref());
+        p.property_plant_equipment = money(r.net_property_plant_equipment.as_ref());
+        p.goodwill = money(r.goodwill.as_ref());
     }
     for r in cashflow {
         let p = slot(&mut by_period, r.period.to_string());
