@@ -3781,10 +3781,6 @@
     color: #0000;
   }
 
-  .capitalize {
-    text-transform: capitalize;
-  }
-
   .uppercase {
     text-transform: uppercase;
   }
