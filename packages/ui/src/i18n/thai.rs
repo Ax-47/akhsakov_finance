@@ -518,7 +518,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Dividend payers", "หุ้นปันผล"),
     ("Dividend received", "ได้รับเงินปันผล"),
     ("Dividends & dates", "เงินปันผลและวันสำคัญ"),
-    ("Drag to pan, Ctrl + scroll to zoom · averages in {}", "ลากเพื่อเลื่อน, Ctrl + เลื่อนล้อเพื่อซูม · ค่าเฉลี่ยใน {}"),
+    ("Drag to pan, Ctrl + scroll to zoom · averages in {}", "ลากเพื่อเลื่อน, Ctrl + เลื่อนล้อเพื่อซูม · ค่าเฉลี่ยนับเป็น{}"),
     ("EPS (next year, est.)", "EPS (ปีหน้า, ประมาณการ)"),
     ("Earnings growth (YoY quarter)", "การเติบโตของกำไร (ไตรมาสเทียบปีก่อน)"),
     ("Enter a number for {}", "กรอกตัวเลขสำหรับ {}"),
