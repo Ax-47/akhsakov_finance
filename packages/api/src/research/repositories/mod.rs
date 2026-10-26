@@ -7,7 +7,7 @@ use dtos::{
 };
 use types::ticker_symbol::TickerSymbol;
 
-/// Fundamentals plus two years of daily closes `(YYYY-MM-DD, close)`, to
+/// Fundamentals plus five years of daily closes `(YYYY-MM-DD, close)`, to
 /// value each quarter once everything is in one currency.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawFundamentals {

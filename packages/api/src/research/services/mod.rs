@@ -6,7 +6,7 @@ use crate::{
     shared::{FxRates, ServiceError},
 };
 use dtos::{
-    fundamentals::{valuation_history, StockFundamentals},
+    fundamentals::{valuation_history, yearly_valuation, StockFundamentals},
     research::{AssetProfile, CorporateAction, Holders, NewsItem, OptionChainView, RatingChange},
 };
 use rust_decimal::prelude::ToPrimitive;
@@ -135,6 +135,7 @@ impl ResearchService {
         data.to_usd(trading, financial);
         let closes: Vec<(String, f64)> = closes.into_iter().map(|(d, c)| (d, c * trading)).collect();
         data.valuation = valuation_history(&data.quarterly, &closes);
+        data.yearly_valuation = yearly_valuation(&data.annual, &closes);
         Ok(data)
     }
 

@@ -16,6 +16,10 @@ pub struct StockFundamentals {
     pub annual: Vec<PeriodFinancials>,
     /// Valuation measures at each quarter end, newest first.
     pub valuation: Vec<ValuationPoint>,
+    /// Valuation measures at each fiscal year end, newest first: a longer
+    /// history than the quarters give, for the P/E's usual range.
+    #[serde(default)]
+    pub yearly_valuation: Vec<ValuationPoint>,
     /// Reported vs estimated EPS, oldest first.
     pub eps_surprises: Vec<EpsSurprise>,
     pub analysts: Option<Analysts>,
@@ -378,6 +382,21 @@ pub fn valuation_history(
     quarters: &[PeriodFinancials],
     closes: &[(String, f64)],
 ) -> Vec<ValuationPoint> {
+    valuations(quarters, closes, 4)
+}
+
+/// [`valuation_history`] at each fiscal year end (`years` newest first):
+/// each year is its own trailing twelve months.
+pub fn yearly_valuation(years: &[PeriodFinancials], closes: &[(String, f64)]) -> Vec<ValuationPoint> {
+    valuations(years, closes, 1)
+}
+
+/// `periods_per_year` periods (ending at each one) make a trailing year.
+fn valuations(
+    periods: &[PeriodFinancials],
+    closes: &[(String, f64)],
+    periods_per_year: usize,
+) -> Vec<ValuationPoint> {
     let mut closes: Vec<&(String, f64)> = closes.iter().collect();
     closes.sort_by(|a, b| a.0.cmp(&b.0));
     let close_on = |date: &str| {
@@ -388,11 +407,11 @@ pub fn valuation_history(
             .map(|(_, c)| *c)
     };
     let ttm = |i: usize, field: fn(&PeriodFinancials) -> Option<f64>| -> Option<f64> {
-        let window = quarters.get(i..i + 4)?;
+        let window = periods.get(i..i + periods_per_year)?;
         window.iter().map(field).sum::<Option<f64>>()
     };
 
-    quarters
+    periods
         .iter()
         .enumerate()
         .filter_map(|(i, q)| {
@@ -463,6 +482,16 @@ mod tests {
         let oldest = valuation_history(&quarters[4..], &[("2025-06-30".into(), 50.0)]);
         assert_eq!(oldest[0].pe_ttm, None);
         assert_eq!(oldest[0].market_cap, Some(500.0));
+    }
+
+    #[test]
+    fn yearly_valuation_uses_each_year_on_its_own() {
+        let years = vec![quarter("2025-12-31", 400.0, 80.0), quarter("2024-12-31", 360.0, 50.0)];
+        let closes = vec![("2025-12-31".to_string(), 100.0), ("2024-12-30".to_string(), 60.0)];
+        let points = yearly_valuation(&years, &closes);
+        assert_eq!(points.len(), 2);
+        assert_eq!(points[0].pe_ttm, Some(12.5)); // 1000 / 80
+        assert_eq!(points[1].pe_ttm, Some(12.0)); // 600 / 50, priced on the last trading day
     }
 
     #[test]

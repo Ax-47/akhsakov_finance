@@ -1634,6 +1634,10 @@
     inset-block: calc(var(--spacing) * 0);
   }
 
+  .-top-1\.5 {
+    top: calc(var(--spacing) * -1.5);
+  }
+
   .-top-6 {
     top: calc(var(--spacing) * -6);
   }
@@ -2998,8 +3002,14 @@
     }
   }
 
-  .bg-ctp-overlay0 {
+  .bg-ctp-overlay0, .bg-ctp-overlay0\/40 {
     background-color: var(--catppuccin-color-overlay0);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .bg-ctp-overlay0\/40 {
+      background-color: color-mix(in oklab, var(--catppuccin-color-overlay0) 40%, transparent);
+    }
   }
 
   .bg-ctp-peach, .bg-ctp-peach\/10 {
@@ -3082,6 +3092,10 @@
     .bg-ctp-sky\/15 {
       background-color: color-mix(in oklab, var(--catppuccin-color-sky) 15%, transparent);
     }
+  }
+
+  .bg-ctp-subtext0 {
+    background-color: var(--catppuccin-color-subtext0);
   }
 
   .bg-ctp-surface0 {
