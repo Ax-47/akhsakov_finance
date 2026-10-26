@@ -4,7 +4,7 @@
 use crate::i18n::{tr, tr_str};
 use crate::components::{
     card::{Card, Chevron, MenuItem},
-    charts::bars::{AxisLine, BarChart, BarSeries, DualLineChart, Unit},
+    charts::bars::{BarChart, BarSeries, LineChart, LineSeries, Unit},
     color_schema::CHART_COLORS_HEX,
 };
 use crate::format::or_dash;
@@ -419,7 +419,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
             }
             // Pickers
             div { class: "mt-4 flex flex-wrap items-center gap-2",
-                MeasurePicker { options: options.clone(), value: a(), color: LEFT_HEX, onchange: move |i| a.set(i) }
+                MeasurePicker { options: options.clone(), value: a(), color: FIRST_HEX, onchange: move |i| a.set(i) }
                 button {
                     class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer \
                             transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
@@ -432,18 +432,47 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
                     },
                     "⇄"
                 }
-                MeasurePicker { options: options.clone(), value: b(), color: RIGHT_HEX, onchange: move |i| b.set(i) }
+                MeasurePicker { options: options.clone(), value: b(), color: SECOND_HEX, onchange: move |i| b.set(i) }
             }
             // Summary
             div { class: "mt-5 grid grid-cols-2 divide-x divide-ctp-surface0/70 rounded-2xl border border-ctp-surface0/70 bg-ctp-base/40",
-                MeasureSummary { label: ma.label, color: LEFT_HEX, value: or_dash(latest(&va), |v| ma.unit.format(v)), change: change(&va) }
-                MeasureSummary { label: mb.label, color: RIGHT_HEX, value: or_dash(latest(&vb), |v| mb.unit.format(v)), change: change(&vb) }
+                MeasureSummary { label: ma.label, color: FIRST_HEX, value: or_dash(latest(&va), |v| ma.unit.format(v)), change: change(&va) }
+                MeasureSummary { label: mb.label, color: SECOND_HEX, value: or_dash(latest(&vb), |v| mb.unit.format(v)), change: change(&vb) }
             }
             div { class: "mt-5",
-                DualLineChart {
-                    labels: labels.clone(),
-                    left: AxisLine { name: tr_str(ma.label).into(), color: LEFT_HEX, unit: ma.unit, values: va.clone() },
-                    right: AxisLine { name: tr_str(mb.label).into(), color: RIGHT_HEX, unit: mb.unit, values: vb.clone() },
+                match pair_view(&va, &vb) {
+                    PairView::OneScale { base, first, second } => rsx! {
+                        p { class: "mb-3 text-xs text-ctp-overlay1",
+                            {crate::i18n::trf("Change since {}, so both measures share one scale", &[&labels[base]])}
+                        }
+                        LineChart {
+                            labels: labels.clone(),
+                            series: vec![
+                                LineSeries { name: tr_str(ma.label).into(), color: FIRST_HEX, values: first },
+                                LineSeries { name: tr_str(mb.label).into(), color: SECOND_HEX, values: second },
+                            ],
+                            unit: Unit::Change,
+                        }
+                    },
+                    PairView::Separate { blocked } => rsx! {
+                        if let Some(which) = blocked {
+                            p { class: "mb-3 text-xs text-ctp-overlay1",
+                                {crate::i18n::trf("Shown as two charts: {} starts at zero or below, so its change isn't a percentage", &[&tr_str([ma.label, mb.label][which])])}
+                            }
+                        }
+                        // Stacked, so the same quarter sits at the same x in both.
+                        div { class: "grid gap-4",
+                            for (m, values, color) in [(ma, va.clone(), FIRST_HEX), (mb, vb.clone(), SECOND_HEX)] {
+                                div { key: "{m.label}",
+                                    div { class: "mb-1 flex items-center gap-2 text-xs text-ctp-subtext0",
+                                        span { class: "h-2 w-2 rounded-full", style: "background:{color};" }
+                                        {tr_str(m.label)}
+                                    }
+                                    LineChart { labels: labels.clone(), series: vec![LineSeries { name: tr_str(m.label).into(), color, values }], unit: m.unit, height: 170.0 }
+                                }
+                            }
+                        }
+                    },
                 }
             }
             p { class: "mt-3 rounded-xl bg-ctp-base/40 px-3 py-2 text-sm text-ctp-subtext0",
@@ -453,8 +482,46 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
     }
 }
 
-const LEFT_HEX: &str = "var(--catppuccin-color-mauve)"; // mauve
-const RIGHT_HEX: &str = "var(--catppuccin-color-sky)"; // sky
+/// Blue and orange (see `--chart-pair-*` in input.css): apart enough for
+/// colour-blind readers in every theme.
+const FIRST_HEX: &str = "var(--chart-pair-a)";
+const SECOND_HEX: &str = "var(--chart-pair-b)";
+
+/// How two measures are drawn: on one scale as their change since the
+/// first quarter both have, or as two charts when that change can't be read
+/// as a percentage.
+#[derive(Debug, PartialEq)]
+enum PairView {
+    OneScale {
+        /// The quarter both are measured from.
+        base: usize,
+        first: Vec<Option<f64>>,
+        second: Vec<Option<f64>>,
+    },
+    Separate {
+        /// The measure (0 or 1) that starts at zero or below, if that's why.
+        blocked: Option<usize>,
+    },
+}
+
+fn pair_view(first: &[Option<f64>], second: &[Option<f64>]) -> PairView {
+    let Some(base) = first.iter().zip(second).position(|(a, b)| a.is_some() && b.is_some()) else {
+        return PairView::Separate { blocked: None };
+    };
+    match (change_since(first, base), change_since(second, base)) {
+        (Some(first), Some(second)) => PairView::OneScale { base, first, second },
+        (None, _) => PairView::Separate { blocked: Some(0) },
+        (_, None) => PairView::Separate { blocked: Some(1) },
+    }
+}
+
+/// Each value as its change since `values[base]` (0.25 = up 25%); `None`
+/// when that start isn't above zero, since a change from a loss or from
+/// nothing isn't a percentage.
+fn change_since(values: &[Option<f64>], base: usize) -> Option<Vec<Option<f64>>> {
+    let start = values.get(base).copied().flatten().filter(|v| *v > 0.0)?;
+    Some(values.iter().map(|v| v.map(|v| v / start - 1.0)).collect())
+}
 
 #[component]
 fn MeasureSummary(
@@ -805,6 +872,26 @@ mod tests {
         assert_eq!(pearson(&up[..2], &down[..2]), None);
         let text = describe_correlation("Revenue", "P/E", -0.8, 8);
         assert!(text.contains("strongly move in opposite directions"));
+    }
+
+    #[test]
+    fn pairs_share_a_scale_from_their_first_common_quarter() {
+        let sales = [Some(50.0), Some(100.0), Some(125.0)];
+        let debt = [None, Some(40.0), Some(30.0)];
+        let PairView::OneScale { base, first, second } = pair_view(&sales, &debt) else {
+            panic!("expected one scale");
+        };
+        assert_eq!(base, 1);
+        assert_eq!(first, [Some(-0.5), Some(0.0), Some(0.25)]);
+        assert_eq!(second, [None, Some(0.0), Some(-0.25)]);
+    }
+
+    #[test]
+    fn a_measure_starting_at_a_loss_gets_its_own_chart() {
+        let sales = [Some(100.0), Some(120.0)];
+        let profit = [Some(-5.0), Some(10.0)];
+        assert_eq!(pair_view(&sales, &profit), PairView::Separate { blocked: Some(1) });
+        assert_eq!(pair_view(&[Some(1.0), None], &[None, Some(1.0)]), PairView::Separate { blocked: None });
     }
 
     #[test]

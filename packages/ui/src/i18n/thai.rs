@@ -1159,6 +1159,8 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Exercise", "ใช้สิทธิ"),
     ("Gift", "ให้เป็นของขวัญ"),
     ("Conversion", "แปลงสภาพ"),
+    ("Change since {}, so both measures share one scale", "การเปลี่ยนแปลงนับจาก {} ทั้งสองค่าจึงใช้สเกลเดียวกัน"),
+    ("Shown as two charts: {} starts at zero or below, so its change isn't a percentage", "แยกเป็นสองกราฟ เพราะ {} เริ่มที่ศูนย์หรือติดลบ การเปลี่ยนแปลงจึงคิดเป็นเปอร์เซ็นต์ไม่ได้"),
     ("Stochastic", "Stochastic"),
     ("ATR", "ATR"),
     ("OBV", "OBV"),

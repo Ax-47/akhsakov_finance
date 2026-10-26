@@ -35,6 +35,19 @@
   html.frappe,
   html.macchiato,
   html.mocha { color-scheme: dark; }
+  /* Two lines on one chart: blue and orange stay apart for colour-blind
+     readers. Catppuccin's dark accents are too light to read as lines on a
+     dark card, so the dark themes get deeper steps of the same two hues. */
+  html {
+    --chart-pair-a: #1e66f5;
+    --chart-pair-b: #fe640b;
+  }
+  html.frappe,
+  html.macchiato,
+  html.mocha {
+    --chart-pair-a: #3987e5;
+    --chart-pair-b: #d95926;
+  }
   body {
     background-color: var(--catppuccin-color-base);
   }
