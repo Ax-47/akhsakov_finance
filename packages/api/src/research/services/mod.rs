@@ -13,11 +13,17 @@ use rust_decimal::prelude::ToPrimitive;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 use types::ticker_symbol::TickerSymbol;
 
 const MAX_NEWS: usize = 20;
 const MAX_RATING_CHANGES: usize = 30;
+/// Statements change once a quarter and one fetch is about ten Yahoo calls,
+/// which Yahoo rate-limits; the stock page and the compare tab ask for the
+/// same tickers again and again. The "current" valuation can lag the live
+/// price by up to this long.
+const FUNDAMENTALS_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Clone)]
 pub struct ResearchService {
@@ -25,6 +31,9 @@ pub struct ResearchService {
     fx: Arc<dyn FxRates>,
     /// Profiles barely change; kept for the life of the server.
     profiles: Arc<Mutex<HashMap<TickerSymbol, AssetProfile>>>,
+    /// Fundamentals in USD, with when they were fetched.
+    fundamentals: Arc<Mutex<HashMap<TickerSymbol, (Instant, StockFundamentals)>>>,
+    fundamentals_ttl: Duration,
 }
 
 impl ResearchService {
@@ -33,6 +42,8 @@ impl ResearchService {
             gateway,
             fx,
             profiles: Default::default(),
+            fundamentals: Default::default(),
+            fundamentals_ttl: FUNDAMENTALS_TTL,
         }
     }
 
@@ -79,9 +90,37 @@ impl ResearchService {
         self.rate(&currency).await
     }
 
-    /// Everything in USD; quarter-end valuations use the converted prices
-    /// and statements, so ratios hold even when the two currencies differ.
+    /// Everything in USD, fetched at most once per [`FUNDAMENTALS_TTL`]
+    /// for each ticker. Failed fetches aren't remembered.
     pub async fn fundamentals(&self, t: &TickerSymbol) -> Result<StockFundamentals, ServiceError> {
+        if let Some(fresh) = self.remembered_fundamentals(t) {
+            return Ok(fresh);
+        }
+        let data = self.fetch_fundamentals(t).await?;
+        self.remember_fundamentals(t, &data);
+        Ok(data)
+    }
+
+    fn remembered_fundamentals(&self, t: &TickerSymbol) -> Option<StockFundamentals> {
+        let cache = self.fundamentals.lock().ok()?;
+        let (fetched_at, data) = cache.get(t)?;
+        (fetched_at.elapsed() < self.fundamentals_ttl).then(|| data.clone())
+    }
+
+    /// Keeps `data` for `t` and drops entries that have gone stale, so the
+    /// cache holds only recently viewed stocks.
+    fn remember_fundamentals(&self, t: &TickerSymbol, data: &StockFundamentals) {
+        let Ok(mut cache) = self.fundamentals.lock() else {
+            return;
+        };
+        let ttl = self.fundamentals_ttl;
+        cache.retain(|_, (fetched_at, _)| fetched_at.elapsed() < ttl);
+        cache.insert(t.clone(), (Instant::now(), data.clone()));
+    }
+
+    /// Quarter-end valuations use the converted prices and statements, so
+    /// ratios hold even when the two currencies differ.
+    async fn fetch_fundamentals(&self, t: &TickerSymbol) -> Result<StockFundamentals, ServiceError> {
         let RawFundamentals { mut data, closes } = self
             .gateway
             .fundamentals(t)
@@ -168,13 +207,19 @@ impl ResearchService {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Fake provider returning news out of order.
-    struct FakeGateway;
+    /// Fake provider returning news out of order. Counts fundamentals
+    /// fetches, to tell cache hits from calls to Yahoo.
+    #[derive(Default)]
+    struct FakeGateway {
+        fundamentals_fetches: AtomicUsize,
+    }
 
     #[async_trait]
     impl ResearchGateway for FakeGateway {
         async fn fundamentals(&self, t: &TickerSymbol) -> Result<RawFundamentals, String> {
+            self.fundamentals_fetches.fetch_add(1, Ordering::SeqCst);
             if t.as_str() != "PTT.BK" {
                 return Err("rate limited".into());
             }
@@ -266,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn converts_to_usd() {
-        let s = ResearchService::new(Arc::new(FakeGateway), Arc::new(FakeFx));
+        let s = ResearchService::new(Arc::new(FakeGateway::default()), Arc::new(FakeFx));
         let f = s.fundamentals(&TickerSymbol::new("PTT.BK").unwrap()).await.unwrap();
         assert_eq!(f.currency, "USD");
         assert!((f.stats.price.unwrap() - 1.05).abs() < 1e-9);
@@ -282,8 +327,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fundamentals_are_fetched_once_while_fresh() {
+        let gateway = Arc::new(FakeGateway::default());
+        let s = ResearchService::new(gateway.clone(), Arc::new(FakeFx));
+        let ptt = TickerSymbol::new("PTT.BK").unwrap();
+        let first = s.fundamentals(&ptt).await.unwrap();
+        let second = s.fundamentals(&ptt).await.unwrap();
+        assert_eq!(first, second);
+        assert_eq!(gateway.fundamentals_fetches.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn stale_fundamentals_are_fetched_again() {
+        let gateway = Arc::new(FakeGateway::default());
+        let mut s = ResearchService::new(gateway.clone(), Arc::new(FakeFx));
+        s.fundamentals_ttl = Duration::ZERO;
+        let ptt = TickerSymbol::new("PTT.BK").unwrap();
+        s.fundamentals(&ptt).await.unwrap();
+        s.fundamentals(&ptt).await.unwrap();
+        assert_eq!(gateway.fundamentals_fetches.load(Ordering::SeqCst), 2);
+        assert_eq!(s.fundamentals.lock().unwrap().len(), 1, "stale entries are dropped");
+    }
+
+    #[tokio::test]
+    async fn failed_fundamentals_are_not_remembered() {
+        let gateway = Arc::new(FakeGateway::default());
+        let s = ResearchService::new(gateway.clone(), Arc::new(FakeFx));
+        let nvda = TickerSymbol::new("NVDA").unwrap();
+        assert!(s.fundamentals(&nvda).await.is_err());
+        assert!(s.fundamentals(&nvda).await.is_err());
+        assert_eq!(gateway.fundamentals_fetches.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
     async fn profiles_skip_unknown_tickers_and_are_kept() {
-        let s = ResearchService::new(Arc::new(FakeGateway), Arc::new(FakeFx));
+        let s = ResearchService::new(Arc::new(FakeGateway::default()), Arc::new(FakeFx));
         let (ptt, nope) = (TickerSymbol::new("PTT.BK").unwrap(), TickerSymbol::new("NOPE").unwrap());
         let found = s.profiles(&[ptt.clone(), nope]).await;
         assert_eq!(found.len(), 1);
@@ -293,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn orders_limits_and_maps_errors() {
-        let s = ResearchService::new(Arc::new(FakeGateway), Arc::new(FakeFx));
+        let s = ResearchService::new(Arc::new(FakeGateway::default()), Arc::new(FakeFx));
         let t = TickerSymbol::new("NVDA").unwrap();
         let news = s.news(&t).await.unwrap();
         assert_eq!(news.len(), MAX_NEWS);
