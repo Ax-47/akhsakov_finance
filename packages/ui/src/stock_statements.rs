@@ -15,7 +15,7 @@ use dtos::{
 /// The line names stay put while the figures scroll sideways on a phone.
 /// The background is the card's own (mantle at 60% over the page), so
 /// nothing shows through as the figures pass under it.
-const STICKY_LABEL: &str = "sticky left-0 z-10 w-40 md:w-56 whitespace-normal \
+pub(crate) const STICKY_LABEL: &str = "sticky left-0 z-10 w-40 md:w-56 whitespace-normal \
     bg-[color-mix(in_oklab,var(--catppuccin-color-mantle)_60%,var(--catppuccin-color-base))]";
 
 /// One statement's lines over `periods` (newest first, `labels` matching).
