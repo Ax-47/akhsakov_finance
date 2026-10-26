@@ -1504,6 +1504,16 @@
     color-scheme: dark;
   }
 
+  html {
+    --chart-pair-a: #1e66f5;
+    --chart-pair-b: #fe640b;
+  }
+
+  html.frappe, html.macchiato, html.mocha {
+    --chart-pair-a: #3987e5;
+    --chart-pair-b: #d95926;
+  }
+
   body {
     background-color: var(--catppuccin-color-base);
   }
@@ -3801,6 +3811,10 @@
 
   .accent-ctp-red {
     accent-color: var(--catppuccin-color-red);
+  }
+
+  .opacity-0 {
+    opacity: 0;
   }
 
   .opacity-40 {
