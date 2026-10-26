@@ -17,7 +17,9 @@ use crate::{
     hooks::{use_portfolio, use_portfolio_memo, PortfolioState},
     page::{GhostButton, HeroStat, Page},
     stock_research::{yahoo_term, DividendsAndSplits, NewsTab, OptionsTab, OwnershipTab, RatingChanges},
+    stock_estimates::EstimatesTable,
     stock_fair_value::{DiscountedCashFlow, PriceChecks},
+    stock_quality::FScoreCard,
     stock_statements::Statements,
 };
 use api::quote::quote::get_quote;
@@ -814,6 +816,7 @@ fn Financials(ticker: String, fundamentals: StockFundamentals) -> Element {
                     }
                 }
             }
+            FScoreCard { years: fundamentals.annual.clone() }
             Statements {
                 ticker,
                 periods: rows.clone(),
@@ -840,6 +843,7 @@ fn AnalysisTab(fundamentals: StockFundamentals, price: Option<f64>) -> Element {
                     Card { title: tr("Analysts"), p { class: "py-8 text-center text-sm text-ctp-subtext0", {tr("No analyst coverage.")} } }
                 }
             }
+            EstimatesTable { estimates: fundamentals.estimates.clone() }
             EpsChart { surprises: fundamentals.eps_surprises.clone() }
         }
     }

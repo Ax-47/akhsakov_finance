@@ -3,13 +3,13 @@
 
 use crate::research::repositories::RawFundamentals;
 use dtos::fundamentals::{
-    Analysts, EpsSurprise, KeyStats, PeriodFinancials, Profile, StockFundamentals,
+    Analysts, EpsSurprise, Estimate, KeyStats, PeriodFinancials, Profile, StockFundamentals,
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::collections::BTreeMap;
 use yfinance_rs::{
-    BalanceSheetRow, CashflowRow, IncomeStatementRow, Interval, Money, Price, Range, Ticker,
-    YfClient,
+    BalanceSheetRow, CashflowRow, EarningsTrendRow, IncomeStatementRow, Interval, Money, Price,
+    Range, Ticker, YfClient,
 };
 
 pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, String> {
@@ -76,6 +76,11 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, S
         .iter()
         .find(|r| r.period.to_string() == "+5y")
         .and_then(|r| dec(r.growth));
+    let estimates = ESTIMATE_PERIODS
+        .iter()
+        .filter_map(|code| trend.iter().find(|r| r.period.to_string() == *code))
+        .map(estimate)
+        .collect();
 
     let profile = match &info.profile {
         Some(yfinance_rs::Profile::Company(c)) => Profile {
@@ -156,12 +161,43 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, S
             quarterly,
             annual,
             eps_surprises,
+            estimates,
             analysts,
             financial_currency: financial_currency.unwrap_or_else(|| currency.clone()),
             currency,
         },
         closes,
     })
+}
+
+/// This and next quarter, this and next fiscal year, in Yahoo's codes.
+const ESTIMATE_PERIODS: [&str; 4] = ["0q", "+1q", "0y", "+1y"];
+
+fn estimate(row: &EarningsTrendRow) -> Estimate {
+    let eps = &row.earnings_estimate;
+    let revenue = &row.revenue_estimate;
+    let revisions = row.eps_revisions.find_by_horizon_str("30d").ok().flatten();
+    Estimate {
+        period: row.period.to_string(),
+        eps: price_f64(eps.avg.as_ref()),
+        eps_low: price_f64(eps.low.as_ref()),
+        eps_high: price_f64(eps.high.as_ref()),
+        eps_year_ago: price_f64(eps.year_ago_eps.as_ref()),
+        eps_growth: dec(eps.growth),
+        revenue: money(revenue.avg.as_ref()),
+        revenue_low: money(revenue.low.as_ref()),
+        revenue_high: money(revenue.high.as_ref()),
+        revenue_growth: dec(revenue.growth),
+        analysts: eps.num_analysts,
+        eps_90_days_ago: row
+            .eps_trend
+            .find_by_horizon_str("90d")
+            .ok()
+            .flatten()
+            .and_then(|p| price_f64(Some(&p.value))),
+        revisions_up_30_days: revisions.map(|r| r.up_count),
+        revisions_down_30_days: revisions.map(|r| r.down_count),
+    }
 }
 
 /// Joins the three statements by period, newest first.

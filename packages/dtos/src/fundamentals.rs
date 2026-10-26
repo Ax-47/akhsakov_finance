@@ -22,6 +22,9 @@ pub struct StockFundamentals {
     pub yearly_valuation: Vec<ValuationPoint>,
     /// Reported vs estimated EPS, oldest first.
     pub eps_surprises: Vec<EpsSurprise>,
+    /// Analysts' consensus for this and next quarter and fiscal year.
+    #[serde(default)]
+    pub estimates: Vec<Estimate>,
     pub analysts: Option<Analysts>,
     /// Currency of prices, market cap, EPS and targets. The API converts
     /// everything to USD, so clients see "USD".
@@ -61,6 +64,14 @@ impl StockFundamentals {
         for e in &mut self.eps_surprises {
             scale(&mut e.actual, trading);
             scale(&mut e.estimate, trading);
+        }
+        for e in &mut self.estimates {
+            for v in [&mut e.eps, &mut e.eps_low, &mut e.eps_high, &mut e.eps_year_ago, &mut e.eps_90_days_ago] {
+                scale(v, trading);
+            }
+            for v in [&mut e.revenue, &mut e.revenue_low, &mut e.revenue_high] {
+                scale(v, financial);
+            }
         }
         if let Some(a) = &mut self.analysts {
             scale(&mut a.target_low, trading);
@@ -234,6 +245,30 @@ pub struct EpsSurprise {
     pub period: String,
     pub actual: Option<f64>,
     pub estimate: Option<f64>,
+}
+
+/// Analysts' consensus for one upcoming period. Growth is a fraction
+/// against the same period a year earlier.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Estimate {
+    /// `0q` this quarter, `+1q` next quarter, `0y` this fiscal year, `+1y`
+    /// next fiscal year.
+    pub period: String,
+    pub eps: Option<f64>,
+    pub eps_low: Option<f64>,
+    pub eps_high: Option<f64>,
+    pub eps_year_ago: Option<f64>,
+    pub eps_growth: Option<f64>,
+    pub revenue: Option<f64>,
+    pub revenue_low: Option<f64>,
+    pub revenue_high: Option<f64>,
+    pub revenue_growth: Option<f64>,
+    pub analysts: Option<u32>,
+    /// The EPS consensus 90 days ago, to show which way it's moving.
+    pub eps_90_days_ago: Option<f64>,
+    pub revisions_up_30_days: Option<u32>,
+    pub revisions_down_30_days: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

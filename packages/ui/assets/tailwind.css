@@ -4474,6 +4474,10 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
+    .md\:grid-cols-\[12rem_1fr\] {
+      grid-template-columns: 12rem 1fr;
+    }
+
     .md\:grid-cols-\[200px_1fr\] {
       grid-template-columns: 200px 1fr;
     }

@@ -5,6 +5,7 @@ pub use transaction::{AppData, Transaction};
 pub mod position;
 pub use position::{Position, compute_positions, portfolio_summary};
 pub mod fundamentals;
+pub mod quality;
 pub mod statements;
 pub mod valuation;
 pub mod csv_import;
