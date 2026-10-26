@@ -63,13 +63,17 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, S
         .map(|m| m.currency().code().to_string())
         .or_else(|| ks.fifty_two_week_high.as_ref().map(|p| p.currency().code().to_string()))
         .unwrap_or_else(|| "USD".into());
-    let forward_eps = trend.ok().and_then(|rows| {
-        ["+1y", "0y"].iter().find_map(|code| {
-            rows.iter()
-                .find(|r| r.period.to_string() == *code)
-                .and_then(|r| price_f64(r.earnings_estimate.avg.as_ref()))
-        })
+    let trend = trend.unwrap_or_default();
+    let forward_eps = ["+1y", "0y"].iter().find_map(|code| {
+        trend
+            .iter()
+            .find(|r| r.period.to_string() == *code)
+            .and_then(|r| price_f64(r.earnings_estimate.avg.as_ref()))
     });
+    let eps_growth_5y = trend
+        .iter()
+        .find(|r| r.period.to_string() == "+5y")
+        .and_then(|r| dec(r.growth));
 
     let profile = match &info.profile {
         Some(yfinance_rs::Profile::Company(c)) => Profile {
@@ -138,6 +142,7 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, S
         low_52w: price_f64(ks.fifty_two_week_low.as_ref()),
         sma50: price_f64(info.moving_averages.fifty_day.as_ref()),
         sma200: price_f64(info.moving_averages.two_hundred_day.as_ref()),
+        eps_growth_5y,
     };
 
     Ok(RawFundamentals {
@@ -169,6 +174,9 @@ fn merge(
         p.gross_profit = money(r.gross_profit.as_ref());
         p.operating_income = money(r.operating_income.as_ref());
         p.net_income = money(r.net_income.as_ref());
+        p.interest_expense = money(r.interest_expense.as_ref()).map(f64::abs);
+        p.income_tax_expense = money(r.income_tax_expense.as_ref());
+        p.depreciation_amortization = money(r.depreciation_and_amortization.as_ref());
     }
     for r in balance {
         let p = slot(&mut by_period, r.period.to_string());
@@ -180,11 +188,18 @@ fn merge(
         p.current_assets = money(r.current_assets.as_ref());
         p.current_liabilities = money(r.current_liabilities.as_ref());
         p.shares = r.shares_outstanding.map(|s| s as f64);
+        p.inventory = money(r.inventory.as_ref());
     }
     for r in cashflow {
         let p = slot(&mut by_period, r.period.to_string());
         p.operating_cashflow = money(r.operating_cashflow.as_ref());
         p.free_cash_flow = money(r.free_cash_flow.as_ref());
+        p.capital_expenditures = money(r.capital_expenditures.as_ref());
+        // The cash flow statement reports it more often than the income
+        // statement does.
+        if let Some(da) = money(r.depreciation_and_amortization.as_ref()) {
+            p.depreciation_amortization = Some(da);
+        }
     }
     let mut rows: Vec<PeriodFinancials> = by_period.into_values().collect();
     rows.sort_by(|a, b| {

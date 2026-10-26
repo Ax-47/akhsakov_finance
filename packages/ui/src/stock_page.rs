@@ -21,8 +21,8 @@ use crate::{
 use api::quote::quote::get_quote;
 use dioxus::prelude::*;
 use dtos::fundamentals::{
-    current_valuation, ttm, yoy_growth, Analysts, EpsSurprise, PeriodFinancials, StockFundamentals,
-    ValuationPoint,
+    current_valuation, ttm, yoy_growth, Analysts, EpsSurprise, KeyRatios, PeriodFinancials,
+    StockFundamentals, ValuationPoint,
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use types::ticker_symbol::TickerSymbol;
@@ -484,13 +484,21 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
     // Columns: Current, then quarter ends newest first.
     let columns: Vec<ValuationPoint> = std::iter::once(current).chain(history).collect();
 
-    let rows: [(&str, Getter, Unit); 6] = [
+    let rows: [(&str, Getter, Unit); 8] = [
         (tr("Market cap"), |v| v.market_cap, Unit::Money),
         (tr("Enterprise value"), |v| v.enterprise_value, Unit::Money),
         (tr("Trailing P/E"), |v| v.pe_ttm, Unit::Number),
         (tr("Price / sales"), |v| v.price_to_sales, Unit::Number),
         (tr("Price / book"), |v| v.price_to_book, Unit::Number),
+        (tr("Price / free cash flow"), |v| v.price_to_fcf, Unit::Number),
         (tr("EV / revenue"), |v| v.ev_to_revenue, Unit::Number),
+        (tr("EV / EBITDA"), |v| v.ev_to_ebitda, Unit::Number),
+    ];
+    // Measures with no history: today's value and what it's made of.
+    let ratios = KeyRatios::compute(&f.stats, &f.quarterly);
+    let current_only = [
+        (tr("Forward P/E"), f.stats.forward_pe, tr("Price ÷ analysts' next-year EPS")),
+        (tr("PEG ratio"), ratios.peg, tr("Trailing P/E ÷ analysts' expected yearly EPS growth (%) over 5 years")),
     ];
 
     rsx! {
@@ -530,17 +538,20 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
                                     }
                                 }
                             }
-                            tr { class: "border-t border-ctp-surface0/60",
-                                td { class: "pl-6 pr-4 py-3 text-ctp-subtext1", {tr("Forward P/E")} }
-                                td { class: "px-4 py-3 text-right tabular-nums font-semibold text-ctp-text",
-                                    {or_dash(f.stats.forward_pe, |v| format!("{v:.2}"))}
-                                }
-                                td { class: "px-4 py-3 text-xs text-ctp-overlay1", colspan: "{columns.len()}",
-                                    {tr("Price ÷ analysts' next-year EPS")}
+                            for (label, value, hint) in current_only {
+                                tr { class: "border-t border-ctp-surface0/60",
+                                    td { class: "pl-6 pr-4 py-3 text-ctp-subtext1", "{label}" }
+                                    td { class: "px-4 py-3 text-right tabular-nums font-semibold text-ctp-text",
+                                        {or_dash(value, |v| format!("{v:.2}"))}
+                                    }
+                                    td { class: "px-4 py-3 text-xs text-ctp-overlay1", colspan: "{columns.len()}", "{hint}" }
                                 }
                             }
                         }
                     }
+                }
+                p { class: "border-t border-ctp-surface0/60 px-6 py-3 text-xs text-ctp-overlay1",
+                    {tr("Enterprise value here is market cap + long-term debt − cash: Yahoo's statements don't split out short-term debt.")}
                 }
             }
             Highlights { fundamentals: f.clone() }
@@ -557,6 +568,8 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
     let revenue = ttm(q, |p| p.revenue);
     let net = ttm(q, |p| p.net_income);
     let div = |a: Option<f64>, b: Option<f64>| Some(a? / b.filter(|b| *b != 0.0)?);
+    let ratios = KeyRatios::compute(&f.stats, q);
+    let times = |v: f64| format!("{v:.1}×");
 
     let groups: Vec<(&str, Vec<(&str, String)>)> = vec![
         (
@@ -579,6 +592,10 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
                     tr("Return on assets"),
                     or_dash(div(net, latest.total_assets), pct),
                 ),
+                (
+                    tr("Return on invested capital"),
+                    or_dash(ratios.return_on_invested_capital, pct),
+                ),
             ],
         ),
         (
@@ -590,6 +607,7 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
                     or_dash(yoy_growth(q, |p| p.revenue), pct),
                 ),
                 (tr("Net income"), or_dash(net, fmt_compact)),
+                (tr("EBITDA"), or_dash(ratios.ebitda, fmt_compact)),
                 (
                     tr("Earnings growth (YoY quarter)"),
                     or_dash(yoy_growth(q, |p| p.net_income), pct),
@@ -616,10 +634,14 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
                     tr("Debt / equity"),
                     or_dash(latest.debt_to_equity(), |v| format!("{v:.2}")),
                 ),
+                (tr("Net debt"), or_dash(ratios.net_debt, fmt_compact)),
+                (tr("Net debt / EBITDA"), or_dash(ratios.net_debt_to_ebitda, |v| format!("{v:.2}×"))),
+                (tr("Interest coverage"), or_dash(ratios.interest_coverage, times)),
                 (
                     tr("Current ratio"),
                     or_dash(latest.current_ratio(), |v| format!("{v:.2}")),
                 ),
+                (tr("Quick ratio"), or_dash(ratios.quick_ratio, |v| format!("{v:.2}"))),
                 (
                     tr("Book value / share"),
                     or_dash(div(latest.total_equity, latest.shares), |v| {
@@ -643,6 +665,7 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
                     tr("Free cash flow margin"),
                     or_dash(div(ttm(q, |p| p.free_cash_flow), revenue), pct),
                 ),
+                (tr("Free cash flow yield"), or_dash(ratios.free_cash_flow_yield, pct)),
             ],
         ),
         (
@@ -676,6 +699,7 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
             tr("Dividends & dates"),
             vec![
                 (tr("Dividend yield"), or_dash(f.stats.dividend_yield, pct)),
+                (tr("Payout ratio"), or_dash(ratios.payout_ratio, pct)),
                 (
                     tr("Ex-dividend date"),
                     f.stats
