@@ -25,12 +25,38 @@ fn Loading(title: String) -> Element {
 #[component]
 fn Empty(title: String, text: String) -> Element {
     rsx! {
-        Card { title, p { class: "py-10 text-center text-sm text-ctp-subtext0", {crate::i18n::tr_str(&text)} } }
+        Card { title, p { class: "py-10 text-center text-sm text-ctp-subtext0", "{text}" } }
     }
 }
 
-const UNAVAILABLE: &str =
-    "Not available right now — Yahoo may be rate-limiting. Try again shortly.";
+fn unavailable() -> &'static str {
+    tr("Not available right now — Yahoo may be rate-limiting. Try again shortly.")
+}
+
+/// Yahoo's rating grades, rating actions and insider trade kinds in the
+/// interface language. Names Yahoo adds later show as they come.
+pub(crate) fn yahoo_term(name: &str) -> &str {
+    match name {
+        "Strong buy" => tr("Strong buy"),
+        "Buy" => tr("Buy"),
+        "Hold" => tr("Hold"),
+        "Sell" => tr("Sell"),
+        "Strong sell" => tr("Strong sell"),
+        "Outperform" => tr("Outperform"),
+        "Underperform" => tr("Underperform"),
+        "Upgrade" => tr("Upgrade"),
+        "Downgrade" => tr("Downgrade"),
+        "Initiate" => tr("Initiate"),
+        "Maintain" => tr("Maintain"),
+        "Resume" => tr("Resume coverage"),
+        "Suspend" => tr("Suspend coverage"),
+        "Award" => tr("Award"),
+        "Exercise" => tr("Exercise"),
+        "Gift" => tr("Gift"),
+        "Conversion" => tr("Conversion"),
+        other => other,
+    }
+}
 
 // ─── News ─────────────────────────────────────────────────────────────────────
 
@@ -44,9 +70,9 @@ pub fn NewsTab(ticker: TickerSymbol) -> Element {
     let result = news.read().clone();
     match result {
         None => rsx! { Loading { title: tr("News") } },
-        Some(None) => rsx! { Empty { title: tr("News"), text: UNAVAILABLE } },
+        Some(None) => rsx! { Empty { title: tr("News"), text: unavailable() } },
         Some(Some(items)) if items.is_empty() => {
-            rsx! { Empty { title: tr("News"), text: "No recent news." } }
+            rsx! { Empty { title: tr("News"), text: tr("No recent news.") } }
         }
         Some(Some(items)) => rsx! {
             Card { title: tr("News"), subtitle: crate::i18n::trf("{} latest stories", &[&items.len()]), flush: true,
@@ -77,13 +103,13 @@ pub fn RatingChanges(ticker: TickerSymbol) -> Element {
         let t = ticker.clone();
         async move { api::get_rating_changes(t).await.ok() }
     });
-    let title = "Rating changes";
+    let title = tr("Rating changes");
     let result = rows.read().clone();
     match result {
         None => rsx! { Loading { title } },
-        Some(None) => rsx! { Empty { title, text: UNAVAILABLE } },
+        Some(None) => rsx! { Empty { title, text: unavailable() } },
         Some(Some(rows)) if rows.is_empty() => {
-            rsx! { Empty { title, text: "No recent upgrades or downgrades." } }
+            rsx! { Empty { title, text: tr("No recent upgrades or downgrades.") } }
         }
         Some(Some(rows)) => rsx! {
             Card { title, subtitle: tr("Analyst upgrades and downgrades").to_string(), flush: true,
@@ -104,14 +130,14 @@ pub fn RatingChanges(ticker: TickerSymbol) -> Element {
                                             td { class: "px-4 py-2.5 text-ctp-text", {r.firm.clone().unwrap_or_default()} }
                                             td { class: "px-4 py-2.5 text-ctp-subtext0",
                                                 {match (&r.from, &r.to) {
-                                                    (Some(f), Some(t)) if f != t => format!("{f} → {t}"),
-                                                    (_, Some(t)) => t.clone(),
+                                                    (Some(f), Some(t)) if f != t => format!("{} → {}", yahoo_term(f), yahoo_term(t)),
+                                                    (_, Some(t)) => yahoo_term(t).to_string(),
                                                     _ => String::new(),
                                                 }}
                                             }
                                             td { class: "pl-4 pr-6 py-2.5 text-right",
                                                 if !action.is_empty() {
-                                                    span { class: "rounded-full px-2.5 py-0.5 text-xs font-semibold {tone}", "{action}" }
+                                                    span { class: "rounded-full px-2.5 py-0.5 text-xs font-semibold {tone}", {yahoo_term(&action)} }
                                                 }
                                             }
                                         }
@@ -135,15 +161,15 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
         let t = ticker.clone();
         async move { api::get_corporate_actions(t).await.ok() }
     });
-    let title = "Dividends & splits";
+    let title = tr("Dividends & splits");
     let Some(result) = actions.read().clone() else {
         return rsx! { Loading { title } };
     };
     let Some(actions) = result else {
-        return rsx! { Empty { title, text: UNAVAILABLE } };
+        return rsx! { Empty { title, text: unavailable() } };
     };
     if actions.is_empty() {
-        return rsx! { Empty { title, text: "No dividends or splits on record." } };
+        return rsx! { Empty { title, text: tr("No dividends or splits on record.") } };
     }
 
     // Dividends summed per calendar year, last 10 years.
@@ -180,7 +206,7 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
             } else {
                 BarChart {
                     labels: years.iter().map(|y| y.0.clone()).collect::<Vec<_>>(),
-                    series: vec![BarSeries { name: "Dividends per share".into(), color: "var(--catppuccin-color-teal)", values: years.iter().map(|y| Some(y.1)).collect() }],
+                    series: vec![BarSeries { name: tr("Dividends per share").into(), color: "var(--catppuccin-color-teal)", values: years.iter().map(|y| Some(y.1)).collect() }],
                     unit: Unit::Money,
                 }
             }
@@ -190,7 +216,7 @@ pub fn DividendsAndSplits(ticker: TickerSymbol) -> Element {
                     div { class: "flex flex-wrap gap-2",
                         for (date, n, d) in splits {
                             span { class: "rounded-full border border-ctp-surface0 px-3 py-1 text-xs text-ctp-subtext1",
-                                span { class: "font-semibold text-ctp-text", "{n}-for-{d}" }
+                                span { class: "font-semibold text-ctp-text", {crate::i18n::trf("{}-for-{}", &[&n, &d])} }
                                 " · {date}"
                             }
                         }
@@ -214,7 +240,7 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
         return rsx! { Loading { title: tr("Ownership") } };
     };
     let Some(h) = result else {
-        return rsx! { Empty { title: tr("Ownership"), text: UNAVAILABLE } };
+        return rsx! { Empty { title: tr("Ownership"), text: unavailable() } };
     };
     let pct = |v: f64| format!("{:.2}%", v * 100.0);
     let shares = |v: f64| fmt_compact(v).replacen('$', "", 1);
@@ -243,7 +269,7 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                                 tr { class: "text-xs text-ctp-subtext0",
                                     th { class: "pl-6 pr-4 py-2.5 text-left font-medium", {tr("Holder")} }
                                     th { class: "px-4 py-2.5 text-right font-medium", {tr("Shares")} }
-                                    th { class: "px-4 py-2.5 text-right font-medium", "% held" }
+                                    th { class: "px-4 py-2.5 text-right font-medium", {tr("% held")} }
                                     th { class: "px-4 py-2.5 text-right font-medium", {tr("Value")} }
                                     th { class: "pl-4 pr-6 py-2.5 text-right font-medium", {tr("Reported")} }
                                 }
@@ -284,7 +310,7 @@ pub fn OwnershipTab(ticker: TickerSymbol) -> Element {
                                                     div { class: "text-ctp-text", "{t.name}" }
                                                     div { class: "text-xs text-ctp-subtext0", "{t.position}" }
                                                 }
-                                                td { class: "px-4 py-2.5", span { class: "rounded-full px-2.5 py-0.5 text-xs font-semibold {tone}", "{t.kind}" } }
+                                                td { class: "px-4 py-2.5", span { class: "rounded-full px-2.5 py-0.5 text-xs font-semibold {tone}", {yahoo_term(&t.kind)} } }
                                                 td { class: "px-4 py-2.5 text-right tabular-nums text-ctp-subtext0", {or_dash(t.shares, shares)} }
                                                 td { class: "pl-4 pr-6 py-2.5 text-right tabular-nums text-ctp-subtext0", {or_dash(t.value, fmt_compact)} }
                                             }
@@ -327,10 +353,10 @@ pub fn OptionsTab(ticker: TickerSymbol) -> Element {
         return rsx! { Loading { title: tr("Options") } };
     };
     let Some(view) = result else {
-        return rsx! { Empty { title: tr("Options"), text: UNAVAILABLE } };
+        return rsx! { Empty { title: tr("Options"), text: unavailable() } };
     };
     if view.expirations.is_empty() {
-        return rsx! { Empty { title: tr("Options"), text: "No listed options." } };
+        return rsx! { Empty { title: tr("Options"), text: tr("No listed options.") } };
     }
     let rows = if side() {
         view.calls.clone()
@@ -377,7 +403,7 @@ fn OptionTable(rows: Vec<OptionQuote>) -> Element {
             table { class: "w-full text-sm whitespace-nowrap",
                 thead {
                     tr { class: "text-xs text-ctp-subtext0",
-                        for h in ["Strike", "Last", "Bid", "Ask", "Volume", "Open interest", "Implied vol."] {
+                        for h in [tr("Strike"), tr("Last"), tr("Bid"), tr("Ask"), tr("Volume"), tr("Open interest"), tr("Implied vol.")] {
                             th { class: "px-4 py-2.5 text-right font-medium first:pl-6 last:pr-6", "{h}" }
                         }
                     }
@@ -410,5 +436,11 @@ mod tests {
     fn holder_labels() {
         assert_eq!(holder_label("insidersPercentHeld"), "Held by insiders");
         assert_eq!(holder_label("SomethingNew"), "Something new");
+    }
+
+    #[test]
+    fn yahoo_terms_pass_unknown_names_through() {
+        assert_eq!(yahoo_term("Strong buy"), "Strong buy");
+        assert_eq!(yahoo_term("Overweight"), "Overweight");
     }
 }

@@ -1,7 +1,7 @@
 //! Side-by-side comparison of stocks on valuation, profitability, growth,
 //! financial health, income and analyst measures.
 
-use crate::i18n::tr;
+use crate::i18n::{tr, tr_str};
 use crate::components::{
     card::{Card, Chevron, MenuItem},
     charts::bars::{AxisLine, BarChart, BarSeries, DualLineChart, Unit},
@@ -384,7 +384,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
         .zip(&vb)
         .filter(|(x, y)| x.is_some() && y.is_some())
         .count();
-    let reading = pearson(&va, &vb).map(|r| describe_correlation(ma.label, mb.label, r, both));
+    let reading = pearson(&va, &vb).map(|r| describe_correlation(tr_str(ma.label), tr_str(mb.label), r, both));
     let change = |v: &[Option<f64>]| {
         let first = v.iter().flatten().next().copied()?;
         let last = v.iter().flatten().last().copied()?;
@@ -413,7 +413,7 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
                             a.set(x);
                             b.set(y);
                         },
-                        {crate::i18n::tr_str(name)}
+                        {tr_str(name)}
                     }
                 }
             }
@@ -442,12 +442,12 @@ pub fn MeasureVsMeasure(fundamentals: StockFundamentals) -> Element {
             div { class: "mt-5",
                 DualLineChart {
                     labels: labels.clone(),
-                    left: AxisLine { name: ma.label.into(), color: LEFT_HEX, unit: ma.unit, values: va.clone() },
-                    right: AxisLine { name: mb.label.into(), color: RIGHT_HEX, unit: mb.unit, values: vb.clone() },
+                    left: AxisLine { name: tr_str(ma.label).into(), color: LEFT_HEX, unit: ma.unit, values: va.clone() },
+                    right: AxisLine { name: tr_str(mb.label).into(), color: RIGHT_HEX, unit: mb.unit, values: vb.clone() },
                 }
             }
             p { class: "mt-3 rounded-xl bg-ctp-base/40 px-3 py-2 text-sm text-ctp-subtext0",
-                {reading.unwrap_or_else(|| "Not enough overlapping quarters to say how these relate.".into())}
+                {reading.unwrap_or_else(|| tr("Not enough overlapping quarters to say how these relate.").into())}
             }
         }
     }
@@ -467,7 +467,7 @@ fn MeasureSummary(
         div { class: "px-4 py-3",
             div { class: "flex items-center gap-2 text-xs text-ctp-subtext0",
                 span { class: "h-2 w-2 rounded-full", style: "background:{color};" }
-                {crate::i18n::tr_str(label)}
+                {tr_str(label)}
             }
             div { class: "mt-1 flex flex-wrap items-baseline gap-2",
                 span { class: "text-2xl font-semibold tabular-nums text-ctp-text", "{value}" }
@@ -476,7 +476,7 @@ fn MeasureSummary(
                         class: if c >= 0.0 { "rounded-full bg-ctp-green/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-ctp-green" } else { "rounded-full bg-ctp-red/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-ctp-red" },
                         "{c:+.1}%"
                     }
-                    span { class: "text-xs text-ctp-overlay1", "over the period" }
+                    span { class: "text-xs text-ctp-overlay1", {tr("over the period")} }
                 }
             }
         }
@@ -492,7 +492,7 @@ fn MeasurePicker(
     onchange: EventHandler<usize>,
 ) -> Element {
     let mut open = use_signal(|| false);
-    let current = options.get(value).map_or("", |o| o.1);
+    let current = options.get(value).map_or("", |o| tr_str(o.1));
     rsx! {
         div { class: "relative",
             button {
@@ -513,11 +513,11 @@ fn MeasurePicker(
                               bg-ctp-mantle p-1.5 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                     for (group, items) in group_measures(&options) {
                         div { key: "{group}",
-                            div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay1", {crate::i18n::tr_str(group)} }
+                            div { class: "px-2.5 pt-2 pb-1 text-xs text-ctp-overlay1", {tr_str(group)} }
                             for (i, label) in items {
                                 MenuItem {
                                     key: "{i}",
-                                    label,
+                                    label: tr_str(label),
                                     selected: i == value,
                                     taken: false,
                                     onclick: move |_| {
@@ -646,7 +646,7 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
                                     "×"
                                 }
                             } else {
-                                span { class: "pr-1.5 text-xs text-ctp-overlay1", "this stock" }
+                                span { class: "pr-1.5 text-xs text-ctp-overlay1", {tr("this stock")} }
                             }
                         }
                     }
@@ -654,12 +654,12 @@ pub fn CompareMeasures(ticker: TickerSymbol, peers: Vec<TickerSymbol>) -> Elemen
             }
 
             if data.read().is_none() {
-                Card { title: tr("Measures"), p { class: "py-12 text-center text-sm text-ctp-subtext0", "Loading fundamentals for {names.len()} stocks…" } }
+                Card { title: tr("Measures"), p { class: "py-12 text-center text-sm text-ctp-subtext0", {crate::i18n::trf("Loading fundamentals for {} stocks…", &[&names.len()])} } }
             } else {
-                Card { title: crate::i18n::tr_str(chosen.label), subtitle: better_hint(chosen.better).to_string(),
+                Card { title: tr_str(chosen.label), subtitle: better_hint(chosen.better).to_string(),
                     BarChart {
                         labels: names.clone(),
-                        series: vec![BarSeries { name: crate::i18n::tr_str(chosen.label).to_string(), color: "var(--catppuccin-color-mauve)", values: chosen_values }],
+                        series: vec![BarSeries { name: tr_str(chosen.label).to_string(), color: "var(--catppuccin-color-mauve)", values: chosen_values }],
                         unit: chosen.unit,
                     }
                 }
@@ -728,7 +728,7 @@ fn MeasureRow(
     rsx! {
         if let Some(group) = group {
             tr {
-                td { class: "pl-6 pt-4 pb-1 text-xs font-semibold text-ctp-mauve", colspan: "{columns + 1}", {crate::i18n::tr_str(group)} }
+                td { class: "pl-6 pt-4 pb-1 text-xs font-semibold text-ctp-mauve", colspan: "{columns + 1}", {tr_str(group)} }
             }
         }
         tr {
@@ -740,7 +740,7 @@ fn MeasureRow(
             title: "{hint}",
             onclick: move |e| onclick.call(e),
             td { class: "pl-6 pr-4 py-2.5",
-                span { class: "text-ctp-subtext1", {crate::i18n::tr_str(label)} }
+                span { class: "text-ctp-subtext1", {tr_str(label)} }
                 span { class: "ml-2 text-xs text-ctp-overlay1",
                     match better {
                         Better::Higher => "↑",
@@ -778,6 +778,22 @@ mod tests {
         for (name, x, y) in PRESETS {
             assert!(labels.contains(&x) && labels.contains(&y), "preset {name}");
         }
+    }
+
+    /// Measures, their groups and the presets are kept as English keys and
+    /// translated where they're shown, so each needs a Thai entry.
+    #[test]
+    fn every_measure_name_has_a_thai_entry() {
+        let mut names: Vec<&str> = vec![];
+        for m in measures() {
+            names.extend([m.group, m.label]);
+        }
+        for m in time_measures() {
+            names.extend([m.group, m.label]);
+        }
+        names.extend(PRESETS.map(|(name, _, _)| name));
+        let missing: Vec<&str> = names.into_iter().filter(|n| !crate::i18n::has_thai(n)).collect();
+        assert!(missing.is_empty(), "add to i18n/thai.rs: {missing:?}");
     }
 
     #[test]

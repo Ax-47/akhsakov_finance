@@ -81,6 +81,13 @@ pub fn trf(template: &'static str, args: &[&dyn std::fmt::Display]) -> String {
     out
 }
 
+/// Whether `text` has a Thai entry, for tests of labels kept as English
+/// keys and translated with [`tr_str`] where they're shown.
+#[cfg(test)]
+pub(crate) fn has_thai(text: &str) -> bool {
+    THAI.contains_key(text)
+}
+
 pub fn current() -> Lang {
     LANG()
 }
