@@ -23,6 +23,7 @@ pub use settings_page::SettingsPage;
 mod sidebar;
 mod stock_page;
 mod stock_research;
+mod stock_statements;
 mod watchlist_page;
 pub use sidebar::{
     AiIcon, BacktestIcon, RaceIcon, CalendarIcon, DashboardIcon, NavSection, EconomyIcon, LearnIcon, MarketIcon, PortfolioIcon, ScreenerIcon, SettingsIcon, Sidebar, WatchlistIcon, NAV_LABEL, NAV_LINK, NAV_LINK_ACTIVE, TAB_LINK, TAB_LINK_ACTIVE,

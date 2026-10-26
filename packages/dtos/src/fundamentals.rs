@@ -83,6 +83,10 @@ impl StockFundamentals {
                 &mut p.depreciation_amortization,
                 &mut p.capital_expenditures,
                 &mut p.inventory,
+                &mut p.accounts_receivable,
+                &mut p.accounts_payable,
+                &mut p.property_plant_equipment,
+                &mut p.goodwill,
             ] {
                 scale(v, financial);
             }
@@ -159,6 +163,11 @@ pub struct PeriodFinancials {
     /// As reported: negative when the company spends.
     pub capital_expenditures: Option<f64>,
     pub inventory: Option<f64>,
+    pub accounts_receivable: Option<f64>,
+    pub accounts_payable: Option<f64>,
+    /// Net of depreciation.
+    pub property_plant_equipment: Option<f64>,
+    pub goodwill: Option<f64>,
 }
 
 impl PeriodFinancials {
@@ -253,7 +262,12 @@ pub fn yoy_growth(
     quarters: &[PeriodFinancials],
     field: fn(&PeriodFinancials) -> Option<f64>,
 ) -> Option<f64> {
-    let (now, then) = (field(quarters.first()?)?, field(quarters.get(4)?)?);
+    growth(field(quarters.first()?)?, field(quarters.get(4)?)?)
+}
+
+/// Change from `then` to `now` as a fraction (0.2 = up 20%). From a
+/// negative start, rising counts as growth: −10 → −5 is +50%.
+pub fn growth(now: f64, then: f64) -> Option<f64> {
     (then != 0.0).then(|| now / then.abs() - then.signum())
 }
 

@@ -17,12 +17,16 @@ use crate::{
     hooks::{use_portfolio, use_portfolio_memo, PortfolioState},
     page::{GhostButton, HeroStat, Page},
     stock_research::{yahoo_term, DividendsAndSplits, NewsTab, OptionsTab, OwnershipTab, RatingChanges},
+    stock_statements::Statements,
 };
 use api::quote::quote::get_quote;
 use dioxus::prelude::*;
-use dtos::fundamentals::{
-    current_valuation, ttm, yoy_growth, Analysts, EpsSurprise, KeyRatios, PeriodFinancials,
-    StockFundamentals, ValuationPoint,
+use dtos::{
+    fundamentals::{
+        current_valuation, ttm, yoy_growth, Analysts, EpsSurprise, KeyRatios, PeriodFinancials,
+        StockFundamentals, ValuationPoint,
+    },
+    statements::Frequency,
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use types::ticker_symbol::TickerSymbol;
@@ -245,7 +249,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                 (Tab::Statistics, Some(f)) => rsx! { Statistics { fundamentals: f.clone() } },
                 (Tab::Financials, Some(f)) => rsx! {
                     div { class: "grid gap-5",
-                        Financials { fundamentals: f.clone() }
+                        Financials { ticker: ticker.to_string(), fundamentals: f.clone() }
                         DividendsAndSplits { ticker: ticker.clone() }
                     }
                 },
@@ -736,7 +740,7 @@ fn Highlights(fundamentals: StockFundamentals) -> Element {
 // ─── Financials ───────────────────────────────────────────────────────────────
 
 #[component]
-fn Financials(fundamentals: StockFundamentals) -> Element {
+fn Financials(ticker: String, fundamentals: StockFundamentals) -> Element {
     let mut quarterly = use_signal(|| true);
     let rows: Vec<PeriodFinancials> = if quarterly() {
         fundamentals.quarterly.iter().take(8).cloned().collect()
@@ -763,25 +767,11 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
         }
     };
 
-    type Row = (&'static str, fn(&PeriodFinancials) -> Option<f64>, Unit);
-    let table: [Row; 11] = [
-        (tr("Revenue"), |p| p.revenue, Unit::Money),
-        (tr("Gross profit"), |p| p.gross_profit, Unit::Money),
-        (tr("Operating income"), |p| p.operating_income, Unit::Money),
-        (tr("Net income"), |p| p.net_income, Unit::Money),
-        (tr("Gross margin"), |p| p.gross_margin(), Unit::Percent),
-        (tr("Net margin"), |p| p.net_margin(), Unit::Percent),
-        (tr("Operating cash flow"), |p| p.operating_cashflow, Unit::Money),
-        (tr("Free cash flow"), |p| p.free_cash_flow, Unit::Money),
-        (tr("Cash"), |p| p.cash, Unit::Money),
-        (tr("Long-term debt"), |p| p.long_term_debt, Unit::Money),
-        (tr("Shareholders' equity"), |p| p.total_equity, Unit::Money),
-    ];
 
     rsx! {
         div { class: "grid gap-5 motion-safe:animate-rise",
             div { class: "grid gap-5 md:grid-cols-2",
-                Card { title: tr("Revenue & net income"), actions: toggle,
+                Card { title: tr("Revenue & net income"), actions: toggle.clone(),
                     BarChart {
                         labels: labels.clone(),
                         series: vec![series(tr("Revenue"), "var(--catppuccin-color-blue)", |p| p.revenue), series(tr("Net income"), "var(--catppuccin-color-mauve)", |p| p.net_income)],
@@ -821,31 +811,13 @@ fn Financials(fundamentals: StockFundamentals) -> Element {
                     }
                 }
             }
-            Card { title: tr("Statements"), subtitle: tr("Newest first").to_string(), flush: true,
-                div { class: "overflow-x-auto",
-                    table { class: "w-full text-sm whitespace-nowrap",
-                        thead {
-                            tr { class: "text-xs text-ctp-subtext0",
-                                th { class: "pl-6 pr-4 py-2.5 text-left font-medium", "" }
-                                for p in rows.iter() {
-                                    th { class: "px-4 py-2.5 text-right font-medium", "{period_label(p, quarterly())}" }
-                                }
-                            }
-                        }
-                        tbody {
-                            for (label, get, unit) in table {
-                                tr { class: "border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors",
-                                    td { class: "pl-6 pr-4 py-3 text-ctp-subtext1", "{label}" }
-                                    for p in rows.iter() {
-                                        td { class: "px-4 py-3 text-right tabular-nums text-ctp-subtext0",
-                                            {or_dash(get(p), |v| unit.format(v))}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            Statements {
+                ticker,
+                periods: rows.clone(),
+                labels: rows.iter().map(|p| period_label(p, quarterly())).collect::<Vec<_>>(),
+                quarters: fundamentals.quarterly.iter().take(8).cloned().collect::<Vec<_>>(),
+                frequency: if quarterly() { Frequency::Quarterly } else { Frequency::Annual },
+                toggle: toggle.clone(),
             }
         }
     }
