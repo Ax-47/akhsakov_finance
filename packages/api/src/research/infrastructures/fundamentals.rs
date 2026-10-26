@@ -24,7 +24,9 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, S
         t.cashflow(None),
         t.earnings(None),
         t.earnings_trend(None),
-        t.history(Some(Range::Y2), Some(Interval::D1), false),
+        // Five years, so each fiscal year end in the annual statements has
+        // a price for the P/E's usual range.
+        t.history(Some(Range::Y5), Some(Interval::D1), false),
     );
     let info = info.map_err(|e| format!("{symbol}: {e}"))?;
 
@@ -150,6 +152,7 @@ pub async fn fetch(client: &YfClient, symbol: &str) -> Result<RawFundamentals, S
             profile,
             stats,
             valuation: vec![],
+            yearly_valuation: vec![],
             quarterly,
             annual,
             eps_surprises,

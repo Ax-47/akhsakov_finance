@@ -17,6 +17,7 @@ use crate::{
     hooks::{use_portfolio, use_portfolio_memo, PortfolioState},
     page::{GhostButton, HeroStat, Page},
     stock_research::{yahoo_term, DividendsAndSplits, NewsTab, OptionsTab, OwnershipTab, RatingChanges},
+    stock_fair_value::{DiscountedCashFlow, PriceChecks},
     stock_statements::Statements,
 };
 use api::quote::quote::get_quote;
@@ -246,7 +247,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                 (_, None) => rsx! {
                     Unavailable { text: crate::i18n::trf("Fundamentals aren't available for {} right now. Yahoo may be rate-limiting; try again shortly.", &[&ticker]) }
                 },
-                (Tab::Statistics, Some(f)) => rsx! { Statistics { fundamentals: f.clone() } },
+                (Tab::Statistics, Some(f)) => rsx! { Statistics { fundamentals: f.clone(), price: price.and_then(|p| p.to_f64()) } },
                 (Tab::Financials, Some(f)) => rsx! {
                     div { class: "grid gap-5",
                         Financials { ticker: ticker.to_string(), fundamentals: f.clone() }
@@ -481,7 +482,7 @@ fn About(fundamentals: StockFundamentals) -> Element {
 type Getter = fn(&ValuationPoint) -> Option<f64>;
 
 #[component]
-fn Statistics(fundamentals: StockFundamentals) -> Element {
+fn Statistics(fundamentals: StockFundamentals, price: Option<f64>) -> Element {
     let f = &fundamentals;
     let current = current_valuation(&f.stats, &f.quarterly);
     let history: Vec<ValuationPoint> = f.valuation.iter().take(5).cloned().collect();
@@ -558,6 +559,8 @@ fn Statistics(fundamentals: StockFundamentals) -> Element {
                     {tr("Enterprise value here is market cap + long-term debt − cash: Yahoo's statements don't split out short-term debt.")}
                 }
             }
+            PriceChecks { fundamentals: f.clone(), price }
+            DiscountedCashFlow { fundamentals: f.clone(), price }
             Highlights { fundamentals: f.clone() }
         }
     }

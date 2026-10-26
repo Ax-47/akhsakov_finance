@@ -22,6 +22,7 @@ mod settings_page;
 pub use settings_page::SettingsPage;
 mod sidebar;
 mod stock_page;
+mod stock_fair_value;
 mod stock_research;
 mod stock_statements;
 mod watchlist_page;
