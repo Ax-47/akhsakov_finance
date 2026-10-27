@@ -1098,6 +1098,7 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("Open {}", "เปิด {}"),
     ("Watching", "กำลังติดตาม"),
     ("{} stocks", "{} ตัว"),
+    ("{} · {} stocks", "{} · {} ตัว"),
     ("No recent news.", "ไม่มีข่าวล่าสุด"),
     ("Rating changes", "การปรับคำแนะนำ"),
     ("Dividends & splits", "ปันผลและการแตกหุ้น"),

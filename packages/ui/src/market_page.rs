@@ -121,7 +121,7 @@ fn IndexView(index: MarketIndex) -> Element {
 
     let map_title = match focus() {
         Some(sector) => format!("{} · {sector}", tr(index.label())),
-        None => format!("{} · {count} stocks", tr(index.label())),
+        None => crate::i18n::trf("{} · {} stocks", &[&tr(index.label()), &count]),
     };
     let focused_rows: Vec<dtos::market::StockRow> = match focus() {
         Some(sector) => items
