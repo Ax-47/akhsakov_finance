@@ -210,7 +210,9 @@ pub fn Dashboard() -> Element {
                                 allocation: allocation.clone(),
                                 total_value,
                             }
-                            div { class: "grid gap-5 lg:grid-cols-[1fr_300px]",
+                            // Each card as tall as its own content: stretched to the
+                            // other's height, the map card was mostly empty.
+                            div { class: "grid gap-5 lg:grid-cols-[1fr_300px] lg:items-start",
                                 StockHeatmap { positions: positions.clone() }
                                 AllocationCard { allocation: allocation.clone() }
                             }
