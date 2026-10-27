@@ -3012,6 +3012,10 @@
     }
   }
 
+  .bg-ctp-overlay2 {
+    background-color: var(--catppuccin-color-overlay2);
+  }
+
   .bg-ctp-peach, .bg-ctp-peach\/10 {
     background-color: var(--catppuccin-color-peach);
   }
@@ -4542,6 +4546,10 @@
 
     .lg\:flex-row {
       flex-direction: row;
+    }
+
+    .lg\:items-start {
+      align-items: flex-start;
     }
   }
 
