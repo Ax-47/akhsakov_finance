@@ -693,7 +693,19 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
         .filter(|tx| needle.is_empty() || tx.ticker.as_str().contains(&needle))
         .collect();
     shown.sort_by(|a, b| b.date.cmp(&a.date));
-    let total: Decimal = shown.iter().map(|tx| tx.shares * tx.usd_price()).sum();
+    // Money paid for the buys shown and received for the sales shown;
+    // adding the two together would mean nothing.
+    let cash_of = |kind: TransactionType| -> Decimal {
+        shown
+            .iter()
+            .filter(|tx| tx.transaction_type == kind && !tx.is_cash())
+            .map(|tx| {
+                let gross = tx.shares * tx.usd_price();
+                if kind == TransactionType::Buy { gross + tx.usd_fee() } else { gross - tx.usd_fee() }
+            })
+            .sum()
+    };
+    let (bought, sold) = (cash_of(TransactionType::Buy), cash_of(TransactionType::Sell));
     let count = shown.len();
     let hidden = count.saturating_sub(limit());
     // The export has every matching row, not just the ones on screen.
@@ -716,7 +728,11 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
     rsx! {
         Card {
             title: tr("Transactions"),
-            subtitle: crate::i18n::trf("{} shown · {} total", &[&count, &fmt_usd(total, 2)]),
+            subtitle: match filter() {
+                TxFilter::All => trf("{} shown · bought {} · sold {}", &[&count, &fmt_usd(bought, 2), &fmt_usd(sold, 2)]),
+                TxFilter::Buy => trf("{} shown · bought {}", &[&count, &fmt_usd(bought, 2)]),
+                TxFilter::Sell => trf("{} shown · sold {}", &[&count, &fmt_usd(sold, 2)]),
+            },
             flush: true,
             actions: rsx! {
                 div { class: "flex flex-wrap items-center gap-2",
@@ -822,14 +838,9 @@ fn TransactionRow(tx: Transaction, #[props(default)] uncovered: Option<Decimal>)
 /// Badge style, title, detail line and signed cash effect for a row. The
 /// detail shows the trade's own currency; the cash effect is converted.
 fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
-    // Amounts in the trade's currency, as the broker showed them.
-    let native = |v: Decimal| {
-        if tx.is_usd() {
-            fmt_usd(v, 2)
-        } else {
-            format!("{:.2} {}", v, tx.currency)
-        }
-    };
+    // Amounts in the trade's currency, as the broker showed them: a price
+    // paid in dollars stays in dollars whatever currency the app shows.
+    let native = |v: Decimal| trade_money(v, &tx.currency);
     let (gross, fee_usd) = (tx.shares * tx.usd_price(), tx.usd_fee());
     // Withheld tax, for a dividend.
     let fee = match (tx.fee > Decimal::ZERO, &tx.transaction_type) {
@@ -882,6 +893,16 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
             tr("Transfer").into(),
             "—".into(),
         ),
+    }
+}
+
+/// `v` in the currency a trade was made in, not converted: `$236.55`,
+/// `1,250.00 THB`.
+fn trade_money(v: Decimal, currency: &str) -> String {
+    if currency == "USD" {
+        crate::format::fmt_money(v, "$", 2)
+    } else {
+        format!("{} {currency}", crate::format::fmt_money(v, "", 2))
     }
 }
 
@@ -945,6 +966,41 @@ mod tests {
         rsx! {
             TransactionList { transactions, portfolio: None }
         }
+    }
+
+    #[test]
+    fn a_trade_keeps_the_currency_it_was_made_in() {
+        crate::format::set_display_currency("฿", dec!(35));
+        let (_, _, detail, cash) = describe(&Transaction { price: dec!(236.5512), ..trade(0) });
+        let (_, _, thai, _) = describe(&Transaction { price: dec!(1250), currency: "THB".into(), fx_to_usd: dec!(0.03), ..trade(0) });
+        crate::format::set_display_currency("$", Decimal::ONE);
+        assert!(detail.ends_with("@ $236.55"), "the price paid, in dollars: {detail}");
+        assert_eq!(cash, "−฿8,279.29", "the cash effect, in the currency the app shows");
+        assert!(thai.ends_with("@ 1,250.00 THB"), "{thai}");
+    }
+
+    /// Bought 100, sold 40, and a deposit that is neither.
+    #[component]
+    fn BoughtAndSold() -> Element {
+        use_context_provider(|| Signal::new(GetDashBoardResponse::default()));
+        use_context_provider(|| Dialogs(Signal::new(None)));
+        use_context_provider(|| DataRefresh(Signal::new(0)));
+        let transactions = vec![
+            trade(0),
+            Transaction { transaction_type: TransactionType::Sell, price: dec!(40), fee: dec!(1), ..trade(1) },
+            Transaction { ticker: TickerSymbol::new(dtos::transaction::CASH_TICKER).unwrap(), transaction_type: TransactionType::Deposit, shares: dec!(500), price: Decimal::ONE, ..trade(2) },
+        ];
+        rsx! {
+            TransactionList { transactions, portfolio: None }
+        }
+    }
+
+    #[test]
+    fn buys_and_sales_are_totalled_apart() {
+        let mut dom = VirtualDom::new(BoughtAndSold);
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+        assert!(html.contains("3 shown · bought $100.00 · sold $39.00"), "{html}");
     }
 
     #[test]

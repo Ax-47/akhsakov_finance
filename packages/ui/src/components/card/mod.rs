@@ -284,22 +284,54 @@ pub fn Select(
     }
 }
 
-/// Dimmed overlay with a centred panel; click outside or × to close.
+/// Dimmed overlay with a centred panel. × and Esc close it. A click
+/// outside closes it too, but only until you've touched something inside,
+/// so a slip of the mouse can't throw away a half-filled form.
 #[component]
 pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> Element {
+    // Esc presses the innermost thing that's open: a calendar inside a
+    // dialog first (its backdrop), then the dialog (its × button). One
+    // listener for the app, so it works wherever the focus is.
+    use_hook(|| {
+        document::eval(
+            "if (!window.__modalEsc) {
+                 window.__modalEsc = true;
+                 window.addEventListener('keydown', e => {
+                     if (e.key !== 'Escape' || e.defaultPrevented) return;
+                     const last = q => { const all = document.querySelectorAll(q); return all[all.length - 1]; };
+                     const target = last('[data-popover-backdrop]') || last('[data-modal-close]');
+                     if (!target) return;
+                     e.preventDefault();
+                     target.click();
+                 });
+             }",
+        );
+    });
+    let mut touched = use_signal(|| false);
     rsx! {
         div {
             class: "fixed inset-0 z-50 flex items-center justify-center bg-ctp-crust/70 p-4 backdrop-blur-sm",
-            onclick: move |_| on_close.call(()),
+            onclick: move |_| {
+                if !*touched.peek() {
+                    on_close.call(());
+                }
+            },
             div {
                 class: "w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-3xl border border-ctp-surface0 bg-ctp-mantle p-6 shadow-2xl shadow-ctp-crust/60 motion-safe:animate-rise",
                 role: "dialog",
+                "aria-modal": "true",
+                "aria-label": "{title}",
                 onclick: move |e| e.stop_propagation(),
+                onmousedown: move |_| touched.set(true),
+                oninput: move |_| touched.set(true),
                 div { class: "mb-5 flex items-center justify-between",
                     h2 { class: "text-lg font-semibold text-ctp-text", "{title}" }
                     button {
+                        r#type: "button",
                         class: "flex h-8 w-8 items-center justify-center rounded-full text-ctp-subtext0 cursor-pointer transition-colors hover:bg-ctp-surface0 hover:text-ctp-text",
                         "aria-label": tr("Close"),
+                        title: tr("Close (Esc)"),
+                        "data-modal-close": "true",
                         onclick: move |_| on_close.call(()),
                         "×"
                     }
