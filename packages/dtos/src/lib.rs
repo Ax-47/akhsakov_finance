@@ -18,6 +18,7 @@ pub mod market;
 pub mod board;
 pub mod economy;
 pub mod technicals;
+pub mod signals;
 pub mod drawings;
 pub mod insights;
 pub mod notifications;

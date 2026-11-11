@@ -174,7 +174,7 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
                 LabelStyle::Date,
                 false,
             );
-            Some((stats, cmp))
+            Some((stats, cmp, charts.get(&ticker)?.clone()))
         }
     });
 
@@ -186,7 +186,7 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
         Some(None) => rsx! {
             Card { title: "{ticker}", p { class: "py-16 text-center text-sm text-ctp-subtext0", {crate::i18n::trf("No price history for {}", &[&ticker])} } }
         },
-        Some(Some((stats, cmp))) => {
+        Some(Some((stats, cmp, candles))) => {
             let series = vec![
                 Series {
                     name: ticker.to_string(),
@@ -219,6 +219,12 @@ pub(crate) fn StockReport(ticker: TickerSymbol) -> Element {
                         RangeAndTrend { stats: stats.clone() }
                         PositionCard { ticker: ticker.clone() }
                     }
+                    super::technical::TechnicalCard { candles, today: chrono::Utc::now().date_naive().to_string() }
+                    if let Some(risk) = stats.risk.clone() {
+                        super::quant::BenchmarkCard { report: risk.clone(), subject: ticker.to_string(), bench: bench_name.clone() }
+                        super::quant::DrawdownsCard { report: risk, subject: ticker.to_string() }
+                    }
+                    super::technical::SeasonalityCard { ticker: ticker.clone() }
                 }
             }
         }

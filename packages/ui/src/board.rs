@@ -30,8 +30,8 @@ use types::ticker_symbol::TickerSymbol;
 /// streamed.
 const PAGE: usize = 50;
 /// Seconds between full refreshes: a short list, and a long one (an index).
-const REFRESH_MS: u32 = 10_000;
-const REFRESH_LONG_MS: u32 = 30_000;
+const REFRESH_MS: u32 = 15_000;
+const REFRESH_LONG_MS: u32 = 45_000;
 const LONG_LIST: usize = 120;
 const RETRY_MS: u32 = 5_000;
 
@@ -231,7 +231,7 @@ pub fn fmt_price(v: f64) -> String {
         out.push('-');
     }
     for (i, c) in whole.chars().enumerate() {
-        if i > 0 && (whole.len() - i) % 3 == 0 {
+        if i > 0 && (whole.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
@@ -402,7 +402,7 @@ pub fn LiveBoard(source: BoardSource, title: String) -> Element {
                                     {head(BoardSort::Price, "Last", "px-1.5 text-right")}
                                     {head(BoardSort::ChangePct, "Change", "px-1.5 text-right")}
                                     th { class: "hidden px-1.5 py-2 text-right font-normal md:table-cell", {tr("Bid / Ask")} }
-                                    {head(BoardSort::Volume, "Vol", "px-1.5 text-right")}
+                                    {head(BoardSort::Volume, "Vol", "hidden px-1.5 text-right sm:table-cell")}
                                     {head(BoardSort::Turnover, "Value", "hidden px-1.5 text-right md:table-cell")}
                                     {head(BoardSort::RelativeVolume, "× avg", "hidden px-1.5 text-right lg:table-cell")}
                                     {head(BoardSort::DayPosition, "Day range", "hidden px-1.5 text-left lg:table-cell")}
@@ -568,7 +568,7 @@ fn BoardRow(row: BoardQuote, flash: Option<(Move, u32)>, with_sector: bool) -> E
                     div { class: "text-[11px] text-ctp-overlay1", title: tr("Ask minus bid, as a share of the price"), {trf("spread {}%", &[&format!("{spread:.2}")])} }
                 }
             }
-            td { class: "px-1.5 py-2 text-right text-ctp-subtext1", {row.volume.map_or_else(dash, fmt_count)} }
+            td { class: "hidden px-1.5 py-2 text-right text-ctp-subtext1 sm:table-cell", {row.volume.map_or_else(dash, fmt_count)} }
             td { class: "hidden px-1.5 py-2 text-right text-ctp-subtext1 md:table-cell", {row.turnover().map_or_else(dash, fmt_count)} }
             td {
                 class: match relative {

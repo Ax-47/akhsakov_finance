@@ -291,7 +291,10 @@ pub fn Select(
 pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> Element {
     // Esc presses the innermost thing that's open: a calendar inside a
     // dialog first (its backdrop), then the dialog (its × button). One
-    // listener for the app, so it works wherever the focus is.
+    // listener for the app, so it works wherever the focus is. It runs
+    // before anything else hears the key and keeps it to itself: a
+    // calendar that also closed on Esc would leave nothing open by the
+    // time this looked, and the dialog would close with it.
     use_hook(|| {
         document::eval(
             "if (!window.__modalEsc) {
@@ -302,8 +305,9 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
                      const target = last('[data-popover-backdrop]') || last('[data-modal-close]');
                      if (!target) return;
                      e.preventDefault();
+                     e.stopPropagation();
                      target.click();
-                 });
+                 }, true);
              }",
         );
     });
