@@ -6,7 +6,10 @@
 use crate::i18n::{tr, trf};
 use crate::{
     app::DataRefresh,
-    components::card::{ActionButton, ButtonTone, Card, Chevron, Field, Segmented, ToggleButton, INPUT},
+    components::{
+        card::{ActionButton, ButtonTone, Card, Chevron, Field, Segmented, ToggleButton, INPUT},
+        date_field::DateField,
+    },
     format::fmt_usd,
     hooks::scoped_data,
     page::GhostButton,
@@ -362,13 +365,11 @@ fn ThesisEditor(portfolio: Uuid, ticker: TickerSymbol, thesis: Option<Thesis>) -
                         oninput: move |e| { target.set(e.value()); error.set(None); },
                     }
                 }
-                Field { label: tr("Review on"),
-                    input {
-                        class: INPUT,
-                        r#type: "date",
-                        value: "{review_on}",
-                        oninput: move |e| { review_on.set(e.value()); error.set(None); },
-                    }
+                DateField {
+                    label: tr("Review on"),
+                    value: review_on(),
+                    optional: true,
+                    on_change: move |date| { review_on.set(date); error.set(None); },
                 }
                 div {
                     span { class: "mb-1.5 block text-xs text-ctp-subtext0", {tr("Conviction")} }

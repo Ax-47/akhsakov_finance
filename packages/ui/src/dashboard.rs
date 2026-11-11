@@ -1,4 +1,4 @@
-use crate::i18n::{tr, trf};
+use crate::i18n::{tr, tr_str, trf};
 use crate::{
     income_tab::{IncomeTab, ReturnDrivers},
     app::PortfolioScope,
@@ -18,6 +18,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use dtos::csv_export::{holdings_csv, transactions_csv};
+use dtos::position::{uncovered_sales, DUST};
 use dtos::{portfolio::GetDashBoardResponse, transaction::Transaction, Position};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -87,6 +88,10 @@ pub fn Dashboard() -> Element {
             .collect::<Vec<(String, String, bool)>>()
     });
     let (transactions, portfolios) = (transactions(), portfolios());
+    // Sales of shares their portfolio didn't hold change nothing: say so
+    // here, as the totals alone don't show why.
+    let uncovered = use_memo(move || uncovered_sales(&data.read().transactions));
+    let to_fix = transactions.iter().filter(|tx| uncovered.read().contains_key(&tx.id)).count();
     let current = scope().and_then(|id| portfolios.iter().find(|(pid, _, _)| *pid == id).cloned());
     let title = current
         .as_ref()
@@ -197,8 +202,19 @@ pub fn Dashboard() -> Element {
                             onclick: move |_| tab.set(Tab::Activity),
                         }
                     }
-                    span { class: "hidden sm:block text-xs text-ctp-overlay1",
-                        "{positions.len()} holdings · {transactions.len()} transactions"
+                    div { class: "flex shrink-0 items-center gap-3",
+                        if to_fix > 0 {
+                            button {
+                                class: "min-h-8 whitespace-nowrap rounded-full bg-ctp-peach/15 px-3 py-1 text-xs font-medium text-ctp-peach \
+                                        cursor-pointer transition-colors hover:bg-ctp-peach/25",
+                                title: tr("Sales of shares the portfolio didn't hold. They're marked under Activity."),
+                                onclick: move |_| tab.set(Tab::Activity),
+                                {trf("Sales to fix: {}", &[&to_fix])}
+                            }
+                        }
+                        span { class: "hidden sm:block whitespace-nowrap text-xs text-ctp-overlay1",
+                            {trf("{} holdings · {} transactions", &[&positions.len(), &transactions.len()])}
+                        }
                     }
                 }
 
@@ -281,7 +297,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
 
     let current = scope()
         .and_then(|id| portfolios.iter().find(|(pid, _)| *pid == id))
-        .map_or("All holdings".to_string(), |(_, name)| name.clone());
+        .map_or(tr("All holdings").to_string(), |(_, name)| name.clone());
     let needle = query().trim().to_lowercase();
     let matches: Vec<(String, String)> = portfolios
         .iter()
@@ -333,7 +349,7 @@ fn ScopePicker(mut scope: Signal<Option<String>>, portfolios: Vec<(String, Strin
                             }
                         }
                         if matches.is_empty() {
-                            p { class: "px-2.5 py-2 text-sm text-ctp-overlay1", "No portfolio matches “{query}”" }
+                            p { class: "px-2.5 py-2 text-sm text-ctp-overlay1", {trf("No portfolio matches “{}”", &[&query()])} }
                         }
                     }
                 }
@@ -381,9 +397,9 @@ fn Insights(positions: Vec<Position>, total_value: Decimal) -> Element {
         .unwrap_or_default();
     let concentrated = largest_weight > CONCENTRATION_WARN_PCT;
     let (largest_color, largest_note) = if concentrated {
-        ("text-ctp-yellow", "Concentrated — consider trimming")
+        ("text-ctp-yellow", tr("Concentrated — consider trimming"))
     } else {
-        ("text-ctp-text", "Well spread")
+        ("text-ctp-text", tr("Well spread"))
     };
 
     rsx! {
@@ -418,7 +434,7 @@ fn Insights(positions: Vec<Position>, total_value: Decimal) -> Element {
                 ticker: format!("{winners} / {}", priced.len()),
                 value: String::new(),
                 note: top_return
-                    .map(|p| format!("Top: {} {:+.1}%", p.ticker, p.unrealized_pnl_pct()))
+                    .map(|p| trf("Top: {} {}%", &[&p.ticker, &format!("{:+.1}", p.unrealized_pnl_pct())]))
                     .unwrap_or_default(),
             }
         }
@@ -665,6 +681,7 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
     let dialogs = use_context::<Dialogs>();
     let data = use_context::<Signal<GetDashBoardResponse>>();
 
+    let uncovered = uncovered_sales(&data.read().transactions);
     let needle = query().trim().to_uppercase();
     let mut shown: Vec<Transaction> = transactions
         .into_iter()
@@ -741,7 +758,7 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
                 div { class: "px-6 pb-8 pt-2 text-sm text-ctp-overlay1", {tr("Nothing here yet.")} }
             }
             for tx in shown.into_iter().take(limit()) {
-                TransactionRow { key: "{tx.id}", tx }
+                TransactionRow { key: "{tx.id}", uncovered: uncovered.get(&tx.id).copied(), tx }
             }
             if hidden > 0 {
                 div { class: "flex flex-wrap items-center justify-center gap-2 border-t border-ctp-surface0/60 px-6 py-3",
@@ -759,19 +776,31 @@ fn TransactionList(transactions: Vec<Transaction>, portfolio: Option<Uuid>) -> E
     }
 }
 
+/// `uncovered`: for a sale of more shares than its portfolio held, the
+/// shares it did hold.
 #[component]
-fn TransactionRow(tx: Transaction) -> Element {
+fn TransactionRow(tx: Transaction, #[props(default)] uncovered: Option<Decimal>) -> Element {
     let dialogs = use_context::<Dialogs>();
     let editing = tx.clone();
     let (badge, title, detail, amount) = describe(&tx);
+    let kind = tx.transaction_type.to_string();
     rsx! {
         div { class: "group flex items-center gap-4 px-6 py-3.5 border-t border-ctp-surface0/60 hover:bg-ctp-surface0/30 transition-colors",
             span { class: "min-w-20 shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-center text-xs font-semibold {badge}",
-                "{tx.transaction_type}"
+                {tr_str(&kind)}
             }
             div { class: "flex-1 min-w-0",
                 div { class: "font-semibold text-ctp-text", "{title}" }
                 div { class: "text-xs text-ctp-subtext0 truncate", "{detail}" }
+                if let Some(held) = uncovered {
+                    div { class: "mt-0.5 text-xs text-ctp-peach",
+                        if held <= DUST {
+                            {trf("The portfolio held no {} then, so this sale changed nothing. Edit it: check the ticker, the portfolio and the date.", &[&tx.ticker])}
+                        } else {
+                            {trf("The portfolio held only {} {} then, so only those were sold. Edit it to fix the number.", &[&held.normalize(), &tx.ticker])}
+                        }
+                    }
+                }
             }
             div { class: "text-right shrink-0",
                 div { class: "text-sm font-medium tabular-nums text-ctp-text", "{amount}" }
@@ -802,61 +831,55 @@ fn describe(tx: &Transaction) -> (&'static str, String, String, String) {
         }
     };
     let (gross, fee_usd) = (tx.shares * tx.usd_price(), tx.usd_fee());
-    let fee = if tx.fee > Decimal::ZERO {
-        format!(" · fee {}", native(tx.fee))
-    } else {
-        String::new()
+    // Withheld tax, for a dividend.
+    let fee = match (tx.fee > Decimal::ZERO, &tx.transaction_type) {
+        (false, _) => String::new(),
+        (true, TransactionType::Dividend) => trf(" · tax {}", &[&native(tx.fee)]),
+        (true, _) => trf(" · fee {}", &[&native(tx.fee)]),
     };
+    let shares_at = || trf("{} shares @ {}", &[&crate::format::fmt_shares(tx.shares), &native(tx.price)]);
     let money = |sign: &str, v: Decimal| format!("{sign}{}", fmt_usd(v, 2));
     match tx.transaction_type {
         TransactionType::Buy => (
             "bg-ctp-green/15 text-ctp-green",
             tx.ticker.to_string(),
-            format!(
-                "{} shares @ {}{fee}",
-                crate::format::fmt_shares(tx.shares),
-                native(tx.price)
-            ),
+            format!("{}{fee}", shares_at()),
             money("−", gross + fee_usd),
         ),
         TransactionType::Sell => (
             "bg-ctp-red/15 text-ctp-red",
             tx.ticker.to_string(),
-            format!(
-                "{} shares @ {}{fee}",
-                crate::format::fmt_shares(tx.shares),
-                native(tx.price)
-            ),
+            format!("{}{fee}", shares_at()),
             money("+", gross - fee_usd),
         ),
         TransactionType::Dividend => (
             "bg-ctp-teal/15 text-ctp-teal",
             tx.ticker.to_string(),
-            format!("{}{}", tr("Dividend received"), fee.replace("fee", "tax")),
+            format!("{}{fee}", tr("Dividend received")),
             money("+", tx.usd_price() - fee_usd),
         ),
         TransactionType::Split => (
             "bg-ctp-lavender/15 text-ctp-lavender",
             tx.ticker.to_string(),
-            format!("{}-for-1 split", tx.shares.normalize()),
+            trf("{}-for-1 split", &[&tx.shares.normalize()]),
             "—".into(),
         ),
         TransactionType::Deposit => (
             "bg-ctp-blue/15 text-ctp-blue",
-            "Cash".into(),
-            format!("Deposit{fee}"),
+            tr("Cash").into(),
+            format!("{}{fee}", tr("Deposit")),
             money("+", gross - fee_usd),
         ),
         TransactionType::Withdrawal => (
             "bg-ctp-peach/15 text-ctp-peach",
-            "Cash".into(),
-            format!("Withdrawal{fee}"),
+            tr("Cash").into(),
+            format!("{}{fee}", tr("Withdrawal")),
             money("−", gross + fee_usd),
         ),
         TransactionType::Transfer => (
             "bg-ctp-surface1 text-ctp-subtext1",
             tx.ticker.to_string(),
-            "Transfer".into(),
+            tr("Transfer").into(),
             "—".into(),
         ),
     }
@@ -903,6 +926,34 @@ mod tests {
         rsx! {
             TransactionList { transactions: (0..count).map(trade).collect::<Vec<_>>(), portfolio: None }
         }
+    }
+
+    /// A portfolio that bought AMD and then "sold" a mistyped AND.
+    #[component]
+    fn MistypedSale() -> Element {
+        let sale = Transaction {
+            ticker: TickerSymbol::new("AND").unwrap(),
+            transaction_type: TransactionType::Sell,
+            date: "2025-01-04".into(),
+            ..trade(1)
+        };
+        let transactions = vec![Transaction { ticker: TickerSymbol::new("AMD").unwrap(), ..trade(0) }, sale];
+        let all = transactions.clone();
+        use_context_provider(|| Signal::new(GetDashBoardResponse { portfolios: vec![], transactions: all }));
+        use_context_provider(|| Dialogs(Signal::new(None)));
+        use_context_provider(|| DataRefresh(Signal::new(0)));
+        rsx! {
+            TransactionList { transactions, portfolio: None }
+        }
+    }
+
+    #[test]
+    fn a_sale_of_shares_not_held_is_marked() {
+        let mut dom = VirtualDom::new(MistypedSale);
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+        assert_eq!(html.matches("so this sale changed nothing").count(), 1, "{html}");
+        assert!(html.contains("The portfolio held no AND then"), "{html}");
     }
 
     fn render(count: u32) -> String {

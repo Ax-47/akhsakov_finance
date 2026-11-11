@@ -50,10 +50,14 @@ pub fn Segmented(children: Element) -> Element {
     }
 }
 
+/// `type="button"`: in a form, Enter presses the first button that can
+/// submit it, and an untyped toggle at the top of a dialog was that
+/// button (Enter in the shares field turned a sale into a buy).
 #[component]
 pub fn ToggleButton(label: String, active: bool, onclick: EventHandler<MouseEvent>) -> Element {
     rsx! {
         button {
+            r#type: "button",
             class: if active {
                 "min-h-8 shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-sm font-semibold bg-ctp-surface0 text-ctp-text cursor-pointer transition-colors"
             } else {
@@ -188,6 +192,7 @@ pub fn MenuItem(
 ) -> Element {
     rsx! {
         button {
+            r#type: "button",
             class: if selected {
                 "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-sm bg-ctp-surface0 text-ctp-text cursor-pointer"
             } else if taken {
@@ -200,7 +205,7 @@ pub fn MenuItem(
             if selected {
                 span { class: "text-ctp-mauve", "✓" }
             } else if taken {
-                span { class: "text-xs", "shown" }
+                span { class: "text-xs", {tr("shown")} }
             }
         }
     }
@@ -309,15 +314,20 @@ pub fn Modal(title: String, on_close: EventHandler<()>, children: Element) -> El
 pub const INPUT: &str = "w-full rounded-xl border border-ctp-surface0 bg-ctp-crust/40 px-3 py-2 text-sm text-ctp-text \
                          placeholder:text-ctp-overlay1 outline-none transition-colors focus:border-ctp-mauve";
 
-/// Labelled form row.
+/// Labelled form row. `warn` shows the hint as a warning.
 #[component]
-pub fn Field(label: String, #[props(default)] hint: String, children: Element) -> Element {
+pub fn Field(
+    label: String,
+    #[props(default)] hint: String,
+    #[props(default)] warn: bool,
+    children: Element,
+) -> Element {
     rsx! {
         label { class: "block",
             span { class: "mb-1.5 block text-xs text-ctp-subtext0", "{label}" }
             {children}
             if !hint.is_empty() {
-                span { class: "mt-1 block text-xs text-ctp-overlay1", "{hint}" }
+                span { class: if warn { "mt-1 block text-xs text-ctp-peach" } else { "mt-1 block text-xs text-ctp-overlay1" }, "{hint}" }
             }
         }
     }
@@ -337,6 +347,10 @@ pub fn ActionButton(
     onclick: EventHandler<MouseEvent>,
     #[props(default)] tone: ButtonTone,
     #[props(default)] disabled: bool,
+    /// Enter in a form presses its first button that submits: that must
+    /// be the main action, so a Cancel placed before it sets this to false.
+    #[props(default = true)]
+    submits: bool,
 ) -> Element {
     let style = match tone {
         ButtonTone::Primary => "bg-ctp-mauve text-ctp-crust hover:brightness-110",
@@ -345,6 +359,7 @@ pub fn ActionButton(
     };
     rsx! {
         button {
+            r#type: if submits { "submit" } else { "button" },
             class: "min-h-10 rounded-full px-5 py-2 text-sm font-semibold transition cursor-pointer disabled:cursor-wait disabled:opacity-60 {style}",
             disabled,
             onclick: move |e| onclick.call(e),

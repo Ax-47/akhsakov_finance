@@ -278,7 +278,7 @@ fn parse_number(s: &str) -> Option<Decimal> {
 /// `2026-05-20`, `2026/05/20`, `2026-05-20T14:30:00Z`, `20260520`, US
 /// `5/20/2026` or, with `day_first`, `20/05/2026`. Buddhist-era years
 /// (`2569`) become Common Era.
-fn parse_date(s: &str, day_first: bool) -> Option<String> {
+pub fn parse_date(s: &str, day_first: bool) -> Option<String> {
     let s = s.trim();
     let first = s.split([' ', 'T', ',']).next().unwrap_or(s);
     let digits = |p: &str| p.parse::<u32>().ok();

@@ -28,7 +28,8 @@ pub fn use_time_zone_init() {
     });
 }
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/// Short month names, translated where they're shown.
+pub(crate) const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /// A stored time (SQLite's `YYYY-MM-DD HH:MM:SS` or RFC 3339, in UTC) in the
 /// viewer's time zone: `21 Oct 2026, 13:50`. A bare date stays a date, and

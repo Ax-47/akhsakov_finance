@@ -7,6 +7,7 @@ pub mod charts;
 pub mod color_picker;
 pub mod color_schema;
 pub mod context_menu;
+pub mod date_field;
 pub mod drag_and_drop_list;
 pub mod input;
 pub mod popover;
