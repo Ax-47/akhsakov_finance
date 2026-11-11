@@ -31,4 +31,7 @@ pub struct QuoteUpdate {
     /// converts `current_price` to USD (what a chart in that currency moves by).
     #[serde(default)]
     pub native_price: Option<Decimal>,
+    /// Shares traded so far today, when the stream says.
+    #[serde(default)]
+    pub volume: Option<u64>,
 }

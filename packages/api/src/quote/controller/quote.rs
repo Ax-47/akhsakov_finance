@@ -19,8 +19,13 @@ use types::ticker_symbol::TickerSymbol;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientEvent {
+    /// Stream these tickers (replacing the list sent before), with stock
+    /// prices converted to USD.
     Watch(Vec<TickerSymbol>),
     Unwatch(TickerSymbol),
+    /// Like `Watch`, but prices are sent as they trade, in each
+    /// instrument's own currency: what a quote board shows.
+    WatchRaw(Vec<TickerSymbol>),
 }
 
 #[get("/api/quotes/ws", quote_service: Extension<QuoteService>)]
@@ -184,13 +189,19 @@ async fn handle_socket(
 
     let mut rx = quote_service.subscribe().await;
     let mut watched: Vec<TickerSymbol> = Vec::new();
+    // Whether this connection asked for prices as they trade.
+    let mut raw = false;
 
     loop {
         select! {
             msg = socket.recv() => match msg {
                 // Only what changed reaches the price stream, so resending
                 // the same list (every data reload does) costs nothing.
-                Ok(ClientEvent::Watch(tickers)) => {
+                Ok(event @ (ClientEvent::Watch(_) | ClientEvent::WatchRaw(_))) => {
+                    raw = matches!(event, ClientEvent::WatchRaw(_));
+                    let (ClientEvent::Watch(tickers) | ClientEvent::WatchRaw(tickers)) = event else {
+                        continue;
+                    };
                     let added: Vec<TickerSymbol> = tickers.iter().filter(|t| !watched.contains(t)).cloned().collect();
                     let dropped: Vec<TickerSymbol> = watched.iter().filter(|t| !tickers.contains(t)).cloned().collect();
                     if quote_service.watch(added.clone()).await.is_err() {
@@ -209,9 +220,20 @@ async fn handle_socket(
             },
             res = rx.recv() => match res {
                 Ok(QuoteUpdateEvent::QuoteUpdate(update)) => {
-                    // Stocks in other currencies are sent in USD.
-                    let Some(update) = quote_service.to_usd(update).await else {
+                    // Every connection hears every streamed ticker: pass on
+                    // only the ones this one asked for.
+                    if !watched.contains(&update.ticker_symbol) {
                         continue;
+                    }
+                    // Stocks in other currencies are sent in USD, unless
+                    // the connection wants them as traded.
+                    let update = if raw {
+                        update
+                    } else {
+                        match quote_service.to_usd(update).await {
+                            Some(update) => update,
+                            None => continue,
+                        }
                     };
                     if socket.send(QuoteUpdateEvent::QuoteUpdate(update)).await.is_err() {
                         break;

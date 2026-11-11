@@ -13,6 +13,7 @@ mod income_tab;
 pub use economy_page::EconomyPage;
 mod learn;
 pub use learn::{LearnPage, LessonPage};
+mod board;
 mod market_page;
 pub use market_page::MarketPage;
 mod screener_page;

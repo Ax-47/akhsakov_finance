@@ -45,6 +45,16 @@ pub struct MarketQuote {
     pub dividend_date: Option<String>,
 }
 
+/// A board row as the provider gives it, before the service converts the
+/// market cap to USD.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BoardRow {
+    /// `market_cap_usd` is unset.
+    pub quote: dtos::board::BoardQuote,
+    /// Market capitalisation in the row's own currency.
+    pub market_cap: Option<f64>,
+}
+
 /// Dividend and earnings dates for one stock.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TickerCalendar {
@@ -59,6 +69,9 @@ pub trait MarketDataGateway: Send + Sync {
     /// Quotes for many tickers in as few requests as possible. Unknown
     /// tickers are left out.
     async fn quotes(&self, tickers: &[String]) -> Result<Vec<MarketQuote>, String>;
+    /// Board rows for many tickers, in any order. Unknown tickers are
+    /// left out.
+    async fn board(&self, tickers: &[String]) -> Result<Vec<BoardRow>, String>;
     /// One page of matches, and how many there are in total. Money bounds
     /// in `filter` are in the region's currency.
     async fn screen(&self, filter: &ScreenFilter) -> Result<(u32, Vec<MarketQuote>), String>;

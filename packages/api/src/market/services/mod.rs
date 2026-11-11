@@ -5,11 +5,12 @@
 
 use crate::{
     market::repositories::{
-        Constituent, IndexRepository, MarketDataGateway, MarketQuote, TickerCalendar,
+        BoardRow, Constituent, IndexRepository, MarketDataGateway, MarketQuote, TickerCalendar,
     },
     shared::{FxRates, ServiceError},
 };
 use chrono::{Duration as Days, NaiveDate};
+use dtos::board::BoardQuote;
 use dtos::insights::DividendInfo;
 use dtos::market::{
     region_currency, CalendarEvent, EventKind, HeatmapItem, MarketIndex, PeerGroup,
@@ -30,6 +31,11 @@ const SCREEN_TTL: Duration = Duration::from_secs(60);
 /// Dividend dates change rarely.
 const CALENDAR_TTL: Duration = Duration::from_secs(12 * 3600);
 pub const MAX_TICKERS: usize = 100;
+/// Board rows are shared for this long: short, because streamed trades
+/// only cover the price, and the rest (bid, ask, volume) should be fresh.
+const BOARD_TTL: Duration = Duration::from_secs(5);
+/// Rows on one board: enough for the S&P 500.
+pub const MAX_BOARD: usize = 600;
 const MAX_PEERS: usize = 10;
 /// Calendar window around today.
 const CALENDAR_PAST_DAYS: i64 = 14;
@@ -45,6 +51,7 @@ pub struct MarketService {
     index_cache: Cache<MarketIndex, Vec<HeatmapItem>>,
     screen_cache: Cache<String, ScreenResult>,
     calendar_cache: Cache<String, TickerCalendar>,
+    board_cache: Cache<String, Vec<BoardQuote>>,
 }
 
 /// Reads a cache entry younger than `ttl`.
@@ -77,6 +84,7 @@ impl MarketService {
             index_cache: Default::default(),
             screen_cache: Default::default(),
             calendar_cache: Default::default(),
+            board_cache: Default::default(),
         }
     }
 
@@ -138,6 +146,70 @@ impl MarketService {
             .await
             .insert(index, (Instant::now(), items.clone()));
         Ok(items)
+    }
+
+    /// Board rows for any instruments (stocks, indices, currencies,
+    /// futures, crypto), in the order given, each in its own currency.
+    pub async fn board(&self, tickers: Vec<TickerSymbol>) -> Result<Vec<BoardQuote>, ServiceError> {
+        if tickers.len() > MAX_BOARD {
+            return Err(ServiceError::Validation(format!("At most {MAX_BOARD} rows on a board")));
+        }
+        let tickers: Vec<String> = tickers.into_iter().map(Into::into).collect();
+        self.board_rows(tickers.join(","), &tickers, &[]).await
+    }
+
+    /// An index's constituents as board rows, largest first, with the
+    /// index's own names and sectors.
+    pub async fn index_board(&self, index: MarketIndex) -> Result<Vec<BoardQuote>, ServiceError> {
+        let members = self.index.constituents(index).await.map_err(upstream)?;
+        let tickers: Vec<String> = members.iter().map(|m| m.ticker.clone()).collect();
+        let mut rows = self.board_rows(format!("index/{}", index.key()), &tickers, &members).await?;
+        if rows.is_empty() {
+            return Err(upstream("No prices available right now".into()));
+        }
+        rows.sort_by(|a, b| b.market_cap_usd.unwrap_or(0.0).total_cmp(&a.market_cap_usd.unwrap_or(0.0)));
+        Ok(rows)
+    }
+
+    /// Rows for `tickers` in that order, cached under `key`. `members`
+    /// supply names and sectors. A currency without a USD rate costs its
+    /// rows the market cap, not the board.
+    async fn board_rows(
+        &self,
+        key: String,
+        tickers: &[String],
+        members: &[Constituent],
+    ) -> Result<Vec<BoardQuote>, ServiceError> {
+        if let Some(rows) = cached(&self.board_cache, &key, BOARD_TTL).await {
+            return Ok(rows);
+        }
+        let fetched = self.gateway.board(tickers).await.map_err(upstream)?;
+        let mut rates = HashMap::from([("USD".to_string(), Some(1.0))]);
+        for row in &fetched {
+            if row.market_cap.is_some() && !rates.contains_key(&row.quote.currency) {
+                let rate = self.usd_rate(&row.quote.currency).await.ok();
+                rates.insert(row.quote.currency.clone(), rate);
+            }
+        }
+        let rows: Vec<BoardQuote> = tickers
+            .iter()
+            .filter_map(|t| {
+                let BoardRow { quote, market_cap } = fetched.iter().find(|r| &r.quote.ticker == t)?.clone();
+                let member = members.iter().find(|m| &m.ticker == t);
+                let rate = rates.get(&quote.currency).copied().flatten();
+                Some(BoardQuote {
+                    name: member.map_or(quote.name.clone(), |m| m.name.clone()),
+                    sector: member.map(|m| m.sector.clone()),
+                    market_cap_usd: market_cap.zip(rate).map(|(cap, rate)| cap * rate),
+                    ..quote
+                })
+            })
+            .collect();
+        let mut cache = self.board_cache.lock().await;
+        // Every list of tickers is its own entry: drop the stale ones.
+        cache.retain(|_, (at, _)| at.elapsed() < BOARD_TTL);
+        cache.insert(key, (Instant::now(), rows.clone()));
+        Ok(rows)
     }
 
     /// Any stocks (e.g. a watchlist), in the order given, priced in USD.
@@ -445,6 +517,28 @@ mod tests {
             self.requests.fetch_add(1, Ordering::SeqCst);
             Ok(tickers.iter().filter(|t| *t != "GONE").map(|t| quote(t)).collect())
         }
+        async fn board(&self, tickers: &[String]) -> Result<Vec<BoardRow>, String> {
+            self.requests.fetch_add(1, Ordering::SeqCst);
+            Ok(tickers
+                .iter()
+                .filter(|t| *t != "GONE")
+                .map(|t| {
+                    let q = quote(t);
+                    BoardRow {
+                        quote: BoardQuote {
+                            ticker: q.ticker,
+                            name: q.name.unwrap_or_default(),
+                            // No USD rate for this one.
+                            currency: if t == "ODD" { "XXX".into() } else { q.currency },
+                            price: q.price,
+                            previous_close: Some(100.0),
+                            ..Default::default()
+                        },
+                        market_cap: q.market_cap,
+                    }
+                })
+                .collect())
+        }
         async fn screen(&self, f: &ScreenFilter) -> Result<(u32, Vec<MarketQuote>), String> {
             *self.last_screen.lock().unwrap() = Some(f.clone());
             Ok((42, vec![quote("PTT.BK")]))
@@ -468,7 +562,11 @@ mod tests {
             self.usd_per_unit_now(c).await
         }
         async fn usd_per_unit_now(&self, c: &str) -> Result<Decimal, String> {
-            Ok(if c == "THB" { Decimal::new(3, 2) } else { Decimal::ONE })
+            match c {
+                "THB" => Ok(Decimal::new(3, 2)),
+                "XXX" => Err("no rate".into()),
+                _ => Ok(Decimal::ONE),
+            }
         }
         async fn currency_of(&self, _: &TickerSymbol) -> Result<String, String> {
             Ok("USD".into())
@@ -497,6 +595,42 @@ mod tests {
             s.index_heatmap(MarketIndex::Dow30).await,
             Err(ServiceError::Upstream(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn a_board_keeps_the_order_asked_for_and_each_rows_currency() {
+        let gateway = Arc::new(FakeGateway::default());
+        let s = service(gateway.clone());
+        let t = |s: &str| TickerSymbol::new(s).unwrap();
+        let rows = s.board(vec![t("PTT.BK"), t("GONE"), t("BIG"), t("ODD")]).await.unwrap();
+        let shown: Vec<&str> = rows.iter().map(|r| r.ticker.as_str()).collect();
+        assert_eq!(shown, ["PTT.BK", "BIG", "ODD"], "unknown tickers are left out");
+        assert_eq!((rows[0].currency.as_str(), rows[0].price), ("THB", 110.0), "prices stay in baht");
+        assert!((rows[0].market_cap_usd.unwrap() - 3.0).abs() < 1e-9, "the cap is in USD");
+        assert_eq!(rows[1].market_cap_usd, Some(1000.0));
+        assert_eq!(rows[2].market_cap_usd, None, "no exchange rate: no cap, but still a row");
+        assert_eq!(rows[1].sector, None);
+
+        s.board(vec![t("PTT.BK"), t("GONE"), t("BIG"), t("ODD")]).await.unwrap();
+        assert_eq!(gateway.requests.load(Ordering::SeqCst), 1, "a second look within seconds is served from memory");
+        s.board(vec![t("BIG")]).await.unwrap();
+        assert_eq!(gateway.requests.load(Ordering::SeqCst), 2, "another list is another request");
+
+        let too_many = (0..=MAX_BOARD).map(|i| t(&format!("T{i}"))).collect();
+        assert!(matches!(s.board(too_many).await, Err(ServiceError::Validation(_))));
+    }
+
+    #[tokio::test]
+    async fn an_index_board_is_largest_first_with_the_index_names_and_sectors() {
+        let s = service(Arc::new(FakeGateway::default()));
+        let rows = s.index_board(MarketIndex::Sp500).await.unwrap();
+        let shown: Vec<(&str, &str, Option<&str>)> =
+            rows.iter().map(|r| (r.ticker.as_str(), r.name.as_str(), r.sector.as_deref())).collect();
+        assert_eq!(
+            shown,
+            [("BIG", "BIG Corp", Some("Energy")), ("MID", "MID Corp", Some("Tech")), ("SMALL", "SMALL Corp", Some("Tech"))]
+        );
+        assert!(s.index_board(MarketIndex::Dow30).await.is_err(), "no constituents, no board");
     }
 
     #[tokio::test]

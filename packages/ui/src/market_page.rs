@@ -1,9 +1,12 @@
-//! Markets: an index (S&P 500, Nasdaq-100, Dow, SET50) as a sector
-//! heatmap, with breadth, sector moves, the day's biggest movers and a
-//! stock table for a chosen sector.
+//! Markets: markets around the world at a glance, then one list at a time
+//! (an index, your holdings or a watchlist) as a live board, or an index
+//! as a sector heatmap with breadth, sector moves, the day's biggest
+//! movers and a stock table for a chosen sector.
 
 use crate::i18n::tr;
 use crate::{
+    app::DataRefresh,
+    board::{BoardSource, LiveBoard, WorldStrip},
     components::{
         analysis::stock::open_stock,
         card::{Card, MetricTile, Segmented, ToggleButton},
@@ -17,14 +20,71 @@ use dioxus::prelude::*;
 use dtos::market::{sector_moves, weighted_change, HeatmapItem, MarketIndex, SectorMove};
 use rust_decimal::Decimal;
 use types::ticker_symbol::TickerSymbol;
+use uuid::Uuid;
 
 const REFRESH_MS: u32 = 60_000;
 const RETRY_MS: u32 = 5_000;
 const MOVERS: usize = 6;
 
+/// The list the page shows.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Pick {
+    Index(MarketIndex),
+    Holdings,
+    Watchlist(Uuid),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum View {
+    Board,
+    Map,
+}
+
+/// The list and view last chosen, so coming back to the page (or opening
+/// it from a watchlist) shows them again.
+static PICK: GlobalSignal<Pick> = Signal::global(|| Pick::Index(MarketIndex::Sp500));
+static VIEW: GlobalSignal<View> = Signal::global(|| View::Board);
+
+/// Shows `pick` as a live board the next time the Markets page opens.
+pub fn show_board(pick: Pick) {
+    *PICK.write() = pick;
+    *VIEW.write() = View::Board;
+}
+
 #[component]
 pub fn MarketPage() -> Element {
-    let mut index = use_signal(|| MarketIndex::Sp500);
+    let refresh = use_context::<DataRefresh>();
+    let held = crate::hooks::use_held_shares();
+    let lists = crate::cache::use_cached(|| "watchlists".into(), move || async move {
+        let _reload = refresh.0();
+        api::get_watchlists().await.ok()
+    });
+    let lists = lists.read().clone().flatten().unwrap_or_default();
+    // A watchlist that was deleted falls back to the first index.
+    let pick = match PICK() {
+        Pick::Watchlist(id) if !lists.iter().any(|l| l.id == id) => Pick::Index(MarketIndex::Sp500),
+        pick => pick,
+    };
+    let view = match pick {
+        Pick::Index(_) => VIEW(),
+        _ => View::Board,
+    };
+    let (title, source) = match pick {
+        Pick::Index(index) => (tr(index.label()).to_string(), BoardSource::Index(index)),
+        Pick::Holdings => {
+            let mut tickers: Vec<TickerSymbol> =
+                held.read().iter().filter(|(_, shares)| **shares > Decimal::ZERO).map(|(t, _)| t.clone()).collect();
+            tickers.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+            (tr("Your holdings").to_string(), BoardSource::Tickers(tickers))
+        }
+        Pick::Watchlist(id) => {
+            let list = lists.iter().find(|l| l.id == id);
+            (
+                list.map(|l| l.name.clone()).unwrap_or_default(),
+                BoardSource::Tickers(list.map(|l| l.items.iter().map(|i| i.ticker.clone()).collect()).unwrap_or_default()),
+            )
+        }
+    };
     rsx! {
         Page {
             header { class: "flex flex-wrap items-end justify-between gap-4 motion-safe:animate-rise",
@@ -32,21 +92,54 @@ pub fn MarketPage() -> Element {
                     h1 { class: "text-3xl sm:text-4xl font-bold tracking-tight pb-1 bg-gradient-to-r from-ctp-pink via-ctp-mauve to-ctp-sky bg-clip-text text-transparent",
                         {tr("Markets")}
                     }
-                    p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Today's move across an index. Refreshes every minute.")} }
+                    p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Live prices, moving with each trade.")} }
                 }
-                Segmented {
-                    for i in MarketIndex::ALL {
-                        ToggleButton { key: "{i.key()}", label: tr(i.label()), active: index() == i, onclick: move |_| index.set(i) }
+                if matches!(pick, Pick::Index(_)) {
+                    Segmented {
+                        ToggleButton { label: tr("Board"), active: view == View::Board, onclick: move |_| *VIEW.write() = View::Board }
+                        ToggleButton { label: tr("Heatmap"), active: view == View::Map, onclick: move |_| *VIEW.write() = View::Map }
                     }
                 }
             }
-            // A one-item keyed list, so switching index mounts a fresh view
-            // with its own refresh loop. A key outside a list does nothing:
-            // the old view would keep fetching the first index's stocks.
-            div {
-                for i in [index()] {
-                    IndexView { key: "{i.key()}", index: i }
+            div { class: "mt-6 motion-safe:animate-rise",
+                WorldStrip {}
+            }
+            div { class: "mt-5 flex flex-wrap items-center gap-2 motion-safe:animate-rise",
+                Segmented {
+                    for i in MarketIndex::ALL {
+                        ToggleButton { key: "{i.key()}", label: tr(i.label()), active: pick == Pick::Index(i), onclick: move |_| *PICK.write() = Pick::Index(i) }
+                    }
                 }
+                Segmented {
+                    ToggleButton { label: tr("Your holdings"), active: pick == Pick::Holdings, onclick: move |_| *PICK.write() = Pick::Holdings }
+                    for list in lists.iter() {
+                        {
+                            let id = list.id;
+                            rsx! {
+                                ToggleButton { key: "{id}", label: format!("☆ {}", list.name), active: pick == Pick::Watchlist(id), onclick: move |_| *PICK.write() = Pick::Watchlist(id) }
+                            }
+                        }
+                    }
+                }
+            }
+            // One-item keyed lists, so switching list mounts a fresh view
+            // with its own refresh loop and price stream. A key outside a
+            // list does nothing: the old view would keep the first list.
+            match (view, pick) {
+                (View::Map, Pick::Index(index)) => rsx! {
+                    div {
+                        for i in [index] {
+                            IndexView { key: "{i.key()}", index: i }
+                        }
+                    }
+                },
+                _ => rsx! {
+                    div { class: "mt-5 motion-safe:animate-rise",
+                        for (key, source) in [(format!("{pick:?}/{source:?}"), source)] {
+                            LiveBoard { key: "{key}", source, title: title.clone() }
+                        }
+                    }
+                },
             }
         }
     }
@@ -136,14 +229,14 @@ fn IndexView(index: MarketIndex) -> Element {
     rsx! {
             match data() {
                 None => rsx! {
-                    div { class: "mt-10 motion-safe:animate-rise",
+                    div { class: "mt-5 motion-safe:animate-rise",
                         Card { title: tr(index.label()),
                             div { class: "flex h-[560px] items-center justify-center text-sm text-ctp-subtext0", {tr("Loading prices…")} }
                         }
                     }
                 },
                 Some(Err(message)) => rsx! {
-                    div { class: "mt-10 motion-safe:animate-rise",
+                    div { class: "mt-5 motion-safe:animate-rise",
                         Card { title: tr(index.label()),
                             p { class: "text-sm text-ctp-red", title: "{message}", {tr("Couldn't load prices right now. The data source may be busy; try again shortly.")} }
                             p { class: "mt-1 text-xs text-ctp-subtext0", {tr("Retrying in a few seconds…")} }
@@ -151,7 +244,7 @@ fn IndexView(index: MarketIndex) -> Element {
                     }
                 },
                 Some(Ok(_)) => rsx! {
-                    div { class: "mt-10 grid grid-cols-2 gap-3 lg:grid-cols-4 motion-safe:animate-rise",
+                    div { class: "mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4 motion-safe:animate-rise",
                         MetricTile {
                             label: tr(index.label()),
                             value: pct(index_change),
