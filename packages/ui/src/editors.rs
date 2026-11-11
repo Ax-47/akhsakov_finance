@@ -168,6 +168,19 @@ pub fn TransactionDialog(
             .collect::<Vec<_>>()
     });
 
+    // An error describes the form as it was: once a field changes it's
+    // out of date (a price lookup finding nothing new doesn't count).
+    let fields = use_memo(move || {
+        let f = form.read();
+        (f.kind.clone(), f.portfolio, f.ticker.clone(), f.date.clone(), f.shares.clone(), f.price.clone(), f.fee.clone(), f.currency.clone())
+    });
+    use_effect(move || {
+        fields();
+        if error.peek().is_some() {
+            error.set(None);
+        }
+    });
+
     // New transactions default to today (the browser knows the local date).
     use_effect(move || {
         if form.peek().date.is_empty() {
@@ -225,10 +238,7 @@ pub fn TransactionDialog(
                             key: "{label}",
                             label: tr_str(label),
                             active: f.kind == kind,
-                            onclick: move |_| {
-                                form.write().kind = kind.clone();
-                                error.set(None);
-                            },
+                            onclick: move |_| form.write().kind = kind.clone(),
                         }
                     }
                 }
