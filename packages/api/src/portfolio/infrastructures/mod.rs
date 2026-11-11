@@ -146,8 +146,11 @@ impl PortfolioRepository for SqlitePortfolioRepository {
     }
 
     fn transactions(&self) -> Result<Vec<Transaction>, RepositoryError> {
+        // A day's sales come after its other transactions: without times,
+        // that's the order in which shares bought that day can be sold,
+        // whichever was entered (or imported, or edited) first.
         let rows: Vec<TxRow> = self.db.with(|c| {
-            c.prepare("SELECT id, portfolio_id, ticker, kind, shares, price, fee, date, currency, fx_to_usd FROM transactions ORDER BY date, rowid")?
+            c.prepare("SELECT id, portfolio_id, ticker, kind, shares, price, fee, date, currency, fx_to_usd FROM transactions ORDER BY date, lower(kind) = 'sell', rowid")?
                 .query_map([], read_tx_row)?
                 .collect()
         })?;

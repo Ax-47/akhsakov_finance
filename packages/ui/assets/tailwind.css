@@ -2031,6 +2031,10 @@
     max-height: 85vh;
   }
 
+  .max-h-\[calc\(100dvh-1rem\)\] {
+    max-height: calc(100dvh - 1rem);
+  }
+
   .max-h-\[calc\(100dvh-2rem\)\] {
     max-height: calc(100dvh - 2rem);
   }
@@ -2195,6 +2199,10 @@
     width: 4.5rem;
   }
 
+  .w-\[19rem\] {
+    width: 19rem;
+  }
+
   .w-fit {
     width: fit-content;
   }
@@ -2225,6 +2233,10 @@
 
   .max-w-\[14rem\] {
     max-width: 14rem;
+  }
+
+  .max-w-\[calc\(100vw-1rem\)\] {
+    max-width: calc(100vw - 1rem);
   }
 
   .max-w-full {
@@ -2373,6 +2385,10 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
+  .grid-cols-7 {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
   .grid-cols-\[4\.5rem_1fr_7rem\] {
     grid-template-columns: 4.5rem 1fr 7rem;
   }
@@ -2425,6 +2441,10 @@
     justify-content: flex-end;
   }
 
+  .justify-items-center {
+    justify-items: center;
+  }
+
   .gap-0\.5 {
     gap: calc(var(--spacing) * .5);
   }
@@ -2475,6 +2495,10 @@
 
   .gap-x-6 {
     column-gap: calc(var(--spacing) * 6);
+  }
+
+  .gap-y-0\.5 {
+    row-gap: calc(var(--spacing) * .5);
   }
 
   .gap-y-1 {
@@ -2683,6 +2707,16 @@
   @supports (color: color-mix(in lab, red, red)) {
     .border-ctp-mauve\/30 {
       border-color: color-mix(in oklab, var(--catppuccin-color-mauve) 30%, transparent);
+    }
+  }
+
+  .border-ctp-mauve\/70 {
+    border-color: var(--catppuccin-color-mauve);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-ctp-mauve\/70 {
+      border-color: color-mix(in oklab, var(--catppuccin-color-mauve) 70%, transparent);
     }
   }
 
@@ -3787,6 +3821,10 @@
     color: var(--catppuccin-color-mauve) !important;
   }
 
+  .text-ctp-overlay0 {
+    color: var(--catppuccin-color-overlay0);
+  }
+
   .text-ctp-overlay1 {
     color: var(--catppuccin-color-overlay1);
   }
@@ -4193,6 +4231,16 @@
       }
     }
 
+    .hover\:bg-ctp-peach\/25:hover {
+      background-color: var(--catppuccin-color-peach);
+    }
+
+    @supports (color: color-mix(in lab, red, red)) {
+      .hover\:bg-ctp-peach\/25:hover {
+        background-color: color-mix(in oklab, var(--catppuccin-color-peach) 25%, transparent);
+      }
+    }
+
     .hover\:bg-ctp-red\/10:hover {
       background-color: var(--catppuccin-color-red);
     }
@@ -4275,6 +4323,10 @@
 
   .focus\:border-ctp-mauve:focus {
     border-color: var(--catppuccin-color-mauve);
+  }
+
+  .focus-visible\:bg-ctp-surface0:focus-visible {
+    background-color: var(--catppuccin-color-surface0);
   }
 
   .focus-visible\:opacity-100:focus-visible {

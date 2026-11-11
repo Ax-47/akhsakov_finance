@@ -9,7 +9,7 @@ use dtos::{
     asset::get_asset_response::GetAssetResponse,
     csv_import::{parse_broker_csv, Broker, ImportResult},
     portfolio::{GetDashBoardResponse, GetPortfolioResponse},
-    position::compute_positions,
+    position::{check_sale, compute_positions, SaleProblem},
     Transaction,
 };
 use rust_decimal::Decimal;
@@ -74,8 +74,39 @@ impl PortfolioService {
     pub async fn save_transaction(&self, tx: Transaction) -> Result<(), ServiceError> {
         self.ensure_portfolio(tx.portfolio_id)?;
         validate(&tx)?;
+        self.ensure_shares_to_sell(&tx)?;
         let tx = self.priced(tx).await?;
         Ok(self.repo.save_transaction(&tx)?)
+    }
+
+    /// A sale needs its shares in the same portfolio on its date. Without
+    /// them (a mistyped ticker, the wrong portfolio) the holdings would
+    /// stay as they were while the sale still showed as cash received.
+    fn ensure_shares_to_sell(&self, tx: &Transaction) -> Result<(), ServiceError> {
+        if tx.transaction_type != TransactionType::Sell {
+            return Ok(());
+        }
+        let others: Vec<Transaction> = self
+            .repo
+            .transactions()?
+            .into_iter()
+            .filter(|t| t.portfolio_id == tx.portfolio_id && t.id != tx.id)
+            .collect();
+        let (ticker, date) = (&tx.ticker, &tx.date);
+        check_sale(&others, tx).map_err(|problem| {
+            ServiceError::Validation(match problem {
+                SaleProblem::NotHeld => format!(
+                    "This portfolio holds no {ticker} on {date}. Check the ticker, the portfolio and the date."
+                ),
+                SaleProblem::TooMany { held } => {
+                    format!("This portfolio holds only {} {ticker} on {date}.", held.normalize())
+                }
+                SaleProblem::NeededLater { free } => format!(
+                    "Only {} {ticker} can be sold on {date}: later sales need the rest.",
+                    free.normalize()
+                ),
+            })
+        })
     }
 
     /// Fills in `fx_to_usd` when it's unknown (zero).
@@ -340,6 +371,69 @@ mod tests {
 
         s.delete_transaction(tx.id).unwrap();
         assert!(s.dashboard().unwrap().transactions.is_empty());
+    }
+
+    fn sell(portfolio_id: Uuid, ticker: &str, shares: Decimal, date: &str) -> Transaction {
+        Transaction {
+            ticker: TickerSymbol::new(ticker).unwrap(),
+            transaction_type: TransactionType::Sell,
+            date: date.into(),
+            ..buy(portfolio_id, shares, dec!(120))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sale_needs_the_shares_in_its_portfolio() {
+        let s = service();
+        let (main, other) = (s.create_portfolio("Main").unwrap(), s.create_portfolio("Other").unwrap());
+        s.save_transaction(buy(main, dec!(0.06032), dec!(100))).await.unwrap();
+        let refused = |tx: Transaction| {
+            let s = s.clone();
+            async move {
+                match s.save_transaction(tx).await {
+                    Err(ServiceError::Validation(message)) => message,
+                    other => panic!("expected the sale to be refused, got {other:?}"),
+                }
+            }
+        };
+
+        // A mistyped ticker, the wrong portfolio, too many, or before the buy.
+        assert!(refused(sell(main, "NVDX", dec!(0.03), "2026-05-22")).await.contains("holds no NVDX"));
+        assert!(refused(sell(other, "NVDA", dec!(0.03), "2026-05-22")).await.contains("holds no NVDA"));
+        assert!(refused(sell(main, "NVDA", dec!(1), "2026-05-22")).await.contains("holds only 0.06032 NVDA"));
+        assert!(refused(sell(main, "NVDA", dec!(0.03), "2026-05-19")).await.contains("holds no NVDA"));
+        assert_eq!(s.dashboard().unwrap().transactions.len(), 1, "nothing refused was stored");
+
+        let mut sale = sell(main, "NVDA", dec!(0.03082), "2026-05-22");
+        s.save_transaction(sale.clone()).await.unwrap();
+        let held = |s: &PortfolioService| s.dashboard().unwrap().portfolios[0].assets[0].quantity.value();
+        assert_eq!(held(&s), dec!(0.0295));
+        // Editing a sale isn't blocked by the shares it sold itself.
+        sale.shares = dec!(0.05);
+        s.save_transaction(sale.clone()).await.unwrap();
+        assert_eq!(held(&s), dec!(0.01032));
+        // An earlier sale can't take shares a recorded one needs.
+        assert!(refused(sell(main, "NVDA", dec!(0.02), "2026-05-21")).await.contains("Only 0.01032 NVDA"));
+    }
+
+    #[tokio::test]
+    async fn a_days_buys_count_before_its_sales() {
+        let s = service();
+        let id = s.create_portfolio("Imported").unwrap();
+        // Newest first, as many brokers export: the sale is stored first.
+        let csv = "date,symbol,action,quantity,price,fee\n\
+                   2026-01-05,AAPL,sell,4,160,0\n\
+                   2026-01-05,AAPL,buy,10,150,0\n";
+        assert_eq!(s.import_csv(id, csv, Broker::Auto).await.unwrap().imported, 2);
+        let d = s.dashboard().unwrap();
+        assert_eq!(d.portfolios[0].assets[0].quantity.value(), dec!(6));
+        assert_eq!(d.transactions[1].transaction_type, TransactionType::Sell);
+
+        // Editing the buy keeps it ahead of the sale.
+        let mut bought = d.transactions[0].clone();
+        bought.price = dec!(151);
+        s.save_transaction(bought).await.unwrap();
+        assert_eq!(s.dashboard().unwrap().portfolios[0].assets[0].quantity.value(), dec!(6));
     }
 
     #[tokio::test]

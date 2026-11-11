@@ -138,6 +138,100 @@ pub fn cash_balance(transactions: &[Transaction]) -> Option<Decimal> {
     }))
 }
 
+// ── What can be sold ──────────────────────────────────────────────────────────
+
+/// Shares too few to count as a holding; a sale may overshoot by this much
+/// (brokers round fractional shares differently).
+pub const DUST: Decimal = dec!(0.0001);
+
+/// What one portfolio has of a ticker to sell on a date.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Sellable {
+    /// Shares held at the end of the date.
+    pub held: Decimal,
+    /// The part of `held` that sales recorded on later dates don't need.
+    pub free: Decimal,
+}
+
+/// What `transactions` (one portfolio's, without the sale being checked)
+/// leave of `ticker` to sell on `date`. Everything recorded on `date`
+/// counts, as the day's buys are replayed before its sales.
+pub fn sellable_shares(transactions: &[Transaction], ticker: &TickerSymbol, date: &str) -> Sellable {
+    let mut ledger: Vec<&Transaction> = transactions.iter().filter(|tx| &tx.ticker == ticker).collect();
+    ledger.sort_by(|a, b| a.date.cmp(&b.date));
+    let mut held = Decimal::ZERO;
+    let mut later = ledger.iter().peekable();
+    while let Some(tx) = later.next_if(|tx| tx.date.as_str() <= date) {
+        apply_shares(&mut held, tx);
+    }
+    // A sale today of `n` shares takes `n × splits since` from every later
+    // balance, none of which may go below zero.
+    let (mut free, mut splits) = (held, Decimal::ONE);
+    let mut balance = held;
+    for tx in later {
+        if tx.transaction_type == TransactionType::Split && tx.shares > Decimal::ZERO {
+            splits *= tx.shares;
+        }
+        apply_shares(&mut balance, tx);
+        free = free.min(balance / splits);
+    }
+    Sellable { held, free }
+}
+
+/// Why a sale can't be recorded.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SaleProblem {
+    /// The portfolio has none of the ticker on the sale's date.
+    NotHeld,
+    /// It has fewer shares than the sale, namely `held`.
+    TooMany { held: Decimal },
+    /// It has the shares, but later sales need all but `free` of them.
+    NeededLater { free: Decimal },
+}
+
+/// Checks `sale` against the other transactions of its portfolio: a sale
+/// of shares the portfolio doesn't have would be ignored in its holdings
+/// and still counted as cash received.
+pub fn check_sale(others: &[Transaction], sale: &Transaction) -> Result<(), SaleProblem> {
+    let Sellable { held, free } = sellable_shares(others, &sale.ticker, &sale.date);
+    if held <= DUST {
+        Err(SaleProblem::NotHeld)
+    } else if sale.shares > held + DUST {
+        Err(SaleProblem::TooMany { held })
+    } else if sale.shares > free + DUST {
+        Err(SaleProblem::NeededLater { free: free.max(Decimal::ZERO) })
+    } else {
+        Ok(())
+    }
+}
+
+/// Sales of more shares than their portfolio held at the time, each with
+/// the shares it had to sell. [`compute_positions`] counts only that part,
+/// so the rest of such a sale changes nothing.
+pub fn uncovered_sales(transactions: &[Transaction]) -> HashMap<uuid::Uuid, Decimal> {
+    let mut held: HashMap<(uuid::Uuid, &TickerSymbol), Decimal> = HashMap::new();
+    let mut uncovered = HashMap::new();
+    for tx in transactions.iter().filter(|tx| !tx.is_cash()) {
+        let balance = held.entry((tx.portfolio_id, &tx.ticker)).or_default();
+        if tx.transaction_type == TransactionType::Sell && tx.shares > *balance + DUST {
+            uncovered.insert(tx.id, *balance);
+        }
+        apply_shares(balance, tx);
+    }
+    uncovered
+}
+
+/// The effect of `tx` on the number of shares held, as [`compute_positions`]
+/// counts it.
+fn apply_shares(held: &mut Decimal, tx: &Transaction) {
+    match tx.transaction_type {
+        TransactionType::Buy => *held += tx.shares,
+        TransactionType::Sell => *held -= tx.shares.min(*held),
+        TransactionType::Split if tx.shares > Decimal::ZERO => *held *= tx.shares,
+        _ => {}
+    }
+}
+
 // ── portfolio_summary ─────────────────────────────────────────────────────────
 
 pub fn portfolio_summary(positions: &[Position]) -> (Decimal, Decimal, Decimal, Decimal) {
@@ -208,6 +302,83 @@ mod tests {
         // 1000 − 505 + 149 + 12
         assert_eq!(cash_balance(&txs), Some(dec!(656)));
         assert_eq!(cash_balance(&txs[1..]), None);
+    }
+
+    fn on(date: &str, ticker: &str, kind: TransactionType, shares: Decimal) -> Transaction {
+        Transaction { id: Uuid::new_v4(), date: date.into(), ..tx(ticker, kind, shares, dec!(10), dec!(0)) }
+    }
+
+    #[test]
+    fn only_shares_held_on_the_day_can_be_sold() {
+        use TransactionType::*;
+        let amd = TickerSymbol::new("AMD").unwrap();
+        let txs = vec![
+            on("2026-11-02", "AMD", Buy, dec!(0.06032)),
+            on("2026-11-02", "CAT", Buy, dec!(0.02384)),
+            on("2026-11-10", "AMD", Buy, dec!(1)),
+        ];
+        let sellable = |date| sellable_shares(&txs, &amd, date);
+        assert_eq!(sellable("2026-11-01"), Sellable::default(), "not bought yet");
+        assert_eq!(sellable("2026-11-04").held, dec!(0.06032), "the later buy doesn't count");
+        assert_eq!(sellable("2026-11-10").free, dec!(1.06032), "the day's own buys do");
+        // A mistyped ticker has nothing to sell.
+        assert_eq!(sellable_shares(&txs, &TickerSymbol::new("AND").unwrap(), "2026-11-04"), Sellable::default());
+    }
+
+    #[test]
+    fn shares_sold_later_are_not_free_to_sell_earlier() {
+        use TransactionType::*;
+        let aaa = TickerSymbol::new("AAA").unwrap();
+        let txs = vec![
+            on("2026-01-05", "AAA", Buy, dec!(10)),
+            on("2026-02-05", "AAA", Split, dec!(2)), // 20 shares
+            on("2026-03-05", "AAA", Sell, dec!(14)), // 6 left
+            on("2026-04-05", "AAA", Buy, dec!(5)),
+        ];
+        // 7 pre-split shares became the 14 sold in March.
+        assert_eq!(sellable_shares(&txs, &aaa, "2026-01-20"), Sellable { held: dec!(10), free: dec!(3) });
+        assert_eq!(sellable_shares(&txs, &aaa, "2026-02-20"), Sellable { held: dec!(20), free: dec!(6) });
+        assert_eq!(sellable_shares(&txs, &aaa, "2026-04-05"), Sellable { held: dec!(11), free: dec!(11) });
+    }
+
+    #[test]
+    fn a_sale_is_checked_against_its_portfolio() {
+        use TransactionType::*;
+        let txs = vec![
+            on("2026-11-02", "AMD", Buy, dec!(0.06032)),
+            on("2026-11-20", "AMD", Sell, dec!(0.05)),
+        ];
+        let sale = |date, ticker, shares| check_sale(&txs, &on(date, ticker, Sell, shares));
+        assert_eq!(sale("2026-11-04", "AND", dec!(0.03082)), Err(SaleProblem::NotHeld));
+        assert_eq!(sale("2026-11-01", "AMD", dec!(0.01)), Err(SaleProblem::NotHeld));
+        assert_eq!(sale("2026-11-04", "AMD", dec!(1)), Err(SaleProblem::TooMany { held: dec!(0.06032) }));
+        assert_eq!(sale("2026-11-04", "AMD", dec!(0.03082)), Err(SaleProblem::NeededLater { free: dec!(0.01032) }));
+        assert_eq!(sale("2026-11-04", "AMD", dec!(0.01032)), Ok(()));
+        assert_eq!(sale("2026-11-21", "AMD", dec!(0.01032)), Ok(()));
+    }
+
+    #[test]
+    fn sales_of_shares_not_held_are_found() {
+        use TransactionType::*;
+        let other = Uuid::new_v4();
+        let typo = on("2026-11-04", "AND", Sell, dec!(0.03082));
+        let too_many = on("2026-11-05", "AMD", Sell, dec!(1));
+        let elsewhere = Transaction { portfolio_id: other, ..on("2026-11-06", "CAT", Sell, dec!(0.02)) };
+        let txs = vec![
+            on("2026-11-02", "AMD", Buy, dec!(0.06032)),
+            on("2026-11-02", "CAT", Buy, dec!(0.02384)),
+            on("2026-11-03", "CAT", Sell, dec!(0.02)),
+            typo.clone(),
+            too_many.clone(),
+            elsewhere.clone(),
+            // Rounded a hair over what's left: still a full sale.
+            on("2026-11-07", "CAT", Sell, dec!(0.00389)),
+        ];
+        let uncovered = uncovered_sales(&txs);
+        assert_eq!(uncovered.len(), 3);
+        assert_eq!(uncovered[&typo.id], dec!(0));
+        assert_eq!(uncovered[&too_many.id], dec!(0.06032));
+        assert_eq!(uncovered[&elsewhere.id], dec!(0), "another portfolio's shares don't cover it");
     }
 
     #[test]

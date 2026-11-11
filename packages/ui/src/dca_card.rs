@@ -339,7 +339,7 @@ fn PlanDialog(existing: Option<DcaPlan>, portfolio: Option<Uuid>, on_close: Even
                     p { class: "rounded-xl bg-ctp-red/10 px-3 py-2 text-sm text-ctp-red break-words", "{e}" }
                 }
                 div { class: "flex justify-end gap-2",
-                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, onclick: move |_| on_close.call(()) }
+                    ActionButton { label: tr("Cancel"), tone: ButtonTone::Quiet, submits: false, onclick: move |_| on_close.call(()) }
                     ActionButton { label: tr("Save"), disabled: busy(), onclick: submit }
                 }
             }
