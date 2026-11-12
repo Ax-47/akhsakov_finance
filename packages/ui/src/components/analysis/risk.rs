@@ -384,6 +384,12 @@ pub fn RiskTab(
                     StressTest { report: report.clone(), value, bench: bench.clone() }
                 }
                 RiskContribution { report: report.clone(), tickers: tickers(), shares, volumes }
+                super::quant::BenchmarkCard { report: report.clone(), subject: tr("Portfolio"), bench: bench.clone() }
+                super::quant::MonthlyReturnsCard { report: report.clone(), subject: tr("Portfolio"), bench: bench.clone() }
+                div { class: "grid gap-5 lg:grid-cols-2",
+                    super::quant::DrawdownsCard { report: report.clone(), subject: tr("Portfolio") }
+                    super::quant::RollingCard { report: report.clone(), subject: tr("Portfolio"), bench: bench.clone() }
+                }
             }
         }
     };

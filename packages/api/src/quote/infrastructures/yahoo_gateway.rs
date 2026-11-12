@@ -7,7 +7,7 @@ use crate::{
         yahoo_gateway_mapper::{to_candle, to_yinterval, to_yrange},
     },
 };
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 #[cfg(feature = "server")]
 use tokio::sync::{
@@ -71,6 +71,7 @@ impl YahooGateWay {
                     current_price: price,
                     timestamp: update.ts.timestamp(),
                     native_price: Some(price),
+                    volume: update.volume.and_then(|v| v.as_decimal().to_u64()),
                 };
                 let _ = tx.send(QuoteUpdateEvent::QuoteUpdate(quote));
             }

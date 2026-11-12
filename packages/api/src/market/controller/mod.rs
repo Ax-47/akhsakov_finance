@@ -25,6 +25,19 @@ pub async fn get_tickers_heatmap(
     Ok(service.tickers_heatmap(tickers).await?)
 }
 
+/// Board rows (last, change, bid and ask, volume, ranges) for any
+/// instruments, in the order given, each in its own currency.
+#[post("/api/market/board", service: Extension<MarketService>)]
+pub async fn get_board(tickers: Vec<TickerSymbol>) -> Result<Vec<dtos::board::BoardQuote>, ServerFnError> {
+    Ok(service.board(tickers).await?)
+}
+
+/// An index's constituents as board rows, largest first.
+#[post("/api/market/board/index", service: Extension<MarketService>)]
+pub async fn get_index_board(index: MarketIndex) -> Result<Vec<dtos::board::BoardQuote>, ServerFnError> {
+    Ok(service.index_board(index).await?)
+}
+
 /// One page of stocks matching `filter`.
 #[post("/api/market/screen", service: Extension<MarketService>)]
 pub async fn screen_stocks(filter: ScreenFilter) -> Result<ScreenResult, ServerFnError> {

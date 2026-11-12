@@ -173,7 +173,8 @@ pub fn DateField(
                 }
             }
             if open() {
-                div { class: "fixed inset-0 z-[60]", onclick: move |_| open.set(false) }
+                // Esc presses this, wherever the focus is (see `Modal`).
+                div { class: "fixed inset-0 z-[60]", "data-popover-backdrop": "true", onclick: move |_| open.set(false) }
                 div {
                     class: "fixed z-[70] w-[19rem] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-2xl \
                             border border-ctp-surface0 bg-ctp-mantle p-3 shadow-2xl shadow-ctp-crust/60",

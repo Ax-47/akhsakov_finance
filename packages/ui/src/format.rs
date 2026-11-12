@@ -42,6 +42,19 @@ pub fn fmt_when(raw: &str) -> String {
     when_in(raw, UTC_OFFSET.with(Cell::get))
 }
 
+/// A Unix time as the viewer's wall clock: `21:04:55`.
+pub fn fmt_clock(unix: i64) -> String {
+    if Runtime::try_current().is_some() {
+        ZONE_VERSION.read();
+    }
+    clock_in(unix, UTC_OFFSET.with(Cell::get))
+}
+
+fn clock_in(unix: i64, offset_minutes: i32) -> String {
+    let second = (unix + i64::from(offset_minutes) * 60).rem_euclid(86_400);
+    format!("{:02}:{:02}:{:02}", second / 3600, second % 3600 / 60, second % 60)
+}
+
 fn when_in(raw: &str, offset_minutes: i32) -> String {
     use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Timelike};
     let text = raw.trim();
@@ -193,6 +206,15 @@ pub fn signed_color(value: Decimal) -> &'static str {
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn shows_a_unix_time_on_the_viewers_clock() {
+        // 2026-11-11T16:56:08Z
+        assert_eq!(clock_in(1_794_416_168, 0), "16:56:08");
+        assert_eq!(clock_in(1_794_416_168, 7 * 60), "23:56:08", "Bangkok");
+        assert_eq!(clock_in(1_794_416_168, 8 * 60), "00:56:08", "past midnight");
+        assert_eq!(clock_in(1_794_416_168, -5 * 60), "11:56:08", "New York");
+    }
 
     #[test]
     fn formats_usd() {

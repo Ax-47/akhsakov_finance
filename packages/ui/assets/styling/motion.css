@@ -66,3 +66,30 @@
 }
 .pct-pill.up   { background-color: #a6e3a1; }
 .pct-pill.down { background-color: #f38ba8; }
+
+/* A streamed trade flashes its price: green up, red down, then fades. The
+   span is re-created on every move, which restarts the animation. */
+.tick-up,
+.tick-down {
+  border-radius: 0.375rem;
+  animation-duration: 1s;
+  animation-timing-function: ease-out;
+}
+
+.tick-up   { animation-name: tick-up; }
+.tick-down { animation-name: tick-down; }
+
+@keyframes tick-up {
+  from { background-color: color-mix(in srgb, var(--catppuccin-color-green) 45%, transparent); }
+  to   { background-color: transparent; }
+}
+
+@keyframes tick-down {
+  from { background-color: color-mix(in srgb, var(--catppuccin-color-red) 45%, transparent); }
+  to   { background-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick-up,
+  .tick-down { animation: none; }
+}

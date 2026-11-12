@@ -7,7 +7,7 @@ mod wikipedia;
 pub use wikipedia::WikipediaIndexRepository;
 
 use crate::{
-    market::repositories::{MarketDataGateway, MarketQuote, TickerCalendar},
+    market::repositories::{BoardRow, MarketDataGateway, MarketQuote, TickerCalendar},
     shared::yahoo_raw::{date, num, text, YahooRaw},
 };
 use async_trait::async_trait;
@@ -30,22 +30,32 @@ impl YahooMarketGateway {
     }
 }
 
-#[async_trait]
-impl MarketDataGateway for YahooMarketGateway {
-    async fn quotes(&self, tickers: &[String]) -> Result<Vec<MarketQuote>, String> {
+impl YahooMarketGateway {
+    /// Yahoo's quote objects for `tickers`.
+    async fn raw_quotes(&self, tickers: &[String]) -> Result<Vec<Value>, String> {
         if tickers.is_empty() {
             return Ok(vec![]);
         }
         // A dropped connection fails without an upstream retry: try twice.
-        let values = match self.raw.quotes(tickers).await {
-            Ok(v) => v,
+        match self.raw.quotes(tickers).await {
+            Ok(v) => Ok(v),
             Err(first) => {
                 tracing::warn!("Yahoo quotes failed, retrying once: {first}");
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                self.raw.quotes(tickers).await?
+                self.raw.quotes(tickers).await
             }
-        };
-        Ok(values.iter().filter_map(to_quote).collect())
+        }
+    }
+}
+
+#[async_trait]
+impl MarketDataGateway for YahooMarketGateway {
+    async fn quotes(&self, tickers: &[String]) -> Result<Vec<MarketQuote>, String> {
+        Ok(self.raw_quotes(tickers).await?.iter().filter_map(to_quote).collect())
+    }
+
+    async fn board(&self, tickers: &[String]) -> Result<Vec<BoardRow>, String> {
+        Ok(self.raw_quotes(tickers).await?.iter().filter_map(to_board).collect())
     }
 
     async fn screen(&self, filter: &ScreenFilter) -> Result<(u32, Vec<MarketQuote>), String> {
@@ -85,16 +95,61 @@ impl MarketDataGateway for YahooMarketGateway {
     }
 }
 
-/// A Yahoo quote object as a [`MarketQuote`], in major currency units
-/// (London quotes come in pence).
-fn to_quote(v: &Value) -> Option<MarketQuote> {
+/// The currency a Yahoo quote object is in, and what its prices are
+/// multiplied by to get major units (London quotes come in pence).
+fn currency_unit(v: &Value) -> (String, f64) {
     let raw_currency = text(v, "currency").unwrap_or_else(|| "USD".into());
-    let (currency, minor) = match raw_currency.as_str() {
+    match raw_currency.as_str() {
         "GBp" | "GBX" => ("GBP".to_string(), 0.01),
         "ZAc" => ("ZAR".to_string(), 0.01),
         "ILA" => ("ILS".to_string(), 0.01),
         _ => (raw_currency.to_uppercase(), 1.0),
+    }
+}
+
+/// A Yahoo quote object as a board row, in major currency units.
+fn to_board(v: &Value) -> Option<BoardRow> {
+    use dtos::board::{BoardQuote, Session};
+    let (currency, minor) = currency_unit(v);
+    let price_field = |key: &str| num(v, key).map(|x| x * minor).filter(|x| *x > 0.0);
+    let session = Session::from_state(&text(v, "marketState").unwrap_or_default());
+    let ext_price = match session {
+        Session::Regular => None,
+        Session::Pre => price_field("preMarketPrice"),
+        Session::Post | Session::Closed => price_field("postMarketPrice"),
     };
+    let ticker = text(v, "symbol")?;
+    Some(BoardRow {
+        quote: BoardQuote {
+            name: text(v, "shortName").or_else(|| text(v, "longName")).unwrap_or_else(|| ticker.clone()),
+            ticker,
+            currency,
+            exchange: text(v, "fullExchangeName").or_else(|| text(v, "exchange")),
+            sector: None,
+            price: price_field("regularMarketPrice")?,
+            previous_close: price_field("regularMarketPreviousClose"),
+            open: price_field("regularMarketOpen"),
+            day_high: price_field("regularMarketDayHigh"),
+            day_low: price_field("regularMarketDayLow"),
+            volume: num(v, "regularMarketVolume").filter(|x| *x > 0.0),
+            avg_volume: num(v, "averageDailyVolume3Month").filter(|x| *x > 0.0),
+            bid: price_field("bid"),
+            ask: price_field("ask"),
+            high_52w: price_field("fiftyTwoWeekHigh"),
+            low_52w: price_field("fiftyTwoWeekLow"),
+            market_cap_usd: None,
+            pe: num(v, "trailingPE"),
+            session,
+            ext_price,
+            time: num(v, "regularMarketTime").map(|t| t as i64),
+        },
+        market_cap: num(v, "marketCap"),
+    })
+}
+
+/// A Yahoo quote object as a [`MarketQuote`], in major currency units.
+fn to_quote(v: &Value) -> Option<MarketQuote> {
+    let (currency, minor) = currency_unit(v);
     let price_field = |key: &str| num(v, key).map(|x| x * minor);
     let mut earnings: Vec<String> = ["earningsTimestampStart", "earningsTimestamp", "earningsTimestampEnd"]
         .iter()
@@ -205,6 +260,42 @@ mod tests {
         assert!(!is_depositary_receipt("PTT.BK"));
         assert!(!is_depositary_receipt("SCB.BK"));
         assert!(!is_depositary_receipt("AAPL"));
+    }
+
+    #[test]
+    fn reads_a_board_row() {
+        let row = to_board(&json!({
+            "symbol": "AMD", "shortName": "Advanced Micro Devices, Inc.", "currency": "USD",
+            "fullExchangeName": "NasdaqGS", "marketState": "POST",
+            "regularMarketPrice": 236.5, "regularMarketPreviousClose": 230.0, "regularMarketOpen": 231.0,
+            "regularMarketDayHigh": 238.0, "regularMarketDayLow": 229.5, "regularMarketVolume": 41_000_000,
+            "averageDailyVolume3Month": 52_000_000, "bid": 236.4, "ask": 236.6,
+            "fiftyTwoWeekHigh": 267.0, "fiftyTwoWeekLow": 76.5, "marketCap": 3.8e11, "trailingPE": 110.2,
+            "preMarketPrice": 1.0, "postMarketPrice": 237.1, "regularMarketTime": 1794430800
+        }))
+        .unwrap();
+        let q = &row.quote;
+        assert_eq!((q.ticker.as_str(), q.name.as_str(), q.exchange.as_deref()), ("AMD", "Advanced Micro Devices, Inc.", Some("NasdaqGS")));
+        assert_eq!((q.price, q.previous_close, q.open), (236.5, Some(230.0), Some(231.0)));
+        assert_eq!((q.day_high, q.day_low, q.volume, q.avg_volume), (Some(238.0), Some(229.5), Some(41e6), Some(52e6)));
+        assert_eq!((q.bid, q.ask, q.high_52w, q.low_52w), (Some(236.4), Some(236.6), Some(267.0), Some(76.5)));
+        assert_eq!(q.session, dtos::board::Session::Post);
+        assert_eq!(q.ext_price, Some(237.1), "after hours: the after-hours trade, not the morning's");
+        assert_eq!((q.time, row.market_cap, q.market_cap_usd), (Some(1794430800), Some(3.8e11), None));
+    }
+
+    #[test]
+    fn a_board_row_needs_a_price_and_skips_empty_fields() {
+        assert!(to_board(&json!({"symbol": "X"})).is_none());
+        let row = to_board(&json!({
+            "symbol": "VOD.L", "currency": "GBp", "marketState": "REGULAR", "regularMarketPrice": 125.8,
+            "bid": 0.0, "ask": 126.0, "regularMarketVolume": 0, "postMarketPrice": 127.0
+        }))
+        .unwrap();
+        let q = &row.quote;
+        assert_eq!((q.currency.as_str(), q.name.as_str()), ("GBP", "VOD.L"));
+        assert!((q.price - 1.258).abs() < 1e-12 && (q.ask.unwrap() - 1.26).abs() < 1e-12);
+        assert_eq!((q.bid, q.volume, q.ext_price), (None, None, None), "zeroes mean no data; no extended price in regular hours");
     }
 
     #[test]

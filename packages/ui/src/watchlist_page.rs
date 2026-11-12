@@ -198,7 +198,18 @@ pub fn WatchlistPage() -> Element {
                     }
                     p { class: "mt-2 text-sm text-ctp-subtext0", {tr("Stocks you follow, and alerts on price moves.")} }
                 }
-                GhostButton { label: tr("🔔 New alert"), onclick: move |_| dialogs.open(Dialog::NewAlert(None)) }
+                div { class: "flex flex-wrap gap-2",
+                    if let Some(id) = list_id {
+                        GhostButton {
+                            label: tr("Live board"),
+                            onclick: move |_| {
+                                crate::market_page::show_board(crate::market_page::Pick::Watchlist(id));
+                                navigator().push("/market");
+                            },
+                        }
+                    }
+                    GhostButton { label: tr("🔔 New alert"), onclick: move |_| dialogs.open(Dialog::NewAlert(None)) }
+                }
             }
 
             div { class: "mt-8 motion-safe:animate-rise",
