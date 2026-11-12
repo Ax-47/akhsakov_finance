@@ -1,4 +1,5 @@
 use crate::i18n::{tr, tr_str, trf};
+use crate::LiveNumber;
 use crate::{
     income_tab::{IncomeTab, ReturnDrivers},
     app::PortfolioScope,
@@ -624,9 +625,10 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
                 }
             }
             if priced {
-                td { class: cell, "{fmt_usd(pos.current_price, 2)}" }
+                // Prices roll to their new digits, like the totals above.
+                td { class: cell, LiveNumber { value: pos.current_price, text: fmt_usd(pos.current_price, 2) } }
                 td { class: "{cell} {signed_color(pos.daily_change_pct)}",
-                    "{pos.daily_change_pct:+.2}%"
+                    LiveNumber { value: pos.daily_change_pct, text: format!("{:+.2}%", pos.daily_change_pct) }
                 }
             } else {
                 td { class: "{cell} text-ctp-overlay1", "—" }
@@ -635,7 +637,7 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
             td { class: "{cell} text-ctp-subtext0", {crate::format::fmt_shares(pos.shares)} }
             td { class: "{cell} text-ctp-subtext0", "{fmt_usd(pos.avg_cost, 2)}" }
             if priced {
-                td { class: "{cell} font-medium text-ctp-text", "{fmt_usd(pos.market_value(), 2)}" }
+                td { class: "{cell} font-medium text-ctp-text", LiveNumber { value: pos.market_value(), text: fmt_usd(pos.market_value(), 2) } }
                 td { class: cell,
                     span { class: "inline-flex items-center justify-end gap-2",
                         span { class: "h-1 w-14 rounded-full bg-ctp-surface0 overflow-hidden",
@@ -648,7 +650,7 @@ fn HoldingRow(pos: Position, weight: Decimal, color: &'static str) -> Element {
                     }
                 }
                 td { class: "{cell} pr-6 {signed_color(pos.unrealized_pnl())}",
-                    div { class: "font-medium", "{fmt_signed(pos.unrealized_pnl(), 2)}" }
+                    div { class: "font-medium", LiveNumber { value: pos.unrealized_pnl(), text: fmt_signed(pos.unrealized_pnl(), 2) } }
                     div { class: "text-xs opacity-75", "{pos.unrealized_pnl_pct():+.2}%" }
                 }
             } else {

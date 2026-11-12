@@ -8,6 +8,7 @@ use crate::{
     format::{fmt_clock, fmt_compact},
     i18n::{tr, tr_str, trf},
     page::GhostButton,
+    LiveNumber,
 };
 use api::{events::quote_update_event::QuoteUpdateEvent, quote::quote::ClientEvent, quote_subscribe};
 use dioxus::{
@@ -534,16 +535,22 @@ fn BoardRow(row: BoardQuote, flash: Option<(Move, u32)>, with_sector: bool) -> E
                     span { class: "w-2 text-[9px] {mark_tone}", "aria-hidden": "true", "{mark}" }
                     // Re-created on every move, which restarts the flash.
                     // Outside regular hours it's the line below that moved.
-                    for n in [if extended.is_some() { 0 } else { flash_key }] {
-                        span { key: "{n}", class: if extended.is_some() { "px-1 font-medium text-ctp-text" } else { "px-1 font-medium text-ctp-text {flash_class}" },
-                            "{fmt_price(row.price)}"
-                        }
+                    Ticking {
+                        value: row.price,
+                        text: fmt_price(row.price),
+                        class: "px-1 font-medium text-ctp-text",
+                        flash_class: if extended.is_some() { "" } else { flash_class },
+                        flash_key,
                     }
                 }
                 if let Some((price, change)) = extended {
                     div { class: "flex justify-end", title: tr("Traded outside regular hours"),
-                        for n in [flash_key] {
-                            span { key: "{n}", class: "px-1 text-[11px] {signed_text(Some(change))} {flash_class}", "{fmt_price(price)} {change:+.2}%" }
+                        Ticking {
+                            value: price,
+                            text: format!("{} {change:+.2}%", fmt_price(price)),
+                            class: format!("px-1 text-[11px] {}", signed_text(Some(change))),
+                            flash_class,
+                            flash_key,
                         }
                     }
                 } else {
@@ -551,8 +558,11 @@ fn BoardRow(row: BoardQuote, flash: Option<(Move, u32)>, with_sector: bool) -> E
                 }
             }
             td { class: "whitespace-nowrap px-1.5 py-2 text-right",
-                span { class: "inline-block min-w-[4.25rem] rounded-md px-1.5 py-0.5 text-right text-xs font-semibold {pill}",
-                    {change_pct.map_or_else(dash, |c| format!("{c:+.2}%"))}
+                span { class: "inline-flex min-w-[4.25rem] justify-end rounded-md px-1.5 py-0.5 text-xs font-semibold {pill}",
+                    match change_pct {
+                        Some(c) => rsx! { LiveNumber { value: decimal(c), text: format!("{c:+.2}%") } },
+                        None => rsx! { "—" },
+                    }
                 }
                 div { class: "pr-1.5 text-[11px] {tone}",
                     {row.change().map_or_else(dash, |c| format!("{}{}", if c > 0.0 { "+" } else { "" }, fmt_price(c)))}
@@ -590,6 +600,26 @@ fn BoardRow(row: BoardQuote, flash: Option<(Move, u32)>, with_sector: bool) -> E
             }
         }
     }
+}
+
+/// A number that rolls to its new digits, like the totals on the dashboard,
+/// over a flash of the way the trade moved it. The flash is a backdrop
+/// re-created on every move, which restarts it; the number stays mounted so
+/// only its changed digits roll.
+#[component]
+fn Ticking(value: f64, text: String, #[props(into, default)] class: String, flash_class: &'static str, flash_key: u32) -> Element {
+    rsx! {
+        span { class: "relative inline-block tabular-nums {class}",
+            for n in [flash_key] {
+                span { key: "{n}", class: "absolute inset-0 {flash_class}", "aria-hidden": "true" }
+            }
+            span { class: "relative", LiveNumber { value: decimal(value), text } }
+        }
+    }
+}
+
+fn decimal(v: f64) -> rust_decimal::Decimal {
+    rust_decimal::Decimal::from_f64_retain(v).unwrap_or_default()
 }
 
 /// A low–high track with a dot where the price is (`at`, 0 to 1) and,
@@ -680,10 +710,15 @@ fn WorldTile(row: BoardQuote, name: String, flash: Option<(Move, u32)>) -> Eleme
                     span { class: "h-1.5 w-1.5 shrink-0 rounded-full bg-ctp-green", title: tr("Market open") }
                 }
             }
-            for n in [flash_key] {
-                div { key: "{n}", class: "mt-0.5 w-fit text-sm font-semibold tabular-nums text-ctp-text {flash_class}", "{fmt_price(row.price)}" }
+            div { class: "mt-0.5",
+                Ticking { value: row.price, text: fmt_price(row.price), class: "text-sm font-semibold text-ctp-text", flash_class, flash_key }
             }
-            div { class: "text-xs tabular-nums {signed_text(change)}", {change.map_or_else(dash, |c| format!("{c:+.2}%"))} }
+            div { class: "text-xs tabular-nums {signed_text(change)}",
+                match change {
+                    Some(c) => rsx! { LiveNumber { value: decimal(c), text: format!("{c:+.2}%") } },
+                    None => rsx! { "—" },
+                }
+            }
         }
     }
 }

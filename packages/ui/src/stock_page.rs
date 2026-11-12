@@ -172,7 +172,11 @@ fn StockView(ticker: TickerSymbol) -> Element {
                 }
                 div { class: "mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2",
                     span { class: "text-5xl font-semibold tracking-tight tabular-nums text-ctp-text",
-                        {or_dash(price, |p| fmt_usd(p, 2))}
+                        // Rolls to each streamed price, like the totals on the dashboard.
+                        match price {
+                            Some(p) => rsx! { crate::LiveNumber { value: p, text: fmt_usd(p, 2) } },
+                            None => rsx! { "—" },
+                        }
                     }
                     if let Some((abs, pct)) = day {
                         span {
@@ -181,7 +185,7 @@ fn StockView(ticker: TickerSymbol) -> Element {
                             } else {
                                 "rounded-full px-3 py-1 text-sm font-semibold bg-ctp-red/15 text-ctp-red"
                             },
-                            {crate::i18n::trf("{} ({}) today", &[&fmt_signed(abs, 2), &format!("{pct:+.2}%")])}
+                            crate::LiveNumber { value: abs, text: crate::i18n::trf("{} ({}) today", &[&fmt_signed(abs, 2), &format!("{pct:+.2}%")]) }
                         }
                     }
                 }
