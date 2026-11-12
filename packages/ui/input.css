@@ -217,3 +217,54 @@ html.lite .backdrop-blur-sm {
 html:lang(th) body {
   font-family: ui-sans-serif, system-ui, "Noto Sans Thai", "Noto Sans Thai UI", "Leelawadee UI", "Thonburi", "Sarabun", sans-serif;
 }
+
+/* Heatmap tiles: nine steps from a strong fall to a strong rise. Each arm
+   climbs in even OKLCH lightness steps (so a step reads as "more", not as
+   another colour) on the theme's own red and green hues, around a neutral
+   grey. Dark themes take white ink on deep tiles, the light theme dark ink
+   on pale ones; every step keeps its label at 4.4:1 or better, and the two
+   arms differ in more than red against green, for colour-blind readers
+   (the sign on each label says it too). */
+:root,
+.latte {
+  --heat-0: #e0e1e8;
+  --heat-u1: #bfdabc;
+  --heat-u2: #9dcd97;
+  --heat-u3: #79bf72;
+  --heat-u4: #51b148;
+  --heat-d1: #eec4ce;
+  --heat-d2: #efa6b9;
+  --heat-d3: #ed86a4;
+  --heat-d4: #e96490;
+  --heat-ink: #1e2030;
+}
+.frappe,
+.macchiato,
+.mocha {
+  --heat-0: #333440;
+  --heat-u1: #344d31;
+  --heat-u2: #34622f;
+  --heat-u3: #2e7728;
+  --heat-u4: #1f8a16;
+  --heat-d1: #623542;
+  --heat-d2: #853750;
+  --heat-d3: #a7335e;
+  --heat-d4: #c8276a;
+  --heat-ink: #ffffff;
+}
+.heat-0  { background-color: var(--heat-0); }
+.heat-u1 { background-color: var(--heat-u1); }
+.heat-u2 { background-color: var(--heat-u2); }
+.heat-u3 { background-color: var(--heat-u3); }
+.heat-u4 { background-color: var(--heat-u4); }
+.heat-d1 { background-color: var(--heat-d1); }
+.heat-d2 { background-color: var(--heat-d2); }
+.heat-d3 { background-color: var(--heat-d3); }
+.heat-d4 { background-color: var(--heat-d4); }
+.heat-tile { color: var(--heat-ink); }
+/* The tile pointed at is ringed in its own ink, over its neighbours. */
+div.heat-tile:hover {
+  z-index: 1;
+  outline: 2px solid var(--heat-ink);
+  outline-offset: -2px;
+}

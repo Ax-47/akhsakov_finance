@@ -273,13 +273,20 @@ fn IndexView(index: MarketIndex) -> Element {
                     div { class: "mt-5 motion-safe:animate-rise",
                         Card {
                             title: map_title,
-                            subtitle: tr("Size is market cap, colour is today's change. Click a stock to open it.").to_string(),
+                            subtitle: tr("Size is market cap, colour is today's change. Point at a stock for its details, click it to open it, or click a sector's name to zoom in.").to_string(),
                             actions: rsx! {
                                 if focus().is_some() {
                                     GhostButton { label: tr("← All sectors"), onclick: move |_| focus.set(None) }
                                 }
                             },
-                            Treemap { items: tiles, saturation: DAY_SATURATION, height: 560 }
+                            // Taller on a tall window, so more tiles have room for a label.
+                            Treemap {
+                                items: tiles,
+                                saturation: DAY_SATURATION,
+                                height: 560,
+                                height_css: "clamp(480px, 72vh, 860px)",
+                                on_group: move |sector: String| focus.set(Some(sector)),
+                            }
                             HeatmapLegend { saturation: DAY_SATURATION }
                         }
                     }
