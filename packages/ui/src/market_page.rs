@@ -194,9 +194,9 @@ fn IndexView(index: MarketIndex) -> Element {
                 // Zoomed into one sector: no sector blocks.
                 group: if focus.is_some() { None } else { i.sector.clone() },
                 detail: format!(
-                    "{} · {} market cap",
+                    "{} · {}",
                     fmt_usd(Decimal::try_from(i.price).unwrap_or_default(), 2),
-                    fmt_compact(i.market_cap.unwrap_or(0.0))
+                    crate::i18n::trf("{} market cap", &[&fmt_compact(i.market_cap.unwrap_or(0.0))])
                 ),
             })
             .collect::<Vec<_>>()

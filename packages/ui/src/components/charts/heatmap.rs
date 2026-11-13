@@ -70,7 +70,7 @@ pub fn StockHeatmap(positions: ReadSignal<Vec<Position>>) -> Element {
                     size: value,
                     change: Some(to_f64(change)),
                     group: None,
-                    detail: format!("{:.1}% of portfolio", value / total * 100.0),
+                    detail: crate::i18n::trf("{}% of portfolio", &[&format!("{:.1}", value / total * 100.0)]),
                 }
             })
             .collect::<Vec<_>>()
@@ -581,8 +581,6 @@ fn short_names(name: &str) -> &'static [&'static str] {
         "Financials" => &["Finance"],
         "Industrials" => &["Industry"],
         "Real Estate" => &["Property"],
-        "Materials" => &["Mater."],
-        "Utilities" => &["Utils"],
         _ => &[],
     }
 }

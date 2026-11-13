@@ -1862,4 +1862,5 @@ pub const PAIRS: &[(&str, &str)] = &[
     ("CCI {}", "CCI {}"),
     ("%R {}", "%R {}"),
     ("MFI {}", "MFI {}"),
+    ("{}% of portfolio", "{}% ของพอร์ต"),
 ];

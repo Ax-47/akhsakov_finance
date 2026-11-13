@@ -864,7 +864,9 @@ pub fn TechnicalChart(ticker: TickerSymbol, live: ReadSignal<Option<LiveTick>>) 
     rsx! {
         document::Script { src: asset!("/assets/js/growth_chart.js") }
         document::Script { src: asset!("/assets/js/stock_chart.js") }
-        div { class: if full() { "fixed inset-0 z-40 overflow-y-auto bg-ctp-base p-2 sm:p-4" } else { "" },
+        // `min-w-0`: as an item of the page's grid it would otherwise grow
+        // to its widest row and push the card off a phone's screen.
+        div { class: if full() { "fixed inset-0 z-40 overflow-y-auto bg-ctp-base p-2 sm:p-4" } else { "min-w-0" },
             Card {
                 title: tr("Chart"),
                 subtitle: if currency.is_empty() {

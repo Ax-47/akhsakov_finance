@@ -254,9 +254,9 @@
   }
 
   // The finest step whose labels still fit: `visible` candles across
-  // `width` pixels, at about 80 pixels a label.
+  // `width` pixels, at about 64 pixels a label.
   function stepFor(d, visible, width) {
-    var room = Math.max(2, Math.floor(width / 80));
+    var room = Math.max(3, Math.floor(width / 64));
     var total = d.times.length;
     for (var i = 0; i < STEPS.length; i++) {
       var s = STEPS[i];
@@ -782,7 +782,9 @@
       return Object.assign({
         gridIndex: i, position: "right", scale: true, splitNumber: 2,
         axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: col.faint, fontSize: 11, formatter: shortNumber },
+        // The top and bottom labels stay inside their own plot, so one
+        // pane's lowest label can't sit on the next pane's highest.
+        axisLabel: { color: col.faint, fontSize: 11, formatter: shortNumber, verticalAlignMinLabel: "bottom", verticalAlignMaxLabel: "top" },
         splitLine: { lineStyle: { color: col.grid, opacity: 0.7 } },
         axisPointer: { label: Object.assign({ formatter: function (p) { return fmtValue(p.value); } }, pointer) },
       }, opts || {});
@@ -790,7 +792,7 @@
     var yAxes = [
       yAxis(0, {
         splitNumber: 6,
-        axisLabel: { color: col.sub, fontSize: 11, formatter: function (v) { return fmtPrice(d.iy(v)); } },
+        axisLabel: { color: col.sub, fontSize: 11, formatter: function (v) { return fmtPrice(d.iy(v)); }, verticalAlignMinLabel: "bottom", verticalAlignMaxLabel: "top" },
         axisPointer: { label: Object.assign({ formatter: function (p) { return fmtPrice(d.iy(p.value)); } }, pointer) },
       }),
       yAxis(1, { show: false, scale: false, axisPointer: { show: false } }),

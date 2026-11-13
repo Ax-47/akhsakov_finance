@@ -44,17 +44,21 @@ pub fn is_regular(regular: &[(i64, i64)], ts: i64) -> bool {
     regular.is_empty() || regular.iter().any(|(from, to)| (*from..=*to).contains(&ts))
 }
 
+/// The day cut into quarter hours: the grain trading hours are kept at.
+const SLOT: i64 = 900;
+const SLOTS: usize = (DAY / SLOT) as usize;
+
 /// How a chart's candles follow the clock.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Clock {
     /// Seconds a candle covers; a day's worth or more means one candle per
     /// calendar day, week or month rather than a fixed count of seconds.
     pub step: i64,
-    /// The stretch of the UTC day the fetched candles trade in, as seconds
-    /// since midnight: a trade outside it (before the open, after the
-    /// close) isn't part of these candles. `None` when unknown, or when
-    /// the candles run round the clock.
-    pub hours: Option<(i64, i64)>,
+    /// The quarter hours of the UTC day the fetched candles trade in: a
+    /// trade in any other (before the open, after the close, over lunch,
+    /// overnight) isn't part of these candles. `None` when unknown, or
+    /// when they trade round the clock.
+    pub hours: Option<[bool; SLOTS]>,
 }
 
 const DAY: i64 = 86_400;
@@ -62,28 +66,39 @@ const DAY: i64 = 86_400;
 impl Clock {
     /// Reads the trading hours off the candles' own times.
     pub fn of(times: &[i64], step: i64) -> Self {
-        let hours = if step < DAY {
-            let (first, last) = times.iter().fold((DAY, 0), |(lo, hi), t| {
-                let at = t.rem_euclid(DAY);
-                (lo.min(at), hi.max(at))
-            });
-            // One day of candles may be a session still under way, and
-            // candles through midnight (a market open across it, or round
-            // the clock) say nothing about hours.
-            let days = times.first().zip(times.last()).is_some_and(|(a, b)| a.div_euclid(DAY) != b.div_euclid(DAY));
-            (days && first < last && last + step - first < DAY - 3600).then_some((first, last + step))
+        let mut slots = [false; SLOTS];
+        let slot = |seconds: i64| (seconds.rem_euclid(DAY) / SLOT) as usize;
+        let known = if step < DAY {
+            for t in times {
+                // Every quarter hour the candle runs through.
+                let mut at = *t;
+                while at < t + step {
+                    slots[slot(at)] = true;
+                    at += SLOT;
+                }
+                slots[slot(t + step - 1)] = true;
+            }
+            // One day of candles may be a session still under way.
+            times.first().zip(times.last()).is_some_and(|(a, b)| a.div_euclid(DAY) != b.div_euclid(DAY))
         } else {
             // Daily and longer candles are stamped with the session's
-            // open: a trade earlier in the day is before it.
+            // open: a trade earlier in the day is before it. Left alone
+            // where the stamp falls late in the UTC day, on a market whose
+            // session runs through midnight.
             let recent = &times[times.len().saturating_sub(10)..];
-            let open = recent.iter().map(|t| t.rem_euclid(DAY)).min();
-            open.filter(|o| *o > 0).map(|o| (o, DAY))
+            let open = recent.iter().map(|t| t.rem_euclid(DAY)).min().filter(|o| (1..20 * 3600).contains(o));
+            for mark in slots.iter_mut().skip(open.map_or(SLOTS, slot)) {
+                *mark = true;
+            }
+            open.is_some()
         };
+        // Round the clock says nothing about hours.
+        let hours = (known && slots.contains(&false)).then_some(slots);
         Self { step, hours }
     }
 
     fn trades_at(&self, ts: i64) -> bool {
-        self.hours.is_none_or(|(from, to)| (from..to).contains(&ts.rem_euclid(DAY)))
+        self.hours.is_none_or(|slots| slots[(ts.rem_euclid(DAY) / SLOT) as usize])
     }
 
     /// Where the candle holding `ts` starts, given the last candle starts
@@ -298,7 +313,9 @@ mod tests {
             }
         }
         let clock = Clock::of(&bars.times, 60);
-        assert_eq!(clock.hours, Some((14 * 3600 + 1800, 21 * 3600)));
+        let at = |h: i64, m: i64| clock.trades_at(OPEN - OPEN.rem_euclid(DAY) + h * 3600 + m * 60);
+        assert!(at(14, 30) && at(17, 0) && at(20, 59));
+        assert!(!at(14, 29) && !at(21, 0) && !at(4, 58) && !at(0, 30));
         let n = bars.len();
         // 12:00 UTC the next day is before the open: not a candle.
         assert_eq!(bars.apply(110.0, OPEN + 2 * DAY - 9000, None, &clock), None);
@@ -307,11 +324,30 @@ mod tests {
         assert_eq!(bars.apply(110.0, OPEN + 2 * DAY + 60, None, &clock), Some(Applied::Added));
         // After the close that evening: left out again.
         assert_eq!(bars.apply(120.0, OPEN + 2 * DAY + 7 * 3600, None, &clock), None);
-        // Candles round the clock (or through midnight) take any trade,
-        // and so does a first day of trading, whose close isn't known yet.
+        // Candles round the clock take any trade, and so does a first day
+        // of trading, whose close isn't known yet.
         let crypto: Vec<i64> = (0..48).map(|i| OPEN + i * 3600).collect();
         assert_eq!(Clock::of(&crypto, 3600).hours, None);
         assert_eq!(Clock::of(&bars.times[..200], 60).hours, None);
+    }
+
+    #[test]
+    fn hours_through_midnight_and_a_lunch_break_are_kept() {
+        let midnight = OPEN - OPEN.rem_euclid(DAY);
+        // Trading outside regular hours: 09:00 UTC through midnight to 01:00.
+        let long_day = |d: i64| (0..192).map(move |i| midnight + d * DAY + 9 * 3600 + i * 300);
+        let times: Vec<i64> = (0..2).flat_map(long_day).collect();
+        let clock = Clock::of(&times, 300);
+        let at = |h: i64, m: i64| clock.trades_at(midnight + h * 3600 + m * 60);
+        assert!(at(9, 0) && at(23, 59) && at(0, 30), "the evening runs past midnight");
+        // An overnight trade at 04:58 is nobody's candle.
+        assert!(!at(4, 58) && !at(1, 0) && !at(8, 59));
+        // A market shut for lunch: 03:00–05:30 and 07:00–09:30 UTC.
+        let halves = |d: i64| (0..30).chain(48..78).map(move |i| midnight + d * DAY + 3 * 3600 + i * 300);
+        let lunch = Clock::of(&(0..2).flat_map(halves).collect::<Vec<_>>(), 300);
+        let at = |h: i64, m: i64| lunch.trades_at(midnight + h * 3600 + m * 60);
+        assert!(at(3, 0) && at(5, 29) && at(7, 0) && at(9, 29));
+        assert!(!at(6, 0) && !at(9, 30) && !at(2, 59));
     }
 
     #[test]
@@ -321,6 +357,10 @@ mod tests {
         bars.push(OPEN - DAY, 10.0, 11.0, 9.0, 10.0, 1e6);
         bars.push(OPEN, 10.0, 11.0, 9.0, 10.5, 1e6);
         let clock = Clock::of(&bars.times, DAY);
+        assert!(clock.hours.is_some_and(|slots| !slots[57] && slots[58]), "from the 14:30 open");
+        // A market stamped late in the UTC day (its session runs through
+        // midnight) is left alone.
+        assert_eq!(Clock::of(&[OPEN + 8 * 3600 + 1800, OPEN + DAY + 8 * 3600 + 1800], DAY).hours, None);
         assert_eq!(bars.apply(11.5, OPEN + 3600, None, &clock), Some(Applied::Moved));
         assert_eq!((bars.close[1], bars.high[1]), (11.5, 11.5));
         // Friday before the open: not Friday's candle yet.
