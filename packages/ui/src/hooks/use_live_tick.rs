@@ -19,6 +19,8 @@ pub struct LiveTick {
     pub native: Decimal,
     /// When it traded, in Unix seconds.
     pub ts: i64,
+    /// Shares traded so far today, when the feed says.
+    pub day_volume: Option<u64>,
 }
 
 /// The latest streamed price of `ticker`, `None` until one arrives (or
@@ -46,6 +48,7 @@ pub fn use_live_tick(ticker: TickerSymbol) -> ReadSignal<Option<LiveTick>> {
                     usd: update.current_price,
                     native: update.native_price.unwrap_or(update.current_price),
                     ts: update.timestamp,
+                    day_volume: update.volume,
                 };
                 // Only the first tick of a quiet spell schedules a flush.
                 if pending.borrow_mut().replace(tick).is_none() {

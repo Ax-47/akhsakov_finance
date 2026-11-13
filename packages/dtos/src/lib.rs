@@ -16,6 +16,7 @@ pub mod settings;
 pub mod csv_export;
 pub mod market;
 pub mod board;
+pub mod chart;
 pub mod economy;
 pub mod technicals;
 pub mod signals;
