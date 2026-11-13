@@ -3,13 +3,15 @@
 // this is about a third of that. Rebuild with `npm run build:echarts` and
 // add the chart or component here if a chart starts using a new one.
 import { graphic, init, use } from "echarts/core";
-import { BarChart, CandlestickChart, LineChart } from "echarts/charts";
+import { BarChart, CandlestickChart, CustomChart, LineChart } from "echarts/charts";
 import {
   AxisPointerComponent,
   DataZoomInsideComponent,
   DataZoomSliderComponent,
   GridComponent,
+  MarkAreaComponent,
   MarkLineComponent,
+  MarkPointComponent,
   TitleComponent,
   TooltipComponent,
 } from "echarts/components";
@@ -20,12 +22,17 @@ use([
   LineChart,
   BarChart,
   CandlestickChart,
+  // Open-high-low-close bars on the stock chart.
+  CustomChart,
   GridComponent,
   TooltipComponent,
   AxisPointerComponent,
   DataZoomInsideComponent,
   DataZoomSliderComponent,
   MarkLineComponent,
+  // The viewer's trades, and the ground under trading outside regular hours.
+  MarkPointComponent,
+  MarkAreaComponent,
   TitleComponent,
   LabelLayout,
   CanvasRenderer,

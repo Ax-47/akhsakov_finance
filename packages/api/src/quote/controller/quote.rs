@@ -96,6 +96,25 @@ pub async fn get_native_chart(
         })
 }
 
+/// Candles for a stock's chart in its own currency; with `extended`,
+/// trading outside regular hours too, told apart from the regular runs.
+#[post("/api/quotes/chart/sessions", quote_service: Extension<QuoteService>)]
+pub async fn get_session_chart(
+    ticker: TickerSymbol,
+    range: Range,
+    interval: Interval,
+    extended: bool,
+) -> Result<dtos::chart::SessionChart, ServerFnError> {
+    quote_service
+        .session_chart(ticker, range, interval, extended)
+        .await
+        .map_err(|e| ServerFnError::ServerError {
+            message: e.to_string(),
+            code: 400,
+            details: None,
+        })
+}
+
 /// The currency each ticker trades in (`USD`, `THB`, …); tickers whose
 /// currency can't be found are left out.
 #[post("/api/quotes/currencies", quote_service: Extension<QuoteService>)]

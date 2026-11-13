@@ -421,13 +421,19 @@ fn WatchRow(
                 }
             }
             span { class: "flex-1 text-right tabular-nums text-ctp-text",
-                {price.map(|p| fmt_usd(p, 2)).unwrap_or_else(|| "—".into())}
+                match price {
+                    Some(p) => rsx! { crate::LiveNumber { value: p, text: fmt_usd(p, 2) } },
+                    None => rsx! { "—" },
+                }
             }
             span { class: "hidden w-20 justify-end sm:flex",
                 Sparkline { values: trend.clone(), color: trend_color(&trend) }
             }
             span { class: "w-16 text-right text-sm tabular-nums sm:w-20 {day.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
-                {day.map(|d| format!("{d:+.2}%")).unwrap_or_else(|| "—".into())}
+                match day {
+                    Some(d) => rsx! { crate::LiveNumber { value: d, text: format!("{d:+.2}%") } },
+                    None => rsx! { "—" },
+                }
             }
             span { class: "w-20 text-right text-sm tabular-nums {since.map(signed_color).unwrap_or(\"text-ctp-overlay1\")}",
                 {since.map(|d| format!("{d:+.1}%")).unwrap_or_else(|| "—".into())}

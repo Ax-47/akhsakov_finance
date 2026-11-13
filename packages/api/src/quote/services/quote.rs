@@ -350,6 +350,34 @@ impl QuoteService {
         Ok((candles?, code?))
     }
 
+    /// Candles for a chart in the currency the instrument trades in. With
+    /// `extended`, trading before the open and after the close is in them
+    /// too, and the runs of regular trading are told apart (a second fetch
+    /// of the regular candles alone: the provider doesn't mark them).
+    pub async fn session_chart(
+        &self,
+        ticker: TickerSymbol,
+        range: Range,
+        interval: Interval,
+        extended: bool,
+    ) -> Result<dtos::chart::SessionChart, QuoteGateWayError> {
+        if !extended {
+            let (candles, currency) = self.native_chart(ticker, range, interval).await?;
+            return Ok(dtos::chart::SessionChart { candles, currency, regular: vec![] });
+        }
+        let (all, regular, code) = tokio::join!(
+            self.fetch_chart(ticker.clone(), range, interval, true),
+            self.fetch_chart(ticker.clone(), range, interval, false),
+            self.currency_of(&ticker)
+        );
+        let times: Vec<i64> = regular?.iter().map(|c| c.ts.timestamp()).collect();
+        Ok(dtos::chart::SessionChart {
+            candles: all?,
+            currency: code?,
+            regular: dtos::chart::sessions(&times),
+        })
+    }
+
     /// A streamed price in USD; `None` if the rate isn't available.
     pub async fn to_usd(&self, mut update: QuoteUpdate) -> Option<QuoteUpdate> {
         if !is_convertible(&update.ticker_symbol) {
@@ -573,6 +601,66 @@ mod tests {
         let q = service.get_quote(aapl.clone()).await.unwrap();
         assert!(q.stale && q.current_price == dec!(200));
         assert!(service.get_chart(aapl, Range::M1, Interval::D1, false).await.is_err(), "times out, nothing saved");
+    }
+
+    /// 14:30 UTC on a trading day.
+    const OPEN: i64 = 1_700_145_000;
+
+    /// A session of three one-minute candles, with a candle before the
+    /// open and one after the close when asked for trading outside
+    /// regular hours.
+    struct Sessions;
+
+    #[async_trait]
+    impl QuoteGateway for Sessions {
+        async fn subscribe(&self) -> Receiver<QuoteUpdateEvent> {
+            tokio::sync::broadcast::channel(1).1
+        }
+        async fn add_tickers(&mut self, _: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
+            Ok(())
+        }
+        async fn remove_tickers(&mut self, _: Vec<TickerSymbol>) -> Result<(), QuoteGateWayError> {
+            Ok(())
+        }
+        async fn get_chart(&self, _: TickerSymbol, _: Range, _: Interval, extended: bool) -> Result<Vec<Candle>, QuoteGateWayError> {
+            let mut times = vec![OPEN, OPEN + 60, OPEN + 120];
+            if extended {
+                times.insert(0, OPEN - 7200);
+                times.push(OPEN + 9000);
+            }
+            Ok(times
+                .into_iter()
+                .map(|t| Candle {
+                    ts: chrono::DateTime::from_timestamp(t, 0).unwrap(),
+                    open: dec!(1),
+                    high: dec!(2),
+                    low: dec!(1),
+                    close: dec!(2),
+                    volume: None,
+                    adj_factor: None,
+                })
+                .collect())
+        }
+        async fn get_quote(&self, ticker: TickerSymbol) -> Result<Quote, QuoteGateWayError> {
+            Flaky { online: Arc::new(AtomicBool::new(true)) }.get_quote(ticker).await
+        }
+        async fn search(&self, _: &str) -> Result<Vec<dtos::watch::SearchHit>, QuoteGateWayError> {
+            Ok(vec![])
+        }
+    }
+
+    #[tokio::test]
+    async fn trading_outside_regular_hours_is_told_apart() {
+        let service = QuoteService::new(Arc::new(RwLock::new(Sessions)));
+        let aapl = TickerSymbol::new("AAPL").unwrap();
+        // Regular hours alone: nothing to tell apart.
+        let plain = service.session_chart(aapl.clone(), Range::D5, Interval::I1m, false).await.unwrap();
+        assert_eq!((plain.candles.len(), plain.regular.len(), plain.currency.as_str()), (3, 0, "USD"));
+        // With the rest: every candle, and where regular trading ran.
+        let all = service.session_chart(aapl, Range::D5, Interval::I1m, true).await.unwrap();
+        assert_eq!(all.candles.len(), 5);
+        assert_eq!(all.regular, vec![(OPEN, OPEN + 120)]);
+        assert!(!dtos::chart::is_regular(&all.regular, OPEN - 7200) && dtos::chart::is_regular(&all.regular, OPEN + 60));
     }
 
     struct OneFund;

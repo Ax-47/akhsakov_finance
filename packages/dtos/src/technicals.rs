@@ -202,6 +202,158 @@ pub fn vwap(high: &[f64], low: &[f64], close: &[f64], volume: &[f64], session: &
         .collect()
 }
 
+/// Donchian channel: the highest high and lowest low of the last `n`
+/// candles, as (upper, lower).
+pub fn donchian(high: &[f64], low: &[f64], n: usize) -> Vec<Option<(f64, f64)>> {
+    let len = high.len().min(low.len());
+    let mut out = vec![None; high.len()];
+    if n == 0 {
+        return out;
+    }
+    for (i, slot) in out.iter_mut().enumerate().take(len).skip(n - 1) {
+        let top = high[i + 1 - n..=i].iter().cloned().fold(f64::MIN, f64::max);
+        let bottom = low[i + 1 - n..=i].iter().cloned().fold(f64::MAX, f64::min);
+        *slot = Some((top, bottom));
+    }
+    out
+}
+
+/// Supertrend: a stop trailing the price `multiplier` ATRs (over `n`
+/// candles) from the middle of each candle's range. It sits under the price
+/// while the trend is up and over it while the trend is down, and only
+/// moves the trend's way until a close crosses it. Each value comes with
+/// whether the trend is up.
+pub fn supertrend(high: &[f64], low: &[f64], close: &[f64], n: usize, multiplier: f64) -> Vec<Option<(f64, bool)>> {
+    let len = close.len().min(high.len()).min(low.len());
+    let ranges = atr(high, low, close, n);
+    let mut out = vec![None; close.len()];
+    // The bands as they stood on the last candle, and the trend then.
+    let mut last: Option<(f64, f64, bool)> = None;
+    for i in 0..len {
+        let Some(range) = ranges[i] else {
+            continue;
+        };
+        let middle = (high[i] + low[i]) / 2.0;
+        let (mut upper, mut lower) = (middle + multiplier * range, middle - multiplier * range);
+        let up = match last {
+            None => close[i] >= middle,
+            Some((last_upper, last_lower, was_up)) => {
+                // A band only tightens, unless the last close broke it.
+                if upper > last_upper && close[i - 1] <= last_upper {
+                    upper = last_upper;
+                }
+                if lower < last_lower && close[i - 1] >= last_lower {
+                    lower = last_lower;
+                }
+                if was_up {
+                    close[i] >= lower
+                } else {
+                    close[i] > upper
+                }
+            }
+        };
+        last = Some((upper, lower, up));
+        out[i] = Some((if up { lower } else { upper }, up));
+    }
+    out
+}
+
+/// Parabolic SAR (Wilder): a stop that starts at the last extreme and
+/// closes in on the price by `step` of the gap each candle, faster (up to
+/// `max`) every time the trend makes a new extreme; it flips to the other
+/// side when the price touches it. Each value comes with whether the trend
+/// is up (the stop is under the price).
+pub fn parabolic_sar(high: &[f64], low: &[f64], step: f64, max: f64) -> Vec<Option<(f64, bool)>> {
+    let len = high.len().min(low.len());
+    let mut out = vec![None; high.len()];
+    if len < 2 || step <= 0.0 {
+        return out;
+    }
+    let mut up = high[1] + low[1] >= high[0] + low[0];
+    let mut sar = if up { low[0] } else { high[0] };
+    let mut extreme = if up { high[0].max(high[1]) } else { low[0].min(low[1]) };
+    let mut speed = step;
+    for (i, slot) in out.iter_mut().enumerate().take(len).skip(1) {
+        sar += speed * (extreme - sar);
+        if up {
+            // Never above the last two lows.
+            sar = sar.min(low[i - 1]).min(low[i.saturating_sub(2)]);
+            if low[i] < sar {
+                (up, sar, extreme, speed) = (false, extreme, low[i], step);
+            } else if high[i] > extreme {
+                (extreme, speed) = (high[i], (speed + step).min(max));
+            }
+        } else {
+            sar = sar.max(high[i - 1]).max(high[i.saturating_sub(2)]);
+            if high[i] > sar {
+                (up, sar, extreme, speed) = (true, extreme, high[i], step);
+            } else if low[i] < extreme {
+                (extreme, speed) = (low[i], (speed + step).min(max));
+            }
+        }
+        *slot = Some((sar, up));
+    }
+    out
+}
+
+/// Money flow index: RSI's idea with volume in it. Each candle's typical
+/// price times its volume counts as money flowing in when the typical
+/// price rose and out when it fell; the index is the share flowing in over
+/// the last `n` candles, 0–100.
+pub fn mfi(high: &[f64], low: &[f64], close: &[f64], volume: &[f64], n: usize) -> Vec<Option<f64>> {
+    let len = close.len().min(high.len()).min(low.len()).min(volume.len());
+    let mut out = vec![None; close.len()];
+    if n == 0 || len <= n {
+        return out;
+    }
+    let typical = |i: usize| (high[i] + low[i] + close[i]) / 3.0;
+    // Signed flow per candle from the second.
+    let flow = |i: usize| {
+        let (now, before) = (typical(i), typical(i - 1));
+        let money = now * volume[i];
+        if now > before {
+            (money, 0.0)
+        } else if now < before {
+            (0.0, money)
+        } else {
+            (0.0, 0.0)
+        }
+    };
+    let (mut inflow, mut outflow) = (0.0, 0.0);
+    for (i, slot) in out.iter_mut().enumerate().take(len).skip(1) {
+        let (p, m) = flow(i);
+        inflow += p;
+        outflow += m;
+        if i > n {
+            let (p, m) = flow(i - n);
+            inflow -= p;
+            outflow -= m;
+        }
+        if i >= n {
+            let total = inflow + outflow;
+            *slot = Some(if total > 0.0 { (inflow / total * 100.0).clamp(0.0, 100.0) } else { 50.0 });
+        }
+    }
+    out
+}
+
+/// Heikin-Ashi candles, as (open, high, low, close): each close is the
+/// average of the real candle's four prices and each open the middle of
+/// the candle before, which smooths a trend into runs of one colour.
+pub fn heikin_ashi(open: &[f64], high: &[f64], low: &[f64], close: &[f64]) -> Vec<(f64, f64, f64, f64)> {
+    let len = open.len().min(high.len()).min(low.len()).min(close.len());
+    let mut out: Vec<(f64, f64, f64, f64)> = Vec::with_capacity(len);
+    for i in 0..len {
+        let c = (open[i] + high[i] + low[i] + close[i]) / 4.0;
+        let o = match out.last() {
+            Some(prev) => (prev.0 + prev.3) / 2.0,
+            None => (open[i] + close[i]) / 2.0,
+        };
+        out.push((o, high[i].max(o).max(c), low[i].min(o).min(c), c));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +438,73 @@ mod tests {
         for i in 33..60 {
             assert!(close(m.histogram[i], m.macd[i].unwrap() - m.signal[i].unwrap()));
         }
+    }
+
+    #[test]
+    fn donchian_tracks_the_last_highs_and_lows() {
+        let (h, l) = ([5.0, 7.0, 6.0, 4.0], [3.0, 5.0, 4.0, 2.0]);
+        assert_eq!(donchian(&h, &l, 2), [None, Some((7.0, 3.0)), Some((7.0, 4.0)), Some((6.0, 2.0))]);
+        assert!(donchian(&h, &l, 0).iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn supertrend_trails_under_a_rise_and_flips_on_a_break() {
+        // Ten candles climbing a point a day, range 2, then a collapse.
+        let mut c: Vec<f64> = (0..10).map(|i| 100.0 + i as f64).collect();
+        c.extend([95.0, 90.0]);
+        let h: Vec<f64> = c.iter().map(|v| v + 1.0).collect();
+        let l: Vec<f64> = c.iter().map(|v| v - 1.0).collect();
+        let st = supertrend(&h, &l, &c, 3, 2.0);
+        assert!(st[..3].iter().all(Option::is_none), "needs an ATR first");
+        let rising: Vec<(f64, bool)> = st[3..10].iter().map(|v| v.unwrap()).collect();
+        assert!(rising.iter().all(|(_, up)| *up));
+        // Under the price, and it never steps down while the trend holds.
+        assert!(rising.iter().zip(&c[3..10]).all(|((stop, _), close)| stop < close));
+        assert!(rising.windows(2).all(|w| w[1].0 >= w[0].0));
+        // The collapse closes under the stop: it jumps over the price.
+        let (stop, up) = st[11].unwrap();
+        assert!(!up && stop > c[11]);
+    }
+
+    #[test]
+    fn parabolic_sar_closes_in_and_flips_when_touched() {
+        let h: Vec<f64> = (0..8).map(|i| 11.0 + i as f64).chain([12.0]).collect();
+        let l: Vec<f64> = (0..8).map(|i| 9.0 + i as f64).chain([8.0]).collect();
+        let sar = parabolic_sar(&h, &l, 0.02, 0.2);
+        assert_eq!(sar[0], None);
+        let rising: Vec<(f64, bool)> = sar[1..8].iter().map(|v| v.unwrap()).collect();
+        assert!(rising.iter().all(|(_, up)| *up));
+        assert!(rising.windows(2).all(|w| w[1].0 >= w[0].0), "it only moves the trend's way");
+        assert!(rising[6].0 > rising[0].0 + 1.0, "and closes in: {rising:?}");
+        assert!(rising.iter().zip(&l[1..8]).all(|((stop, _), low)| stop <= low));
+        // The last candle falls through it: the stop goes to the high made.
+        assert_eq!(sar[8], Some((18.0, false)));
+        assert!(parabolic_sar(&h[..1], &l[..1], 0.02, 0.2).iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn mfi_is_the_share_of_money_flowing_in() {
+        let v = [100.0; 5];
+        // Typical price rises every candle: all of it flows in.
+        let up = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(mfi(&up, &up, &up, &v, 3)[2..], [None, Some(100.0), Some(100.0)]);
+        let down = [5.0, 4.0, 3.0, 2.0, 1.0];
+        assert_eq!(mfi(&down, &down, &down, &v, 3)[4], Some(0.0));
+        // Up 10 then down 10 at the same volume, from the same price: an
+        // even split, weighted a little to the higher price.
+        let mixed = [10.0, 20.0, 10.0];
+        let m = mfi(&mixed, &mixed, &mixed, &[1.0; 3], 2)[2].unwrap();
+        assert!((m - 2000.0 / 30.0).abs() < 1e-9, "{m}");
+        // No volume at all says nothing either way.
+        assert_eq!(mfi(&up, &up, &up, &[0.0; 5], 3)[4], Some(50.0));
+    }
+
+    #[test]
+    fn heikin_ashi_averages_each_candle_and_opens_mid_way() {
+        let ha = heikin_ashi(&[10.0, 12.0], &[14.0, 13.0], &[9.0, 11.0], &[13.0, 12.0]);
+        // (10 + 14 + 9 + 13) / 4 = 11.5, opening half-way between 10 and 13.
+        assert_eq!(ha[0], (11.5, 14.0, 9.0, 11.5));
+        // Opens at the middle of the candle before: (11.5 + 11.5) / 2.
+        assert_eq!(ha[1], (11.5, 13.0, 11.0, 12.0));
     }
 }
